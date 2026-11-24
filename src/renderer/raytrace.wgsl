@@ -492,8 +492,13 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
     }
   }
 
-  // Compute physically shaded desk lighting + soft cast shadows from pearls
-  let shadow = computeDeskShadow(p, sunDir);
+  // Compute physically shaded desk lighting + soft cast shadows (skip shadow loop on empty outer linen!)
+  let inShadowZone =
+    hpDist < hoopR + 0.35 ||
+    abs(p.z - trayZ) < 0.55 ||
+    (abs(p.x - boardC.x) < boardHalf.x + 0.45 && abs(p.z - boardC.y) < boardHalf.y + 0.45) ||
+    u32(scene.countsMeta.z) > 0u;
+  let shadow = select(1.0, computeDeskShadow(p, sunDir), inShadowZone);
   let ndotl = max(dot(normal, sunDir), 0.0);
   let direct = scene.sunColor.rgb * ndotl * scene.sunDir.w * shadow;
 

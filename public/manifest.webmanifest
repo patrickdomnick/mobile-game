@@ -1,13 +1,13 @@
 {
-  "name": "RayOrb — Raytraced Mobile Game",
-  "short_name": "RayOrb",
-  "description": "Single-screen hardware-accelerated WebGPU raytraced game powered by TinyGo WebAssembly.",
+  "name": "Pearl Loom",
+  "short_name": "Pearl Loom",
+  "description": "Relaxing real-time WebGPU raytraced pearl embroidery and untangle puzzle powered by TinyGo WebAssembly.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#070a14",
-  "theme_color": "#070a14",
+  "background_color": "#e9dfd0",
+  "theme_color": "#e9dfd0",
   "icons": [
     {
       "src": "./apple-touch-icon.png",

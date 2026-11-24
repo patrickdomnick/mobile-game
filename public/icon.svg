@@ -1,17 +1,48 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
-      <stop offset="0%" stop-color="#18274a"/>
-      <stop offset="100%" stop-color="#070a14"/>
+    <radialGradient id="linen" cx="45%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#f7efe3"/>
+      <stop offset="100%" stop-color="#ded0bc"/>
     </radialGradient>
-    <radialGradient id="orb" cx="35%" cy="30%" r="65%">
+    <linearGradient id="brass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f3dfb6"/>
+      <stop offset="50%" stop-color="#cfa968"/>
+      <stop offset="100%" stop-color="#9e7639"/>
+    </linearGradient>
+    <radialGradient id="rose" cx="34%" cy="28%" r="68%">
+      <stop offset="0%" stop-color="#fff4f7"/>
+      <stop offset="35%" stop-color="#f195ab"/>
+      <stop offset="100%" stop-color="#ba536b"/>
+    </radialGradient>
+    <radialGradient id="ivory" cx="34%" cy="28%" r="68%">
       <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="35%" stop-color="#6ee7ff"/>
-      <stop offset="80%" stop-color="#1c4ed8"/>
-      <stop offset="100%" stop-color="#0a1636"/>
+      <stop offset="45%" stop-color="#f7efe2"/>
+      <stop offset="100%" stop-color="#c9bba8"/>
+    </radialGradient>
+    <radialGradient id="honey" cx="34%" cy="28%" r="68%">
+      <stop offset="0%" stop-color="#fff8e3"/>
+      <stop offset="40%" stop-color="#f3c56b"/>
+      <stop offset="100%" stop-color="#b87e28"/>
+    </radialGradient>
+    <radialGradient id="sage" cx="34%" cy="28%" r="68%">
+      <stop offset="0%" stop-color="#f0fff7"/>
+      <stop offset="40%" stop-color="#7ec4a0"/>
+      <stop offset="100%" stop-color="#3e7c5d"/>
     </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <circle cx="256" cy="240" r="144" fill="url(#orb)"/>
-  <circle cx="356" cy="148" r="34" fill="#ffb84d"/>
+  <rect width="512" height="512" rx="116" fill="url(#linen)"/>
+  <!-- Brass hoop top clasp -->
+  <rect x="230" y="54" width="52" height="30" rx="10" fill="url(#brass)"/>
+  <!-- Champagne-brass embroidery hoop -->
+  <circle cx="256" cy="264" r="176" fill="#f9f3ea" stroke="url(#brass)" stroke-width="26"/>
+  <!-- Shimmering raytraced-style pearl heart bouquet -->
+  <circle cx="204" cy="212" r="34" fill="url(#rose)"/>
+  <circle cx="308" cy="212" r="34" fill="url(#rose)"/>
+  <circle cx="164" cy="264" r="32" fill="url(#rose)"/>
+  <circle cx="348" cy="264" r="32" fill="url(#rose)"/>
+  <circle cx="256" cy="242" r="33" fill="url(#ivory)"/>
+  <circle cx="256" cy="300" r="30" fill="url(#ivory)"/>
+  <circle cx="204" cy="316" r="30" fill="url(#honey)"/>
+  <circle cx="308" cy="316" r="30" fill="url(#sage)"/>
+  <circle cx="256" cy="358" r="32" fill="url(#rose)"/>
 </svg>

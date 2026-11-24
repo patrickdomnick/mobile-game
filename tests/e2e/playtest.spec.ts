@@ -33,12 +33,14 @@ test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest
     const manifestRes = await request.get('/manifest.webmanifest');
     expect(manifestRes.status()).toBe(200);
     const manifest = await manifestRes.json();
+    expect(manifest.name).toBe('Pearl Loom');
     expect(manifest.display).toBe('standalone');
     expect(manifest.orientation).toBe('portrait');
     expect(manifest.start_url).toBe('./');
 
     expect((await request.get('/sw.js')).status()).toBe(200);
     expect((await request.get('/apple-touch-icon.png')).status()).toBe(200);
+    expect((await request.get('/game.wasm')).status()).toBe(200);
 
     // 2. Load Pearl Loom on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -209,11 +211,15 @@ test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest
     expect(nextState.levelName).toBe('Sakura Blossom');
     expect(nextState.phase).toBe('playing');
 
-    // 8. Verify Gallery drawer UI, Daily Stitch, Endless Mandala, and localStorage persistence across reload
+    // 8. Verify Gallery drawer UI, 0-FPS battery pause while Gallery is open, Daily Stitch, Endless Mandala, and persistence
     await page.locator('#btn-pattern').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
     await expect(page.locator('#gallery-grid .gallery-item')).toHaveCount(8);
     await expect(page.locator('#gallery-grid .gallery-item.is-completed')).toHaveCount(1);
+    const framesAtGalleryOpen = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
+    await page.waitForTimeout(350);
+    const framesAfterGalleryWait = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
+    expect(framesAfterGalleryWait).toBe(framesAtGalleryOpen);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'gallery-drawer.png') });
 
     // Launch Endless Procedural Mandala from Gallery

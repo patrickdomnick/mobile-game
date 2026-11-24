@@ -1,6 +1,20 @@
-# Mobile Raytraced Game (iPhone 16 Safari PWA)
+# Pearl Loom — Raytraced Pearl Embroidery & Untangle Puzzle
 
-A single-screen, hardware-accelerated raytraced mobile game targeting **iPhone 16 (Safari 26+ standalone PWA)**, built with **TinyGo WebAssembly**, **WebGPU (WGSL)**, and **TypeScript + Vite (`pnpm`)**, developed with a **spec-driven iterative agent workflow**.
+A relaxing, zero-timer, zero-stress single-screen mobile craft puzzle built for **iPhone 16 (Safari 26+ standalone PWA)**, powered by **TinyGo WebAssembly (`59 KB` raw / `31 KB` gzip)**, **WebGPU (WGSL) real-time raytracing**, and **zero-asset procedural Web Audio**.
+
+## Live HTTPS PWA (GitHub Pages)
+
+- **URL**: https://patrickdomnick.github.io/mobile-game/
+- Open in **Safari on iPhone 16** → tap **Share → Add to Home Screen** to install as a full-screen standalone web app.
+- Deployed automatically by `.github/workflows/deploy-pages.yml` on `push` to `main` (or manual `workflow_dispatch`).
+
+## Highlights
+
+- **Tactile Untangle + Pearl Embroidery**: Tap unblocked directional pearl tiles to glide & stitch glossy iridescent pearls onto a champagne-brass embroidery hoop, using a 5-slot recessed porcelain silk tray for calm, Sudoku-like planning.
+- **Continuous 24-Hour Real-World Solar Lighting**: Smoothly drifts sun angle, shadow length, linen warmth, and evening bedside candlelight with the actual clock (no abrupt theme switches).
+- **Zero-Asset Procedural Time-of-Day Soundscape**: Web Audio API generative pentatonic music & harmonious porcelain/pearl foley evolving continuously with the time of day.
+- **8 Curated Kishōtenketsu Motifs + Endless Mandalas + Daily Stitch**: Guaranteed 100% solvable under the 5-slot tray constraint, with a persistent local **Pearl Gallery**, unlimited gentle **Undo**, and opt-in **Hint**.
+- **iPhone 16 Battery & Load Optimized**: `30.8 KB` gzipped WASM with streaming instantiation & parallel WebGPU boot, spatial WGSL early-outs, and 2-tier calm (`4 FPS`) → deep-idle (`1 FPS`) + Gallery/background (`0 FPS`) rendering.
 
 ## Quickstart
 
@@ -8,26 +22,9 @@ A single-screen, hardware-accelerated raytraced mobile game targeting **iPhone 1
 # 1. Install pinned Go (1.26.11), TinyGo (0.44.0), and pnpm dependencies
 bash scripts/setup-env.sh
 
-# 2. Run full verification (Go tests + TinyGo WASM build + Vite build + headless WebGPU E2E playtest)
+# 2. Run full verification (Go unit & fuzz tests + TinyGo WASM + Vite build + headless WebGPU E2E playtest)
 pnpm verify
 
-# 3. Start local dev server (rebuilds WASM first)
+# 3. Start local dev server
 pnpm dev
 ```
-
-## Live HTTPS PWA (GitHub Pages)
-
-- **URL**: https://patrickdomnick.github.io/mobile-game/
-- Open in **Safari on iPhone 16** → tap **Share → Add to Home Screen** to install as a standalone full-screen web app.
-- Deployed automatically by `.github/workflows/deploy-pages.yml` whenever `main` is pushed (or via manual `workflow_dispatch`).
-
-## Project Layout
-
-- `AGENTS.md` — Authoritative rules for AI agents working in this repo (including solo commit-to-`main` and release push cadence).
-- `.github/workflows/deploy-pages.yml` — CI/CD pipeline building TinyGo WASM + Vite and deploying to GitHub Pages.
-- `.agents/` — Cloud VM environment setup (`environment.json`) and custom project skills (`skills/`).
-- `docs/specs/` — Locked platform specs, living game vision spec, and AI playtest contract.
-- `docs/adr/` — Architecture Decision Records.
-- `sim/` — Deterministic Go / TinyGo WebAssembly game simulation (`go test` + `tinygo build`).
-- `src/` — Thin TypeScript + WebGPU WGSL raytracer + iPhone 16 Safari PWA shell.
-- `tests/e2e/` — Playwright iPhone 16 + headless WebGPU autonomous playtest suite.

@@ -48,7 +48,10 @@ declare global {
 }
 
 const FIXED_DT = 1 / 60;
-const IDLE_FRAME_INTERVAL_MS = 160; // ~6 FPS when calm & still for iPhone 16 battery savings
+const CALM_FRAME_INTERVAL_MS = 250; // ~4 FPS right after settling
+const DEEP_IDLE_INTERVAL_MS = 1000; // 1 FPS deep-idle solar tick (>95% GPU power savings while thinking)
+const DEEP_IDLE_AFTER_MS = 3000;
+const SCENE_BUFFER_BYTES = 632 * 4;
 
 function getRealTimeOfDayHours(): number {
   const now = new Date();
@@ -104,8 +107,11 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    const sim = await WasmSimulation.load('./game.wasm');
-    const renderer = await WebGPURaytracer.create(canvas, sim.sceneByteLength);
+    // Boot TinyGo WASM streaming compilation and WebGPU device creation in parallel!
+    const [sim, renderer] = await Promise.all([
+      WasmSimulation.load('./game.wasm'),
+      WebGPURaytracer.create(canvas, SCENE_BUFFER_BYTES),
+    ]);
     const soundscape = new ProceduralSoundscape();
     const gallery = new EmbroideryGalleryStore();
 
@@ -114,6 +120,7 @@ async function bootstrap(): Promise<void> {
     let lastSwatchKey = '';
     let lastLightingTheme = '';
     let lastRenderAt = 0;
+    let lastActiveMotionAt = performance.now();
     let needsImmediateRender = true;
     let frameInFlight = false;
     let recordedCompleteKey = '';
@@ -144,11 +151,13 @@ async function bootstrap(): Promise<void> {
 
     const wakeRenderer = (): void => {
       needsImmediateRender = true;
+      lastActiveMotionAt = performance.now();
       renderer.setIdleThrottled(false);
     };
 
     const closeGallery = (): void => {
       gallerySheet?.classList.add('hidden');
+      wakeRenderer();
     };
 
     const renderGalleryUi = (): void => {
@@ -481,12 +490,17 @@ async function bootstrap(): Promise<void> {
     isReady = true;
     resolveReady();
 
-    // Idle-smart adaptive frame loop (60 FPS during active motion, ~6 FPS when calm, 0 FPS when backgrounded)
+    // Two-tier battery-saving frame loop:
+    // - 60 FPS during active motion (pearl flight, bloom, wobble, hint)
+    // - 4 FPS calm settle -> 1 FPS deep idle while player contemplates (>95% GPU power savings)
+    // - 0 FPS completely paused when tab is hidden or Gallery drawer covers canvas
     let lastTs = performance.now();
     let accumulator = 0;
     const frame = (now: number) => {
-      if (document.visibilityState === 'hidden') {
+      const galleryOpen = Boolean(gallerySheet && !gallerySheet.classList.contains('hidden'));
+      if (document.visibilityState === 'hidden' || galleryOpen) {
         lastTs = now;
+        renderer.setIdleThrottled(true);
         requestAnimationFrame(frame);
         return;
       }
@@ -499,6 +513,7 @@ async function bootstrap(): Promise<void> {
       const activeMotion = preSnap.isAnimating || needsImmediateRender;
 
       if (activeMotion) {
+        lastActiveMotionAt = now;
         renderer.setIdleThrottled(false);
         accumulator += dt;
         while (accumulator >= FIXED_DT) {
@@ -512,7 +527,11 @@ async function bootstrap(): Promise<void> {
         }
       } else {
         renderer.setIdleThrottled(true);
-        if (!frameInFlight && now - lastRenderAt >= IDLE_FRAME_INTERVAL_MS) {
+        const idleInterval =
+          now - lastActiveMotionAt > DEEP_IDLE_AFTER_MS
+            ? DEEP_IDLE_INTERVAL_MS
+            : CALM_FRAME_INTERVAL_MS;
+        if (!frameInFlight && now - lastRenderAt >= idleInterval) {
           sim.step(Math.min(0.05, (now - lastRenderAt) / 1000));
           renderNonBlocking();
           lastRenderAt = now;

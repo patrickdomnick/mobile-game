@@ -158,8 +158,23 @@ export class WasmSimulation {
     if (!response.ok) {
       throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
     }
-    const bytes = await response.arrayBuffer();
-    const { instance } = await WebAssembly.instantiate(bytes, imports);
+
+    let instance: WebAssembly.Instance;
+    if (typeof WebAssembly.instantiateStreaming === 'function') {
+      try {
+        const streamed = await WebAssembly.instantiateStreaming(response.clone(), imports);
+        instance = streamed.instance;
+      } catch {
+        const bytes = await response.arrayBuffer();
+        const fallback = await WebAssembly.instantiate(bytes, imports);
+        instance = fallback.instance;
+      }
+    } else {
+      const bytes = await response.arrayBuffer();
+      const instantiated = await WebAssembly.instantiate(bytes, imports);
+      instance = instantiated.instance;
+    }
+
     const exports = instance.exports as unknown as SimExports;
     memoryRef = exports.memory;
 

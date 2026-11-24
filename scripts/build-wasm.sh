@@ -12,7 +12,8 @@ mkdir -p "${ROOT_DIR}/public"
   tinygo build \
     -target=wasip1 \
     -buildmode=c-shared \
-    -opt=2 \
+    -opt=z \
+    -panic=trap \
     -no-debug \
     -o "${OUT_FILE}" \
     ./cmd/wasm

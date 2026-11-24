@@ -193,6 +193,41 @@ func isUnblockedMask(tiles []Tile, mask uint32, idx int, cols, rows int) bool {
 	return true
 }
 
+// fixedMaskSet is a zero-allocation open-addressed hash set for 25-bit aliveMasks.
+// Avoids pulling Go's runtime map machinery into TinyGo WebAssembly builds.
+const visitedTableSize = 2048 // power of two
+
+type fixedMaskSet struct {
+	keys [visitedTableSize]uint32
+	used [visitedTableSize]uint8
+}
+
+func (s *fixedMaskSet) has(k uint32) bool {
+	slot := ((k * 2654435761) >> 21) & (visitedTableSize - 1)
+	for probe := 0; probe < 16; probe++ {
+		idx := (slot + uint32(probe)) & (visitedTableSize - 1)
+		if s.used[idx] == 0 {
+			return false
+		}
+		if s.keys[idx] == k {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *fixedMaskSet) add(k uint32) {
+	slot := ((k * 2654435761) >> 21) & (visitedTableSize - 1)
+	for probe := 0; probe < 16; probe++ {
+		idx := (slot + uint32(probe)) & (visitedTableSize - 1)
+		if s.used[idx] == 0 || s.keys[idx] == k {
+			s.keys[idx] = k
+			s.used[idx] = 1
+			return
+		}
+	}
+}
+
 // solveFromState searches for a guaranteed winning sequence from any live game state
 // respecting the 5-slot silk tray constraint. Returns (solvable, firstMoveTileIdx).
 func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int) {
@@ -201,9 +236,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 	}
 
 	nodes := 0
-	// Track visited aliveMasks that failed so DFS doesn't re-explore identical dead subtrees
-	// (bounded slice keeps zero heap churn in hot path for small budgets, map for general)
-	visited := make(map[uint32]struct{}, 256)
+	var visited fixedMaskSet
 
 	var dfs func(st solverState) (bool, int)
 	dfs = func(st solverState) (bool, int) {
@@ -215,7 +248,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 		}
 		nodes++
 
-		if _, seen := visited[st.aliveMask]; seen {
+		if visited.has(st.aliveMask) {
 			return false, -1
 		}
 
@@ -258,7 +291,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 			}
 		}
 
-		visited[st.aliveMask] = struct{}{}
+		visited.add(st.aliveMask)
 		return false, -1
 	}
 
