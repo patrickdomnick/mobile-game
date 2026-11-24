@@ -181,3 +181,39 @@ func TestIdleAnimationFlagSettlesForBatterySaving(t *testing.T) {
 		t.Fatalf("animations should settle back to calm idle state for battery savings")
 	}
 }
+
+func TestMandala100SeedsSolvabilityFuzz(t *testing.T) {
+	totalMoves := 0
+	for seed := uint32(1); seed <= 100; seed++ {
+		var e Engine
+		e.LoadMandala(seed * 2654435761)
+
+		if e.TileCount < 12 || e.TileCount > MaxGridTiles {
+			t.Fatalf("mandala seed %d: unexpected pearl count %d", seed, e.TileCount)
+		}
+
+		steps := 0
+		for e.Phase != PhaseComplete && steps < 40 {
+			mv := e.ComputeHint()
+			if mv < 0 || !e.TapTile(mv) {
+				t.Fatalf("mandala seed %d: solver failed at step %d (mv=%d, trayLen=%d)", seed, steps, mv, e.TrayLen)
+			}
+			steps++
+		}
+		if e.Phase != PhaseComplete {
+			t.Fatalf("mandala seed %d: did not complete in 40 steps", seed)
+		}
+		totalMoves += steps
+	}
+	t.Logf("100 procedural mandalas 100%% solvable (avg %.1f moves / est ~%.0fs relaxed play)",
+		float64(totalMoves)/100.0, (float64(totalMoves)/100.0)*2.4)
+}
+
+func TestDailyStitchDeterminism(t *testing.T) {
+	var a, b Engine
+	a.LoadDaily(20261124)
+	b.LoadDaily(20261124)
+	if a.Scene != b.Scene || a.State != b.State {
+		t.Fatalf("Daily Stitch for identical date key is not deterministic")
+	}
+}

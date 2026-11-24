@@ -22,9 +22,10 @@
 
       <header class="hud-top" aria-label="Pattern Status">
         <div class="hud-group">
-          <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Switch Pattern">
+          <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Open Pattern Gallery">
             <span id="hud-pattern-name" class="pattern-name">Rose Heart</span>
             <span id="hud-progress" class="pill-value">0 / 9</span>
+            <span class="caret" aria-hidden="true">▾</span>
           </button>
         </div>
 
@@ -60,6 +61,33 @@
         </button>
       </footer>
 
+      <section id="overlay-gallery" class="gallery-sheet hidden" role="dialog" aria-label="Atelier Pattern Gallery">
+        <div class="gallery-header">
+          <div>
+            <p class="modal-eyebrow">ATELIER COLLECTION</p>
+            <h2 class="gallery-title">Pearl Gallery</h2>
+          </div>
+          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Gallery">
+            ✕
+          </button>
+        </div>
+
+        <div class="gallery-special-row">
+          <button id="btn-daily-stitch" class="gallery-special-card" type="button">
+            <span class="special-tag">TODAY</span>
+            <strong>Daily Stitch</strong>
+            <span id="daily-status" class="gallery-meta">Fresh calendar mandala</span>
+          </button>
+          <button id="btn-endless-mandala" class="gallery-special-card" type="button">
+            <span class="special-tag">ENDLESS</span>
+            <strong>New Mandala</strong>
+            <span id="mandala-status" class="gallery-meta">0 stitched</span>
+          </button>
+        </div>
+
+        <div id="gallery-grid" class="gallery-grid" aria-label="Curated Embroidery Patterns"></div>
+      </section>
+
       <section id="overlay-tray-full" class="modal-card hidden" role="dialog" aria-label="Silk Tray Full">
         <h2 class="modal-title">Silk tray is full</h2>
         <p class="modal-copy">No rush — step back a move or start this pattern fresh.</p>
@@ -72,7 +100,7 @@
       <section id="overlay-complete" class="modal-card hidden" role="dialog" aria-label="Pattern Complete">
         <p class="modal-eyebrow">EMBROIDERY COMPLETE</p>
         <h2 id="complete-title" class="modal-title">Rose Heart</h2>
-        <p id="complete-stats" class="modal-copy">Stitched calmly in 9 moves.</p>
+        <p id="complete-stats" class="modal-copy">Stitched calmly in 9 moves · Saved to Gallery.</p>
         <div class="modal-actions">
           <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
           <button id="btn-replay-level" class="modal-btn" type="button">Stitch Again</button>

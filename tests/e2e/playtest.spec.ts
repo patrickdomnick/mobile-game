@@ -198,21 +198,63 @@ test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest
     const unmutedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(unmutedState.audio.muted).toBe(false);
 
+    // Verify completed Rose Heart was recorded in Gallery store
+    expect(completedState.gallery.completedCuratedIds).toContain(0);
+
     // Click Next Pattern button and confirm transition to Sakura Blossom
     await page.locator('#btn-next-level').click();
-    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(6));
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(4));
     const nextState = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(nextState.levelIndex).toBe(1);
     expect(nextState.levelName).toBe('Sakura Blossom');
     expect(nextState.phase).toBe('playing');
 
-    // 8. Verify battery-saving idle throttling engages once animations settle
-    await page.waitForTimeout(350);
+    // 8. Verify Gallery drawer UI, Daily Stitch, Endless Mandala, and localStorage persistence across reload
+    await page.locator('#btn-pattern').click();
+    await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await expect(page.locator('#gallery-grid .gallery-item')).toHaveCount(8);
+    await expect(page.locator('#gallery-grid .gallery-item.is-completed')).toHaveCount(1);
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'gallery-drawer.png') });
+
+    // Launch Endless Procedural Mandala from Gallery
+    await page.locator('#btn-endless-mandala').click();
+    await expect(page.locator('#overlay-gallery')).toBeHidden();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(4));
+    const mandalaState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(mandalaState.mode).toBe('mandala');
+    expect(mandalaState.totalPearls).toBeGreaterThanOrEqual(12);
+    expect(mandalaState.renderer.validationErrors).toEqual([]);
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'mandala-view.png') });
+
+    // Launch Daily Stitch from Gallery
+    await page.locator('#btn-pattern').click();
+    await page.locator('#btn-daily-stitch').click();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(4));
+    const dailyState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(dailyState.mode).toBe('daily');
+    expect(dailyState.totalPearls).toBeGreaterThanOrEqual(12);
+
+    // Reload page and confirm Gallery persistence survives full browser reload
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
+    await page.evaluate(() => window.__GAME_TEST__!.ready());
+    const reloadedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(reloadedState.gallery.completedCuratedIds).toContain(0);
+
+    // 9. Verify battery-saving idle throttling engages once animations settle
+    await page.waitForFunction(
+      () => {
+        const s = window.__GAME_TEST__?.getState();
+        return Boolean(s && !s.isAnimating && s.renderer.isIdleThrottled);
+      },
+      undefined,
+      { timeout: 6_000 },
+    );
     const idleState = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(idleState.isAnimating).toBe(false);
     expect(idleState.renderer.isIdleThrottled).toBe(true);
 
-    // 9. Final strict zero-error assertion
+    // 10. Final strict zero-error assertion
     expect(idleState.renderer.validationErrors).toEqual([]);
     expect(failedResponses).toEqual([]);
     expect(consoleErrors).toEqual([]);

@@ -12,11 +12,18 @@ export const PEARL_COLORS = [
   { name: 'Sky Blue', hex: '#6bb3e3' },
 ] as const;
 
-export const CURATED_LEVEL_NAMES = [
-  'Rose Heart',
-  'Sakura Blossom',
-  'Crescent Moon',
+export const CURATED_LEVELS = [
+  { name: 'Rose Heart', pearls: 9, colors: [0, 1, 3] },
+  { name: 'Sakura Blossom', pearls: 14, colors: [0, 1, 2, 3] },
+  { name: 'Crescent Moon', pearls: 16, colors: [1, 3, 4, 5] },
+  { name: 'Morning Butterfly', pearls: 18, colors: [0, 1, 3, 4, 5] },
+  { name: 'Cozy Cat', pearls: 19, colors: [0, 1, 2, 3] },
+  { name: 'Ocean Seashell', pearls: 20, colors: [0, 1, 3, 4, 5] },
+  { name: 'Lucky Clover', pearls: 21, colors: [1, 2, 3, 5] },
+  { name: 'Starlight Wreath', pearls: 24, colors: [0, 1, 2, 3, 4, 5] },
 ] as const;
+
+export const CURATED_LEVEL_NAMES = CURATED_LEVELS.map((l) => l.name);
 
 export interface TileSnapshot {
   index: number;
@@ -71,6 +78,8 @@ interface SimExports {
   _initialize?: () => void;
   sim_reset: () => void;
   sim_load_level: (idx: number) => void;
+  sim_load_mandala: (seed: number) => void;
+  sim_load_daily: (dateKey: number) => void;
   sim_step: (dt: number) => void;
   sim_set_time_of_day: (hours: number) => void;
   sim_tap_world: (wx: number, wz: number) => number;
@@ -167,6 +176,14 @@ export class WasmSimulation {
 
   loadLevel(index: number): void {
     this.exports.sim_load_level(Math.max(0, Math.floor(index)));
+  }
+
+  loadMandala(seed: number): void {
+    this.exports.sim_load_mandala(Math.max(1, Math.floor(seed)) >>> 0);
+  }
+
+  loadDaily(dateKey: number): void {
+    this.exports.sim_load_daily(Math.max(1, Math.floor(dateKey)) >>> 0);
   }
 
   step(dt: number): void {

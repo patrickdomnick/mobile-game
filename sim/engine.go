@@ -175,6 +175,26 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 	e.loadArtwork(CuratedArtworks[idx])
 }
 
+// LoadMandala generates and loads an endless procedural symmetrical pearl mandala.
+func (e *Engine) LoadMandala(seed uint32) {
+	if seed == 0 {
+		seed = 1
+	}
+	e.LevelIndex = int(seed & 0x7FFF)
+	e.Mode = 1
+	e.loadArtwork(GenerateMandalaArtwork(seed))
+}
+
+// LoadDaily loads the deterministic calendar-seeded Daily Stitch mandala for YYYYMMDD.
+func (e *Engine) LoadDaily(dateKey uint32) {
+	if dateKey == 0 {
+		dateKey = 20261124
+	}
+	e.LevelIndex = int(dateKey % 100000)
+	e.Mode = 2
+	e.loadArtwork(GenerateMandalaArtwork(dateKey ^ 0x517CC1B7))
+}
+
 func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.Phase = PhasePlaying
 	e.Moves = 0

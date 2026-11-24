@@ -1,9 +1,16 @@
 import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { unprojectScreenToPlane } from './camera';
+import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
 import { setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
-import { CURATED_LEVEL_NAMES, PEARL_COLORS, WasmSimulation, type SimSnapshot } from './wasmBridge';
+import {
+  CURATED_LEVELS,
+  CURATED_LEVEL_NAMES,
+  PEARL_COLORS,
+  WasmSimulation,
+  type SimSnapshot,
+} from './wasmBridge';
 
 export interface GameTestState extends SimSnapshot {
   ready: boolean;
@@ -11,6 +18,11 @@ export interface GameTestState extends SimSnapshot {
     initialized: boolean;
     muted: boolean;
     notesScheduled: number;
+  };
+  gallery: {
+    completedCuratedIds: number[];
+    mandalasCompleted: number;
+    dailyCompletedToday: boolean;
   };
   renderer: RendererDiagnostics;
 }
@@ -24,6 +36,8 @@ export interface GameTestBridge {
   hint(): number;
   reset(): void;
   loadLevel(levelIndex: number): void;
+  loadMandala(seed: number): void;
+  loadDaily(dateKey?: number): void;
   setTimeOfDayOverride(hours: number | null): void;
 }
 
@@ -57,6 +71,14 @@ async function bootstrap(): Promise<void> {
   const hintBtn = document.getElementById('btn-hint') as HTMLButtonElement | null;
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null;
 
+  const gallerySheet = document.getElementById('overlay-gallery');
+  const closeGalleryBtn = document.getElementById('btn-close-gallery');
+  const dailyBtn = document.getElementById('btn-daily-stitch');
+  const dailyStatusEl = document.getElementById('daily-status');
+  const endlessBtn = document.getElementById('btn-endless-mandala');
+  const mandalaStatusEl = document.getElementById('mandala-status');
+  const galleryGridEl = document.getElementById('gallery-grid');
+
   const trayFullModal = document.getElementById('overlay-tray-full');
   const trayUndoBtn = document.getElementById('btn-tray-undo');
   const trayRestartBtn = document.getElementById('btn-tray-restart');
@@ -85,6 +107,7 @@ async function bootstrap(): Promise<void> {
     const sim = await WasmSimulation.load('./game.wasm');
     const renderer = await WebGPURaytracer.create(canvas, sim.sceneByteLength);
     const soundscape = new ProceduralSoundscape();
+    const gallery = new EmbroideryGalleryStore();
 
     let isReady = false;
     let timeOverride: number | null = null;
@@ -93,6 +116,7 @@ async function bootstrap(): Promise<void> {
     let lastRenderAt = 0;
     let needsImmediateRender = true;
     let frameInFlight = false;
+    let recordedCompleteKey = '';
 
     const updateAudioUi = (): void => {
       const muted = soundscape.isMuted();
@@ -118,8 +142,88 @@ async function bootstrap(): Promise<void> {
       soundscape.applySolarAtmosphere(hours);
     };
 
+    const wakeRenderer = (): void => {
+      needsImmediateRender = true;
+      renderer.setIdleThrottled(false);
+    };
+
+    const closeGallery = (): void => {
+      gallerySheet?.classList.add('hidden');
+    };
+
+    const renderGalleryUi = (): void => {
+      const prog = gallery.getSnapshot();
+      const today = getTodayDateKey();
+      const dailyDone = prog.completedDailyDates.includes(today.label);
+      if (dailyStatusEl) {
+        dailyStatusEl.textContent = dailyDone ? `✦ Stitched (${today.label})` : today.label;
+      }
+      if (mandalaStatusEl) {
+        mandalaStatusEl.textContent = `${prog.mandalasCompleted} stitched`;
+      }
+      if (!galleryGridEl) return;
+      galleryGridEl.innerHTML = '';
+
+      CURATED_LEVELS.forEach((lvl, idx) => {
+        const done = prog.completedCurated[idx];
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `gallery-item${done ? ' is-completed' : ''}`;
+        btn.dataset.levelIndex = String(idx);
+
+        const top = document.createElement('div');
+        top.className = 'gallery-item-top';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'gallery-item-name';
+        nameEl.textContent = lvl.name;
+
+        const starEl = document.createElement('span');
+        starEl.className = 'gallery-star';
+        starEl.textContent = done ? '✦' : '';
+
+        top.append(nameEl, starEl);
+
+        const metaEl = document.createElement('span');
+        metaEl.className = 'gallery-meta';
+        metaEl.textContent = done
+          ? `${lvl.pearls} pearls · Best ${done.bestMoves} moves`
+          : `${lvl.pearls} pearls`;
+
+        const dots = document.createElement('div');
+        dots.className = 'gallery-dots';
+        for (const cIdx of lvl.colors) {
+          const d = document.createElement('span');
+          d.className = 'gallery-dot';
+          d.style.backgroundColor = (PEARL_COLORS[cIdx] ?? PEARL_COLORS[0]).hex;
+          dots.append(d);
+        }
+
+        btn.append(top, metaEl, dots);
+        btn.addEventListener('click', () => {
+          soundscape.unlock();
+          recordedCompleteKey = '';
+          sim.loadLevel(idx);
+          closeGallery();
+          updateHud(sim.readState(getAspect()));
+          wakeRenderer();
+        });
+        galleryGridEl.append(btn);
+      });
+    };
+
     const updateHud = (snap: SimSnapshot): void => {
       soundscape.syncEvents(snap.events);
+
+      // Persist completion into the local Embroidery Gallery exactly once per solve
+      if (snap.phase === 'complete') {
+        const key = `${snap.mode}:${snap.levelIndex}:${snap.events.completeEvents}`;
+        if (key !== recordedCompleteKey) {
+          recordedCompleteKey = key;
+          gallery.recordCompletion(snap.mode, snap.levelIndex, snap.moves);
+          renderGalleryUi();
+        }
+      }
 
       // Smoothly adapt HUD ink contrast to solar brightness (no harsh jump!)
       const nextTheme = snap.sunIntensity < 0.62 ? 'night' : 'day';
@@ -129,7 +233,7 @@ async function bootstrap(): Promise<void> {
       }
 
       if (patternNameEl) patternNameEl.textContent = snap.levelName;
-      if (progressEl) progressEl.textContent = `${snap.stitchedCount} / ${snap.totalPearls}`;
+      if (progressEl) progressEl.textContent = `${snap.stitchedCount}/${snap.totalPearls}`;
       if (undoBtn) undoBtn.disabled = snap.undoDepth === 0;
 
       const isDone = snap.activeColors.length === 0 && snap.phase === 'complete';
@@ -175,7 +279,7 @@ async function bootstrap(): Promise<void> {
         if (showComplete) {
           if (completeTitleEl) completeTitleEl.textContent = snap.levelName;
           if (completeStatsEl) {
-            completeStatsEl.textContent = `Stitched calmly in ${snap.moves} moves.`;
+            completeStatsEl.textContent = `Stitched calmly in ${snap.moves} moves · Saved to Gallery.`;
           }
         }
       }
@@ -197,13 +301,11 @@ async function bootstrap(): Promise<void> {
       });
     };
 
-    const wakeRenderer = (): void => {
-      needsImmediateRender = true;
-      renderer.setIdleThrottled(false);
-    };
+    renderGalleryUi();
 
     // Real touch / pointer interaction mapped analytically onto the untangle board
     canvas.addEventListener('pointerdown', (e) => {
+      if (gallerySheet && !gallerySheet.classList.contains('hidden')) return;
       e.preventDefault();
       soundscape.unlock();
       const rect = canvas.getBoundingClientRect();
@@ -225,6 +327,7 @@ async function bootstrap(): Promise<void> {
     };
     const handleReset = () => {
       soundscape.unlock();
+      recordedCompleteKey = '';
       sim.reset();
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
@@ -235,13 +338,41 @@ async function bootstrap(): Promise<void> {
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
-    const handleNextLevel = () => {
+    const handleNextPattern = () => {
       soundscape.unlock();
+      recordedCompleteKey = '';
       const snap = sim.readState(getAspect());
-      sim.loadLevel((snap.levelIndex + 1) % CURATED_LEVEL_NAMES.length);
+      if (snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVEL_NAMES.length) {
+        sim.loadLevel(snap.levelIndex + 1);
+      } else {
+        sim.loadMandala(gallery.nextMandalaSeed());
+      }
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
+
+    patternBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      renderGalleryUi();
+      gallerySheet?.classList.toggle('hidden');
+    });
+    closeGalleryBtn?.addEventListener('click', closeGallery);
+    dailyBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      recordedCompleteKey = '';
+      sim.loadDaily(getTodayDateKey().keyNum);
+      closeGallery();
+      updateHud(sim.readState(getAspect()));
+      wakeRenderer();
+    });
+    endlessBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      recordedCompleteKey = '';
+      sim.loadMandala(gallery.nextMandalaSeed());
+      closeGallery();
+      updateHud(sim.readState(getAspect()));
+      wakeRenderer();
+    });
 
     audioBtn?.addEventListener('click', () => {
       soundscape.toggleMute();
@@ -253,8 +384,7 @@ async function bootstrap(): Promise<void> {
     trayRestartBtn?.addEventListener('click', handleReset);
     replayLevelBtn?.addEventListener('click', handleReset);
     hintBtn?.addEventListener('click', handleHint);
-    nextLevelBtn?.addEventListener('click', handleNextLevel);
-    patternBtn?.addEventListener('click', handleNextLevel);
+    nextLevelBtn?.addEventListener('click', handleNextPattern);
 
     document.addEventListener('visibilitychange', () => {
       soundscape.setVisibilityHidden(document.visibilityState === 'hidden');
@@ -269,12 +399,21 @@ async function bootstrap(): Promise<void> {
     // Expose deterministic AI playtest & E2E verification bridge (Spec 02)
     window.__GAME_TEST__ = {
       ready: () => readyPromise,
-      getState: () => ({
-        ready: isReady,
-        ...sim.readState(getAspect()),
-        audio: soundscape.getDiagnostics(),
-        renderer: renderer.getDiagnostics(),
-      }),
+      getState: () => {
+        const prog = gallery.getSnapshot();
+        const today = getTodayDateKey().label;
+        return {
+          ready: isReady,
+          ...sim.readState(getAspect()),
+          audio: soundscape.getDiagnostics(),
+          gallery: {
+            completedCuratedIds: Object.keys(prog.completedCurated).map((k) => Number(k)),
+            mandalasCompleted: prog.mandalasCompleted,
+            dailyCompletedToday: prog.completedDailyDates.includes(today),
+          },
+          renderer: renderer.getDiagnostics(),
+        };
+      },
       stepTicks: async (ticks: number) => {
         const count = Math.max(1, Math.min(600, Math.floor(ticks)));
         syncClock();
@@ -303,12 +442,26 @@ async function bootstrap(): Promise<void> {
         return idx;
       },
       reset: () => {
+        recordedCompleteKey = '';
         sim.reset();
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
       loadLevel: (levelIndex: number) => {
+        recordedCompleteKey = '';
         sim.loadLevel(levelIndex);
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+      loadMandala: (seed: number) => {
+        recordedCompleteKey = '';
+        sim.loadMandala(seed);
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+      loadDaily: (dateKey?: number) => {
+        recordedCompleteKey = '';
+        sim.loadDaily(dateKey ?? getTodayDateKey().keyNum);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },

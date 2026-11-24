@@ -24,6 +24,16 @@ func simLoadLevel(idx uint32) {
 	engine.LoadCuratedLevel(int(idx))
 }
 
+//go:wasmexport sim_load_mandala
+func simLoadMandala(seed uint32) {
+	engine.LoadMandala(seed)
+}
+
+//go:wasmexport sim_load_daily
+func simLoadDaily(dateKey uint32) {
+	engine.LoadDaily(dateKey)
+}
+
 //go:wasmexport sim_step
 func simStep(dt float32) {
 	engine.Step(dt)
