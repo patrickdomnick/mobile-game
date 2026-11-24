@@ -28,9 +28,20 @@
           </button>
         </div>
 
-        <div id="hud-active-swatches" class="pill swatch-pill" aria-label="Active Stitch Colors">
-          <span class="swatch-caption">STITCH</span>
-          <div id="swatch-list" class="swatch-list"></div>
+        <div class="hud-group">
+          <div id="hud-active-swatches" class="pill swatch-pill" aria-label="Active Stitch Colors">
+            <span id="swatch-caption" class="swatch-caption">STITCH</span>
+            <div id="swatch-list" class="swatch-list"></div>
+          </div>
+          <button
+            id="btn-audio"
+            class="pill pill-btn icon-pill"
+            type="button"
+            aria-label="Toggle Sound"
+            aria-pressed="false"
+          >
+            <span id="audio-icon" aria-hidden="true">♪</span>
+          </button>
         </div>
       </header>
 

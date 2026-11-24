@@ -51,7 +51,7 @@ test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest
       const viewport = document
         .querySelector('meta[name="viewport"]')
         ?.getAttribute('content');
-      const buttons = ['#btn-pattern', '#btn-undo', '#btn-hint', '#btn-reset'].map((sel) => {
+      const buttons = ['#btn-pattern', '#btn-audio', '#btn-undo', '#btn-hint', '#btn-reset'].map((sel) => {
         const el = document.querySelector(sel) as HTMLElement | null;
         const rect = el?.getBoundingClientRect();
         return {
@@ -182,10 +182,21 @@ test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest
     expect(completedState.phase).toBe('complete');
     expect(completedState.stitchedCount).toBe(completedState.totalPearls);
     expect(completedState.trayColors).toEqual([]);
+    expect(completedState.audio.initialized).toBe(true);
+    expect(completedState.audio.notesScheduled).toBeGreaterThan(0);
+    await expect(page.locator('#swatch-caption')).toHaveText('✦ DONE');
     await expect(page.locator('#overlay-complete')).toBeVisible();
     await expect(page.locator('#complete-title')).toHaveText('Rose Heart');
 
     await page.screenshot({ path: path.join(RESULTS_DIR, 'completed-heart.png') });
+
+    // Verify Audio Mute toggle works cleanly
+    await page.locator('#btn-audio').click();
+    const mutedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(mutedState.audio.muted).toBe(true);
+    await page.locator('#btn-audio').click();
+    const unmutedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(unmutedState.audio.muted).toBe(false);
 
     // Click Next Pattern button and confirm transition to Sakura Blossom
     await page.locator('#btn-next-level').click();

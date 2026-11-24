@@ -1,4 +1,5 @@
 import './style.css';
+import { ProceduralSoundscape } from './audio/soundscape';
 import { unprojectScreenToPlane } from './camera';
 import { setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
@@ -48,7 +49,10 @@ async function bootstrap(): Promise<void> {
   const patternBtn = document.getElementById('btn-pattern');
   const patternNameEl = document.getElementById('hud-pattern-name');
   const progressEl = document.getElementById('hud-progress');
+  const swatchCaptionEl = document.getElementById('swatch-caption');
   const swatchListEl = document.getElementById('swatch-list');
+  const audioBtn = document.getElementById('btn-audio') as HTMLButtonElement | null;
+  const audioIconEl = document.getElementById('audio-icon');
   const undoBtn = document.getElementById('btn-undo') as HTMLButtonElement | null;
   const hintBtn = document.getElementById('btn-hint') as HTMLButtonElement | null;
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null;
@@ -80,6 +84,7 @@ async function bootstrap(): Promise<void> {
   try {
     const sim = await WasmSimulation.load('./game.wasm');
     const renderer = await WebGPURaytracer.create(canvas, sim.sceneByteLength);
+    const soundscape = new ProceduralSoundscape();
 
     let isReady = false;
     let timeOverride: number | null = null;
@@ -89,6 +94,19 @@ async function bootstrap(): Promise<void> {
     let needsImmediateRender = true;
     let frameInFlight = false;
 
+    const updateAudioUi = (): void => {
+      const muted = soundscape.isMuted();
+      if (audioBtn) {
+        audioBtn.classList.toggle('is-muted', muted);
+        audioBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+        audioBtn.setAttribute('aria-label', muted ? 'Unmute Sound' : 'Mute Sound');
+      }
+      if (audioIconEl) {
+        audioIconEl.textContent = muted ? '✕' : '♪';
+      }
+    };
+    updateAudioUi();
+
     const getAspect = (): number => {
       const rect = canvas.getBoundingClientRect();
       return Math.max(0.2, rect.width / Math.max(1, rect.height));
@@ -97,9 +115,12 @@ async function bootstrap(): Promise<void> {
     const syncClock = (): void => {
       const hours = timeOverride !== null ? timeOverride : getRealTimeOfDayHours();
       sim.setTimeOfDayHours(hours);
+      soundscape.applySolarAtmosphere(hours);
     };
 
     const updateHud = (snap: SimSnapshot): void => {
+      soundscape.syncEvents(snap.events);
+
       // Smoothly adapt HUD ink contrast to solar brightness (no harsh jump!)
       const nextTheme = snap.sunIntensity < 0.62 ? 'night' : 'day';
       if (appEl && nextTheme !== lastLightingTheme) {
@@ -111,28 +132,37 @@ async function bootstrap(): Promise<void> {
       if (progressEl) progressEl.textContent = `${snap.stitchedCount} / ${snap.totalPearls}`;
       if (undoBtn) undoBtn.disabled = snap.undoDepth === 0;
 
-      const swatchKey = snap.activeColors.map((c, i) => `${c}:${snap.activeRemain[i]}`).join('|');
+      const isDone = snap.activeColors.length === 0 && snap.phase === 'complete';
+      const swatchKey = isDone
+        ? 'DONE'
+        : snap.activeColors.map((c, i) => `${c}:${snap.activeRemain[i]}`).join('|');
+
       if (swatchListEl && swatchKey !== lastSwatchKey) {
         lastSwatchKey = swatchKey;
         swatchListEl.innerHTML = '';
-        for (let i = 0; i < snap.activeColors.length; i++) {
-          const colorIdx = snap.activeColors[i];
-          const remain = snap.activeRemain[i];
-          const info = PEARL_COLORS[colorIdx] ?? PEARL_COLORS[0];
-          const item = document.createElement('span');
-          item.className = 'swatch-item';
-          item.title = `${info.name} (${remain} left)`;
+        if (swatchCaptionEl) {
+          swatchCaptionEl.textContent = isDone ? '✦ DONE' : 'STITCH';
+        }
+        if (!isDone) {
+          for (let i = 0; i < snap.activeColors.length; i++) {
+            const colorIdx = snap.activeColors[i];
+            const remain = snap.activeRemain[i];
+            const info = PEARL_COLORS[colorIdx] ?? PEARL_COLORS[0];
+            const item = document.createElement('span');
+            item.className = 'swatch-item';
+            item.title = `${info.name} (${remain} left)`;
 
-          const dot = document.createElement('span');
-          dot.className = 'swatch-dot';
-          dot.style.backgroundColor = info.hex;
+            const dot = document.createElement('span');
+            dot.className = 'swatch-dot';
+            dot.style.backgroundColor = info.hex;
 
-          const count = document.createElement('span');
-          count.className = 'swatch-count';
-          count.textContent = String(remain);
+            const count = document.createElement('span');
+            count.className = 'swatch-count';
+            count.textContent = String(remain);
 
-          item.append(dot, count);
-          swatchListEl.append(item);
+            item.append(dot, count);
+            swatchListEl.append(item);
+          }
         }
       }
 
@@ -175,34 +205,48 @@ async function bootstrap(): Promise<void> {
     // Real touch / pointer interaction mapped analytically onto the untangle board
     canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      soundscape.unlock();
       const rect = canvas.getBoundingClientRect();
       const u = (e.clientX - rect.left) / Math.max(1, rect.width);
       const v = (e.clientY - rect.top) / Math.max(1, rect.height);
       const hit = unprojectScreenToPlane(u, v, getAspect(), 0.14);
       if (hit) {
         sim.tapWorld(hit.wx, hit.wz);
+        updateHud(sim.readState(getAspect()));
         wakeRenderer();
       }
     });
 
     const handleUndo = () => {
+      soundscape.unlock();
       sim.undo();
+      updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
     const handleReset = () => {
+      soundscape.unlock();
       sim.reset();
+      updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
     const handleHint = () => {
+      soundscape.unlock();
       sim.hint();
+      updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
     const handleNextLevel = () => {
+      soundscape.unlock();
       const snap = sim.readState(getAspect());
       sim.loadLevel((snap.levelIndex + 1) % CURATED_LEVEL_NAMES.length);
+      updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
 
+    audioBtn?.addEventListener('click', () => {
+      soundscape.toggleMute();
+      updateAudioUi();
+    });
     undoBtn?.addEventListener('click', handleUndo);
     trayUndoBtn?.addEventListener('click', handleUndo);
     resetBtn?.addEventListener('click', handleReset);
@@ -211,6 +255,10 @@ async function bootstrap(): Promise<void> {
     hintBtn?.addEventListener('click', handleHint);
     nextLevelBtn?.addEventListener('click', handleNextLevel);
     patternBtn?.addEventListener('click', handleNextLevel);
+
+    document.addEventListener('visibilitychange', () => {
+      soundscape.setVisibilityHidden(document.visibilityState === 'hidden');
+    });
 
     window.addEventListener('resize', () => {
       renderer.resize();
@@ -224,11 +272,7 @@ async function bootstrap(): Promise<void> {
       getState: () => ({
         ready: isReady,
         ...sim.readState(getAspect()),
-        audio: {
-          initialized: false,
-          muted: false,
-          notesScheduled: 0,
-        },
+        audio: soundscape.getDiagnostics(),
         renderer: renderer.getDiagnostics(),
       }),
       stepTicks: async (ticks: number) => {
