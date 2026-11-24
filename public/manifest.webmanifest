@@ -1,0 +1,19 @@
+{
+  "name": "RayOrb — Raytraced Mobile Game",
+  "short_name": "RayOrb",
+  "description": "Single-screen hardware-accelerated WebGPU raytraced game powered by TinyGo WebAssembly.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070a14",
+  "theme_color": "#070a14",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

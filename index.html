@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#070a14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RayOrb" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>RayOrb — WebGPU Raytraced WASM Game</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="gpu-canvas" aria-label="Raytraced Game Canvas"></canvas>
+
+      <header class="hud-top" aria-label="Game Status">
+        <div class="pill">
+          <span class="pill-label">SCORE</span>
+          <span id="hud-score" class="pill-value">0</span>
+        </div>
+        <button id="btn-reset" class="pill pill-btn" type="button">RESET</button>
+      </header>
+
+      <footer class="hud-bottom">
+        <span id="hud-hint" class="hint">Drag to steer the raytraced orb</span>
+      </footer>
+
+      <div id="fallback-banner" class="fallback hidden" role="alert">
+        <h1>WebGPU Required</h1>
+        <p id="fallback-message">
+          This game uses hardware-accelerated WebGPU raytracing (Safari 26+ on iPhone 16).
+        </p>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

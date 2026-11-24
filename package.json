@@ -1,0 +1,24 @@
+{
+  "name": "mobile-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "dev": "pnpm build:wasm && vite --host",
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm build:wasm && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "test:go": "cd sim && go test -v ./...",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "verify": "pnpm test:go && pnpm build:wasm && pnpm typecheck && vite build && pnpm test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  }
+}
