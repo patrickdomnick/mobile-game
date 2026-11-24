@@ -4,8 +4,8 @@ import path from 'node:path';
 
 const RESULTS_DIR = path.resolve(process.cwd(), 'test-results');
 
-test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest', () => {
-  test('boots cleanly as standalone PWA, renders WebGPU raytracing, and completes autonomous playtest', async ({
+test.describe('Pearl Loom — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest', () => {
+  test('verifies PWA shell, HUD clarity, 24h solar raytracing, Hint/Undo/Blocked mechanics, full autonomous solve, and idle battery throttle', async ({
     page,
     request,
   }) => {
@@ -37,34 +37,55 @@ test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest'
     expect(manifest.orientation).toBe('portrait');
     expect(manifest.start_url).toBe('./');
 
-    const swRes = await request.get('/sw.js');
-    expect(swRes.status()).toBe(200);
+    expect((await request.get('/sw.js')).status()).toBe(200);
+    expect((await request.get('/apple-touch-icon.png')).status()).toBe(200);
 
-    const appleIconRes = await request.get('/apple-touch-icon.png');
-    expect(appleIconRes.status()).toBe(200);
-
-    // 2. Load game on localhost (secure context for WebGPU)
+    // 2. Load Pearl Loom on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    // Verify Safari standalone PWA meta tags & zero-scroll single-screen layout
-    const pwaMeta = await page.evaluate(() => {
+    // Verify Safari standalone meta tags, zero overflow, and clear touch targets (>= 36px)
+    const layoutAudit = await page.evaluate(() => {
       const capable = document
         .querySelector('meta[name="apple-mobile-web-app-capable"]')
         ?.getAttribute('content');
       const viewport = document
         .querySelector('meta[name="viewport"]')
         ?.getAttribute('content');
+      const buttons = ['#btn-pattern', '#btn-undo', '#btn-hint', '#btn-reset'].map((sel) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        const rect = el?.getBoundingClientRect();
+        return {
+          sel,
+          text: el?.textContent?.trim() ?? '',
+          aria: el?.getAttribute('aria-label') ?? '',
+          width: rect?.width ?? 0,
+          height: rect?.height ?? 0,
+          inBounds:
+            rect != null &&
+            rect.left >= 0 &&
+            rect.top >= 0 &&
+            rect.right <= window.innerWidth + 1 &&
+            rect.bottom <= window.innerHeight + 1,
+        };
+      });
       return {
         capable,
         viewport,
         noOverflowX: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
         noOverflowY: document.documentElement.scrollHeight <= document.documentElement.clientHeight,
+        buttons,
       };
     });
-    expect(pwaMeta.capable).toBe('yes');
-    expect(pwaMeta.viewport).toContain('viewport-fit=cover');
-    expect(pwaMeta.noOverflowX).toBe(true);
-    expect(pwaMeta.noOverflowY).toBe(true);
+
+    expect(layoutAudit.capable).toBe('yes');
+    expect(layoutAudit.viewport).toContain('viewport-fit=cover');
+    expect(layoutAudit.noOverflowX).toBe(true);
+    expect(layoutAudit.noOverflowY).toBe(true);
+    for (const btn of layoutAudit.buttons) {
+      expect(btn.inBounds, `${btn.sel} out of viewport`).toBe(true);
+      expect(btn.height, `${btn.sel} touch target too short`).toBeGreaterThanOrEqual(36);
+      expect(btn.text.length + btn.aria.length, `${btn.sel} missing clear label`).toBeGreaterThan(0);
+    }
 
     // 3. Wait for WASM + WebGPU raytracer to finish first frame
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
@@ -72,64 +93,116 @@ test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest'
       await window.__GAME_TEST__!.ready();
     });
 
-    const initialState = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(initialState.ready).toBe(true);
-    expect(initialState.renderer.backend).toBe('webgpu');
-    expect(initialState.renderer.width).toBeGreaterThan(200);
-    expect(initialState.renderer.height).toBeGreaterThan(400);
-    expect(initialState.renderer.validationErrors).toEqual([]);
+    // 4. Verify continuous 24h solar raytracing across Noon, Golden Hour, and Candlelit Night
+    const captureSolar = async (hours: number, filename: string): Promise<Buffer> => {
+      await page.evaluate(async (h) => {
+        window.__GAME_TEST__!.setTimeOfDayOverride(h);
+        await window.__GAME_TEST__!.stepTicks(4);
+      }, hours);
+      const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      expect(st.renderer.validationErrors).toEqual([]);
+      const buf = await page.screenshot({ path: path.join(RESULTS_DIR, filename) });
+      expect(buf.byteLength).toBeGreaterThan(8_000);
+      return buf;
+    };
 
-    // Capture initial raytraced frame for visual verification
-    const initialScreenshotPath = path.join(RESULTS_DIR, 'initial-frame.png');
-    const initialPng = await page.screenshot({ path: initialScreenshotPath });
-    expect(initialPng.byteLength).toBeGreaterThan(5_000);
+    const noonPng = await captureSolar(12.5, 'solar-noon.png');
+    const goldenPng = await captureSolar(18.1, 'solar-golden.png');
+    const nightPng = await captureSolar(23.0, 'solar-night.png');
 
-    // 4. Autonomous AI Playtest: steer player orb toward collectible gem until score >= 1
-    const startPlayer = initialState.player;
-    const startTarget = initialState.target;
+    // Confirm solar lighting visibly transforms the atelier scene
+    expect(Buffer.compare(noonPng, goldenPng)).not.toBe(0);
+    expect(Buffer.compare(noonPng, nightPng)).not.toBe(0);
+    expect(Buffer.compare(goldenPng, nightPng)).not.toBe(0);
 
+    // Return to sunlit morning (10.5h) for main playthrough inspection
     await page.evaluate(async () => {
-      const api = window.__GAME_TEST__!;
-      for (let attempt = 0; attempt < 18; attempt++) {
-        const s = api.getState();
-        if (s.score >= 1) break;
-        const maxX = Math.max(0.1, s.arenaHalfW - 0.45);
-        const maxZ = Math.max(0.1, s.arenaHalfD - 0.45);
-        const nx = Math.max(-1, Math.min(1, s.target.x / maxX));
-        const nz = Math.max(-1, Math.min(1, s.target.z / maxZ));
-        api.setPointerNormalized(nx, nz, true);
-        await api.stepTicks(10);
-      }
-      api.setPointerNormalized(0, 0, false);
-      await api.stepTicks(2);
+      window.__GAME_TEST__!.setTimeOfDayOverride(10.5);
+      window.__GAME_TEST__!.loadLevel(1); // Sakura Blossom (4x4) to test blocked tap + undo
+      await window.__GAME_TEST__!.stepTicks(4);
     });
 
-    const playedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(playedState.score).toBeGreaterThanOrEqual(1);
-    expect(
-      Math.hypot(playedState.player.x - startPlayer.x, playedState.player.z - startPlayer.z),
-    ).toBeGreaterThan(0.5);
-    expect(
-      playedState.target.x !== startTarget.x || playedState.target.z !== startTarget.z,
-    ).toBe(true);
-    expect(playedState.renderer.validationErrors).toEqual([]);
+    // 5. Test Blocked Tile gentle wobble (zero penalty) via REAL canvas tap
+    const level1State = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    const blockedTile = level1State.tiles.find((t) => t.alive && !t.unblocked);
+    if (blockedTile) {
+      const prevBlocked = level1State.events.blockedEvents;
+      await page.mouse.click(blockedTile.screenX * 393, blockedTile.screenY * 852);
+      await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
+      const afterBlocked = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      expect(afterBlocked.events.blockedEvents).toBeGreaterThan(prevBlocked);
+      expect(afterBlocked.tiles[blockedTile.index].alive).toBe(true);
+    }
 
-    // Verify HUD reflects new score
-    await expect(page.locator('#hud-score')).toHaveText(String(playedState.score));
+    // 6. Test Hint button + real tap + Undo button restoration
+    await page.locator('#btn-hint').click();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(4));
+    const hintedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(hintedState.hintTileIndex).toBeGreaterThanOrEqual(0);
+    const hintedTile = hintedState.tiles[hintedState.hintTileIndex];
+    expect(hintedTile.unblocked).toBe(true);
 
-    // Capture post-playtest frame and confirm visual frame actually changed
-    const playedScreenshotPath = path.join(RESULTS_DIR, 'after-playtest.png');
-    const playedPng = await page.screenshot({ path: playedScreenshotPath });
-    expect(playedPng.byteLength).toBeGreaterThan(5_000);
-    expect(Buffer.compare(initialPng, playedPng)).not.toBe(0);
+    // Capture mid-puzzle hint glow screenshot on 4x4 Sakura Blossom
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'sakura-hint.png') });
 
-    // 5. Verify Reset UI resets simulation cleanly
-    await page.locator('#btn-reset').click();
-    await expect(page.locator('#hud-score')).toHaveText('0');
-    const resetState = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(resetState.score).toBe(0);
+    // Real pointer tap on the hinted tile's screen position
+    await page.mouse.click(hintedTile.screenX * 393, hintedTile.screenY * 852);
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(30));
+    const afterTap = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(afterTap.moves).toBe(1);
+    expect(afterTap.tiles[hintedTile.index].alive).toBe(false);
+    expect(afterTap.undoDepth).toBe(1);
 
-    // 6. Final strict zero-error assertion
+    // Click Undo button and verify clean restoration
+    await page.locator('#btn-undo').click();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(4));
+    const afterUndo = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(afterUndo.moves).toBe(0);
+    expect(afterUndo.tiles[hintedTile.index].alive).toBe(true);
+
+    // 7. Autonomously solve Level 0 ("Rose Heart") end-to-end via real canvas pointer taps!
+    await page.evaluate(async () => {
+      window.__GAME_TEST__!.loadLevel(0);
+      await window.__GAME_TEST__!.stepTicks(4);
+    });
+
+    for (let move = 0; move < 16; move++) {
+      const cur = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      if (cur.phase === 'complete') break;
+      const hintIdx = await page.evaluate(() => window.__GAME_TEST__!.hint());
+      expect(hintIdx).toBeGreaterThanOrEqual(0);
+      const targetTile = cur.tiles[hintIdx];
+      await page.mouse.click(targetTile.screenX * 393, targetTile.screenY * 852);
+      await page.evaluate(() => window.__GAME_TEST__!.stepTicks(28));
+    }
+
+    // Let completion shimmer settle so complete modal displays cleanly
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(130));
+    const completedState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(completedState.phase).toBe('complete');
+    expect(completedState.stitchedCount).toBe(completedState.totalPearls);
+    expect(completedState.trayColors).toEqual([]);
+    await expect(page.locator('#overlay-complete')).toBeVisible();
+    await expect(page.locator('#complete-title')).toHaveText('Rose Heart');
+
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'completed-heart.png') });
+
+    // Click Next Pattern button and confirm transition to Sakura Blossom
+    await page.locator('#btn-next-level').click();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(6));
+    const nextState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(nextState.levelIndex).toBe(1);
+    expect(nextState.levelName).toBe('Sakura Blossom');
+    expect(nextState.phase).toBe('playing');
+
+    // 8. Verify battery-saving idle throttling engages once animations settle
+    await page.waitForTimeout(350);
+    const idleState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(idleState.isAnimating).toBe(false);
+    expect(idleState.renderer.isIdleThrottled).toBe(true);
+
+    // 9. Final strict zero-error assertion
+    expect(idleState.renderer.validationErrors).toEqual([]);
     expect(failedResponses).toEqual([]);
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);

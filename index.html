@@ -6,36 +6,72 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#070a14" />
+    <meta name="theme-color" content="#e9dfd0" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="RayOrb" />
+    <meta name="apple-mobile-web-app-title" content="Pearl Loom" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-    <title>RayOrb — WebGPU Raytraced WASM Game</title>
+    <title>Pearl Loom — Raytraced Pearl Embroidery</title>
   </head>
   <body>
     <main id="app">
-      <canvas id="gpu-canvas" aria-label="Raytraced Game Canvas"></canvas>
+      <canvas id="gpu-canvas" aria-label="Pearl Loom Raytraced Atelier"></canvas>
 
-      <header class="hud-top" aria-label="Game Status">
-        <div class="pill">
-          <span class="pill-label">SCORE</span>
-          <span id="hud-score" class="pill-value">0</span>
+      <header class="hud-top" aria-label="Pattern Status">
+        <div class="hud-group">
+          <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Switch Pattern">
+            <span id="hud-pattern-name" class="pattern-name">Rose Heart</span>
+            <span id="hud-progress" class="pill-value">0 / 9</span>
+          </button>
         </div>
-        <button id="btn-reset" class="pill pill-btn" type="button">RESET</button>
+
+        <div id="hud-active-swatches" class="pill swatch-pill" aria-label="Active Stitch Colors">
+          <span class="swatch-caption">STITCH</span>
+          <div id="swatch-list" class="swatch-list"></div>
+        </div>
       </header>
 
-      <footer class="hud-bottom">
-        <span id="hud-hint" class="hint">Drag to steer the raytraced orb</span>
+      <footer class="hud-bottom" aria-label="Craft Controls">
+        <button id="btn-undo" class="pill pill-btn control-btn" type="button" aria-label="Undo last move" disabled>
+          <span class="btn-icon" aria-hidden="true">↶</span>
+          <span>Undo</span>
+        </button>
+        <button id="btn-hint" class="pill pill-btn control-btn" type="button" aria-label="Show gentle hint">
+          <span class="btn-icon" aria-hidden="true">✦</span>
+          <span>Hint</span>
+        </button>
+        <button id="btn-reset" class="pill pill-btn control-btn" type="button" aria-label="Restart pattern">
+          <span class="btn-icon" aria-hidden="true">↻</span>
+          <span>Restart</span>
+        </button>
       </footer>
+
+      <section id="overlay-tray-full" class="modal-card hidden" role="dialog" aria-label="Silk Tray Full">
+        <h2 class="modal-title">Silk tray is full</h2>
+        <p class="modal-copy">No rush — step back a move or start this pattern fresh.</p>
+        <div class="modal-actions">
+          <button id="btn-tray-undo" class="modal-btn modal-btn-primary" type="button">Undo Move</button>
+          <button id="btn-tray-restart" class="modal-btn" type="button">Restart</button>
+        </div>
+      </section>
+
+      <section id="overlay-complete" class="modal-card hidden" role="dialog" aria-label="Pattern Complete">
+        <p class="modal-eyebrow">EMBROIDERY COMPLETE</p>
+        <h2 id="complete-title" class="modal-title">Rose Heart</h2>
+        <p id="complete-stats" class="modal-copy">Stitched calmly in 9 moves.</p>
+        <div class="modal-actions">
+          <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
+          <button id="btn-replay-level" class="modal-btn" type="button">Stitch Again</button>
+        </div>
+      </section>
 
       <div id="fallback-banner" class="fallback hidden" role="alert">
         <h1>WebGPU Required</h1>
         <p id="fallback-message">
-          This game uses hardware-accelerated WebGPU raytracing (Safari 26+ on iPhone 16).
+          Pearl Loom uses hardware-accelerated WebGPU raytracing (Safari 26+ on iPhone 16).
         </p>
       </div>
     </main>

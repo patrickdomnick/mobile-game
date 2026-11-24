@@ -1,26 +1,92 @@
+import { projectWorldToScreen } from './camera';
+
+export type GameMode = 'curated' | 'mandala' | 'daily';
+export type GamePhase = 'playing' | 'tray_full' | 'complete';
+
+export const PEARL_COLORS = [
+  { name: 'Rose Quartz', hex: '#eb7a94' },
+  { name: 'Ivory Pearl', hex: '#f5ede0' },
+  { name: 'Sage Mint', hex: '#70bf97' },
+  { name: 'Honey Gold', hex: '#f0b857' },
+  { name: 'Lavender', hex: '#ad8fe0' },
+  { name: 'Sky Blue', hex: '#6bb3e3' },
+] as const;
+
+export const CURATED_LEVEL_NAMES = [
+  'Rose Heart',
+  'Sakura Blossom',
+  'Crescent Moon',
+] as const;
+
+export interface TileSnapshot {
+  index: number;
+  col: number;
+  row: number;
+  color: number;
+  dir: number;
+  alive: boolean;
+  unblocked: boolean;
+  worldX: number;
+  worldZ: number;
+  screenX: number;
+  screenY: number;
+}
+
+export interface AudioEventCounters {
+  stitchEvents: number;
+  lastStitchColor: number;
+  trayEvents: number;
+  blockedEvents: number;
+  undoEvents: number;
+  completeEvents: number;
+}
+
 export interface SimSnapshot {
   frameCount: number;
   elapsedSec: number;
-  score: number;
-  player: { x: number; y: number; z: number; vx: number; vz: number };
-  target: { x: number; y: number; z: number };
-  pulse: number;
-  arenaHalfW: number;
-  arenaHalfD: number;
-  pointerActive: boolean;
+  levelIndex: number;
+  levelName: string;
+  mode: GameMode;
+  phase: GamePhase;
+  timeOfDayHours: number;
+  isAnimating: boolean;
+  moves: number;
+  undoDepth: number;
+  stitchedCount: number;
+  totalPearls: number;
+  activeColors: number[];
+  activeRemain: number[];
+  trayColors: number[];
+  trayCapacity: number;
+  hintTileIndex: number;
+  gridCols: number;
+  gridRows: number;
+  sunIntensity: number;
+  tiles: TileSnapshot[];
+  events: AudioEventCounters;
 }
 
 interface SimExports {
   memory: WebAssembly.Memory;
   _initialize?: () => void;
   sim_reset: () => void;
+  sim_load_level: (idx: number) => void;
   sim_step: (dt: number) => void;
-  sim_set_pointer: (nx: number, nz: number, active: number) => void;
+  sim_set_time_of_day: (hours: number) => void;
+  sim_tap_world: (wx: number, wz: number) => number;
+  sim_tap_tile: (idx: number) => number;
+  sim_undo: () => number;
+  sim_hint: () => number;
   sim_scene_ptr: () => number;
   sim_scene_len: () => number;
   sim_state_ptr: () => number;
   sim_state_len: () => number;
+  sim_tiles_ptr: () => number;
+  sim_tiles_len: () => number;
 }
+
+const MODE_MAP: GameMode[] = ['curated', 'mandala', 'daily'];
+const PHASE_MAP: GamePhase[] = ['playing', 'tray_full', 'complete'];
 
 export class WasmSimulation {
   private readonly exports: SimExports;
@@ -28,6 +94,8 @@ export class WasmSimulation {
   private readonly sceneLen: number;
   private readonly statePtr: number;
   private readonly stateLen: number;
+  private readonly tilesPtr: number;
+  private readonly tilesLen: number;
 
   private constructor(exports: SimExports) {
     this.exports = exports;
@@ -37,6 +105,8 @@ export class WasmSimulation {
     this.sceneLen = this.exports.sim_scene_len();
     this.statePtr = this.exports.sim_state_ptr();
     this.stateLen = this.exports.sim_state_len();
+    this.tilesPtr = this.exports.sim_tiles_ptr();
+    this.tilesLen = this.exports.sim_tiles_len();
   }
 
   static async load(url = './game.wasm'): Promise<WasmSimulation> {
@@ -95,41 +165,126 @@ export class WasmSimulation {
     this.exports.sim_reset();
   }
 
+  loadLevel(index: number): void {
+    this.exports.sim_load_level(Math.max(0, Math.floor(index)));
+  }
+
   step(dt: number): void {
     this.exports.sim_step(dt);
   }
 
-  setPointerNormalized(nx: number, nz: number, active: boolean): void {
-    this.exports.sim_set_pointer(nx, nz, active ? 1 : 0);
+  setTimeOfDayHours(hours: number): void {
+    this.exports.sim_set_time_of_day(hours);
   }
 
-  /** Zero-copy view into WASM linear memory for WebGPU upload. */
+  tapWorld(wx: number, wz: number): boolean {
+    return this.exports.sim_tap_world(wx, wz) !== 0;
+  }
+
+  tapTile(index: number): boolean {
+    return this.exports.sim_tap_tile(index) !== 0;
+  }
+
+  undo(): boolean {
+    return this.exports.sim_undo() !== 0;
+  }
+
+  hint(): number {
+    return this.exports.sim_hint();
+  }
+
   sceneView(): Float32Array {
     return new Float32Array(this.exports.memory.buffer, this.scenePtr, this.sceneLen);
   }
 
-  readState(): SimSnapshot {
+  readState(aspect: number): SimSnapshot {
     const s = new Float32Array(this.exports.memory.buffer, this.statePtr, this.stateLen);
+    const tBuf = new Float32Array(this.exports.memory.buffer, this.tilesPtr, this.tilesLen);
+
+    const levelIndex = Math.round(s[2]);
+    const modeIdx = Math.round(s[3]);
+    const phaseIdx = Math.round(s[4]);
+    const activeColors: number[] = [];
+    const activeRemain: number[] = [];
+    const c0 = Math.round(s[11]);
+    const c1 = Math.round(s[12]);
+    const r0 = Math.round(s[13]);
+    const r1 = Math.round(s[14]);
+    if (c0 >= 0 && r0 > 0) {
+      activeColors.push(c0);
+      activeRemain.push(r0);
+    }
+    if (c1 >= 0 && r1 > 0) {
+      activeColors.push(c1);
+      activeRemain.push(r1);
+    }
+
+    const trayLen = Math.round(s[15]);
+    const trayColors: number[] = [];
+    for (let i = 0; i < trayLen && i < 5; i++) {
+      trayColors.push(Math.round(s[16 + i]));
+    }
+
+    const tileCount = Math.round(s[24]);
+    const tiles: TileSnapshot[] = [];
+    for (let i = 0; i < tileCount; i++) {
+      const off = i * 8;
+      const wx = tBuf[off + 6];
+      const wz = tBuf[off + 7];
+      const proj = projectWorldToScreen(wx, 0.14, wz, aspect);
+      tiles.push({
+        index: i,
+        col: Math.round(tBuf[off + 0]),
+        row: Math.round(tBuf[off + 1]),
+        color: Math.round(tBuf[off + 2]),
+        dir: Math.round(tBuf[off + 3]),
+        alive: tBuf[off + 4] > 0.5,
+        unblocked: tBuf[off + 5] > 0.5,
+        worldX: wx,
+        worldZ: wz,
+        screenX: proj.screenX,
+        screenY: proj.screenY,
+      });
+    }
+
+    const mode = MODE_MAP[modeIdx] ?? 'curated';
+    const levelName =
+      mode === 'curated'
+        ? (CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
+        : mode === 'daily'
+          ? 'Daily Stitch'
+          : `Mandala #${levelIndex + 1}`;
+
     return {
       frameCount: Math.round(s[0]),
       elapsedSec: s[1],
-      score: Math.round(s[2]),
-      player: {
-        x: s[3],
-        y: s[4],
-        z: s[5],
-        vx: s[6],
-        vz: s[7],
+      levelIndex,
+      levelName,
+      mode,
+      phase: PHASE_MAP[phaseIdx] ?? 'playing',
+      timeOfDayHours: s[5],
+      isAnimating: s[6] > 0.5,
+      moves: Math.round(s[7]),
+      undoDepth: Math.round(s[8]),
+      stitchedCount: Math.round(s[9]),
+      totalPearls: Math.round(s[10]),
+      activeColors,
+      activeRemain,
+      trayColors,
+      trayCapacity: 5,
+      hintTileIndex: Math.round(s[21]),
+      gridCols: Math.round(s[22]),
+      gridRows: Math.round(s[23]),
+      sunIntensity: s[31],
+      tiles,
+      events: {
+        stitchEvents: Math.round(s[25]),
+        lastStitchColor: Math.round(s[26]),
+        trayEvents: Math.round(s[27]),
+        blockedEvents: Math.round(s[28]),
+        undoEvents: Math.round(s[29]),
+        completeEvents: Math.round(s[30]),
       },
-      target: {
-        x: s[8],
-        y: s[9],
-        z: s[10],
-      },
-      pulse: s[11],
-      arenaHalfW: s[12],
-      arenaHalfD: s[13],
-      pointerActive: s[14] > 0.5,
     };
   }
 }
