@@ -45,7 +45,7 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    const sim = await WasmSimulation.load('/game.wasm');
+    const sim = await WasmSimulation.load('./game.wasm');
     const renderer = await WebGPURaytracer.create(canvas, sim.sceneByteLength);
 
     let lastScore = -1;

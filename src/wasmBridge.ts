@@ -39,7 +39,7 @@ export class WasmSimulation {
     this.stateLen = this.exports.sim_state_len();
   }
 
-  static async load(url = '/game.wasm'): Promise<WasmSimulation> {
+  static async load(url = './game.wasm'): Promise<WasmSimulation> {
     let memoryRef: WebAssembly.Memory | null = null;
     const decoder = new TextDecoder();
 

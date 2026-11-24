@@ -15,9 +15,16 @@ pnpm verify
 pnpm dev
 ```
 
+## Live HTTPS PWA (GitHub Pages)
+
+- **URL**: https://patrickdomnick.github.io/mobile-game/
+- Open in **Safari on iPhone 16** → tap **Share → Add to Home Screen** to install as a standalone full-screen web app.
+- Deployed automatically by `.github/workflows/deploy-pages.yml` whenever `main` is pushed (or via manual `workflow_dispatch`).
+
 ## Project Layout
 
-- `AGENTS.md` — Authoritative rules for AI agents working in this repo.
+- `AGENTS.md` — Authoritative rules for AI agents working in this repo (including solo commit-to-`main` and release push cadence).
+- `.github/workflows/deploy-pages.yml` — CI/CD pipeline building TinyGo WASM + Vite and deploying to GitHub Pages.
 - `.agents/` — Cloud VM environment setup (`environment.json`) and custom project skills (`skills/`).
 - `docs/specs/` — Locked platform specs, living game vision spec, and AI playtest contract.
 - `docs/adr/` — Architecture Decision Records.

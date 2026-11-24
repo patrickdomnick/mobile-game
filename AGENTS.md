@@ -64,8 +64,17 @@ Keep `window.__GAME_TEST__` intact and backward-compatible (see `docs/specs/02-v
 
 ---
 
-## 5. Git & Hygiene Rules
+## 5. Git, Commit, Push & HTTPS Release Rules (Solo Project)
 
-- Do not commit `node_modules/`, `dist/`, `test-results/`, or generated `public/game.wasm` (WASM is built deterministically by `pnpm build:wasm`).
-- Keep commits small, focused, and linked to the spec section they implement.
-- Preserve existing comments, ADRs, and spec history; record why an experiment was kept or discarded.
+- **Commit Every Completed Step to `main`**:
+  - This is a solo project. Every time a discrete step, slice, or fix is completed and verified via `pnpm verify`, **commit it directly to `main`** with a small, focused commit message referencing the spec or slice.
+  - Do not leave completed steps uncommitted, and do not create feature branches/PRs unless explicitly requested by the user.
+- **Fast Local Iteration vs. Push for Real E2E Releases**:
+  - **Active Agentic Iteration (fast loop)**: Iterate locally (`pnpm dev` / `pnpm verify`) and commit completed milestones to local `main`. Do **not** push to `origin/main` on every rapid tweak.
+  - **Milestone Releases / Real iPhone E2E Checks**: Push `main` (`git push origin main`) when ready for a release or to test live on a real iPhone 16 over HTTPS.
+- **Automated HTTPS Deployment (GitHub Pages)**:
+  - Pushing to `main` (or triggering `workflow_dispatch`) runs `.github/workflows/deploy-pages.yml`, which runs Go tests, compiles TinyGo WASM, builds the Vite bundle, and publishes the installable HTTPS PWA to **`https://patrickdomnick.github.io/mobile-game/`**.
+  - **Subpath Portability Invariant**: Keep `vite.config.ts` at `base: './'` and all runtime asset/PWA URLs relative (`./game.wasm`, `./manifest.webmanifest`, `./sw.js`, `./apple-touch-icon.png`) so the exact same build works both locally (`http://localhost:4173/`) and on GitHub Pages (`/mobile-game/`).
+- **Hygiene**:
+  - Do not commit `node_modules/`, `dist/`, `test-results/`, or generated `public/game.wasm` (WASM is built deterministically by `pnpm build:wasm`).
+  - Preserve existing comments, ADRs, and spec history; record why an experiment was kept or discarded.

@@ -33,7 +33,13 @@
 | Version Control | Git + GitHub | Repo-scoped `.agents/environment.json` |
 | Autonomous E2E Verification | Playwright (Chromium SwiftShader WebGPU) | iPhone 16 viewport + touch emulation |
 
-## 4. Non-Functional Budgets
+## 4. Hosting & Release Delivery
+
+- **Live HTTPS URL**: `https://patrickdomnick.github.io/mobile-game/` (GitHub Pages deployed via `.github/workflows/deploy-pages.yml` on `push` to `main` or manual `workflow_dispatch`).
+- **Subpath Portability**: All build and PWA asset paths MUST remain relative (`base: './'`, `./game.wasm`, `./manifest.webmanifest`, `./sw.js`) so the same bundle runs seamlessly at both `http://localhost:4173/` and `/mobile-game/`.
+- **Workflow Cadence**: Commit every verified step directly to local `main`; push to `origin/main` for milestone releases or real iPhone 16 HTTPS verification (not during rapid inner-loop edits).
+
+## 5. Non-Functional Budgets
 
 - **Compiled WASM binary size**: `< 250 KB` raw (target `< 100 KB` for instant load over mobile networks).
 - **Simulation determinism**: Fixed-timestep `Step(dt)` in pure Go; zero per-frame heap allocations in the hot update loop.

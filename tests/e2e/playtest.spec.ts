@@ -13,6 +13,7 @@ test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest'
 
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
+    const failedResponses: string[] = [];
 
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -22,16 +23,25 @@ test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest'
     page.on('pageerror', (err) => {
       pageErrors.push(String(err));
     });
+    page.on('response', (res) => {
+      if (res.status() >= 400) {
+        failedResponses.push(`${res.status()} ${res.url()}`);
+      }
+    });
 
-    // 1. Verify PWA manifest & Service Worker endpoints
+    // 1. Verify PWA manifest, icons & Service Worker endpoints (subpath-portable)
     const manifestRes = await request.get('/manifest.webmanifest');
     expect(manifestRes.status()).toBe(200);
     const manifest = await manifestRes.json();
     expect(manifest.display).toBe('standalone');
     expect(manifest.orientation).toBe('portrait');
+    expect(manifest.start_url).toBe('./');
 
     const swRes = await request.get('/sw.js');
     expect(swRes.status()).toBe(200);
+
+    const appleIconRes = await request.get('/apple-touch-icon.png');
+    expect(appleIconRes.status()).toBe(200);
 
     // 2. Load game on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -120,6 +130,7 @@ test.describe('iPhone 16 WebGPU Raytraced WASM Game — Autonomous E2E Playtest'
     expect(resetState.score).toBe(0);
 
     // 6. Final strict zero-error assertion
+    expect(failedResponses).toEqual([]);
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
   });

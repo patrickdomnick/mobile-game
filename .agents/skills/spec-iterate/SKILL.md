@@ -28,3 +28,7 @@ Use this workflow whenever proposing, prototyping, or refining game mechanics, v
 5. **Close the loop in the spec**:
    - Record what worked, what felt off, and key metrics (WASM size, frame time, visual notes) in the `Iteration Log` of `docs/specs/01-game-vision.md`.
    - Ask the user whether to lock the mechanic (`Status: Locked`), tweak it, or pivot.
+
+6. **Commit the completed step to `main`**:
+   - Once `pnpm verify` passes, commit the step directly to `main` with a focused message referencing the spec/slice.
+   - Only `git push origin main` when ready for a milestone release or live iPhone 16 HTTPS check via GitHub Pages.

@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Relative base so the same dist/ works at both http://localhost:4173/ and GitHub Pages (/mobile-game/)
+  base: './',
   server: {
     port: 5173,
     strictPort: true,

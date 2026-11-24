@@ -1,5 +1,13 @@
-const CACHE_NAME = 'rayorb-shell-v1';
-const PRECACHE_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/game.wasm'];
+const CACHE_NAME = 'rayorb-shell-v2';
+const PRECACHE_URLS = [
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './icon.svg',
+  './apple-touch-icon.png',
+  './icon-512.png',
+  './game.wasm',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
