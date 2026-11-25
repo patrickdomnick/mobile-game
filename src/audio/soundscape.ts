@@ -34,15 +34,52 @@ export interface SyncAudioContext {
   hapticsEnabled: boolean;
 }
 
+let iosHapticLabel: HTMLLabelElement | null = null;
+
+function triggerIosSwitchHaptic(): void {
+  if (typeof document === 'undefined' || !document.body) return;
+  try {
+    if (!iosHapticLabel) {
+      const id = 'pearl-loom-ios-haptic-switch';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = id;
+      input.setAttribute('switch', '');
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden', 'true');
+      input.style.cssText =
+        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;padding:0;';
+
+      const label = document.createElement('label');
+      label.htmlFor = id;
+      label.setAttribute('aria-hidden', 'true');
+      label.style.cssText =
+        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+
+      document.body.append(input, label);
+      iosHapticLabel = label;
+    }
+    iosHapticLabel.click();
+  } catch {
+    // Non-fatal fallback
+  }
+}
+
 function vibratePattern(enabled: boolean, pattern: number | number[]): void {
   if (!enabled) return;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(pattern);
+      if (navigator.vibrate(pattern)) {
+        return;
+      }
     }
   } catch {
-    // Safari or desktop without vibration API — safely ignore
+    // Fall through to iOS Safari switch haptic
   }
+  // iOS Safari 17.4+/18+/26+ does not implement navigator.vibrate,
+  // but toggling a hidden native <input type="checkbox" switch> synchronously
+  // inside a user gesture triggers a real iPhone Taptic Engine click!
+  triggerIosSwitchHaptic();
 }
 
 /**

@@ -235,6 +235,7 @@ export interface SimSnapshot {
   timeOfDayHours: number;
   themeIndex: number;
   isAnimating: boolean;
+  flyingCount: number;
   score: number;
   streak: number;
   maxStreak: number;
@@ -523,6 +524,7 @@ export class WasmSimulation {
       timeOfDayHours: s[5],
       themeIndex,
       isAnimating: s[6] > 0.5,
+      flyingCount: Math.round(scene[30] ?? 0),
       score: Math.round(s[7]),
       streak: Math.round(s[33]),
       maxStreak: Math.round(s[34]),

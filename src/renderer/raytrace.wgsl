@@ -202,51 +202,47 @@ fn shadePearl(
   var col = albedo * (hemi + direct + fillDiff + candleTint * candleDiff * 0.60);
 
   if (theme == 0u) {
-    // Jewel Atelier: calm, natural polished gemstone (never feels like a glowing bulb at rest!)
-    col = mix(col, envRefl, fresnel * 0.24);
-    col += albedo * (0.04 + rimGlow * 0.18);
-    col += vec3<f32>(1.0, 0.98, 0.94) * spec * 0.95;
+    // Jewel Atelier: calm physical enameled gemstone (zero resting self-glow!)
+    col = mix(col, envRefl, fresnel * 0.22);
+    col += albedo * (rimGlow * 0.10);
+    col += vec3<f32>(1.0, 0.98, 0.94) * spec * 0.80;
     col += candleTint * candleSpec;
   } else if (theme == 1u) {
-    // Cyber Arcade: sleek, physically rounded 3D glossy neon glass orbs with dark grazing falloff
+    // Cyber Arcade: sleek, physically rounded 3D glossy neon glass orbs (zero resting washout!)
     let edgeRound = 0.44 + 0.56 * smoothstep(0.0, 0.36, ndotv);
-    let innerCore = ndotv * ndotv * 0.28 + 0.08;
-    col = (col * 0.92 + albedo * innerCore) * edgeRound;
-    col = mix(col, envRefl, fresnel * 0.28);
-    col += albedo * rimGlow * 0.36 * smoothstep(0.0, 0.24, ndotv);
-    col += vec3<f32>(0.95, 0.98, 1.0) * spec * 0.92;
+    let innerDepth = ndotv * ndotv * 0.14;
+    col = (col * 0.95 + albedo * innerDepth) * edgeRound;
+    col = mix(col, envRefl, fresnel * 0.26);
+    col += albedo * rimGlow * 0.24 * smoothstep(0.0, 0.24, ndotv);
+    col += vec3<f32>(0.95, 0.98, 1.0) * spec * 0.85;
   } else if (theme == 2u) {
-    // Pop Studio: crisp comic cel-shaded primaries (ZERO white center dot!) + sleek AA ink contour
+    // Pop Studio: crisp dot-free comic cel-shaded primaries + sleek AA ink contour
     let popKey = normalize(vec3<f32>(-0.55, 0.68, -0.48));
     let ndotlPop = dot(n, popKey);
-    let cel = 0.62 + 0.44 * smoothstep(0.05, 0.42, ndotlPop);
-    let softCrescent = smoothstep(0.72, 0.88, ndotlPop) * 0.20;
-    col = albedo * cel + mix(albedo, vec3<f32>(1.0), 0.35) * softCrescent + candleTint * candleDiff * 0.16;
+    let cel = 0.60 + 0.42 * smoothstep(0.05, 0.42, ndotlPop);
+    let softCrescent = smoothstep(0.72, 0.88, ndotlPop) * 0.18;
+    col = albedo * cel + mix(albedo, vec3<f32>(1.0), 0.32) * softCrescent + candleTint * candleDiff * 0.14;
     let inkRim = smoothstep(0.24, 0.12, ndotv);
     col = mix(col, vec3<f32>(0.005, 0.005, 0.008), inkRim);
   } else {
-    // Cathedral Glass (Theme 3): refined translucent prism jewel with calm resting luster
-    let innerCore = ndotv * sqrt(ndotv) * 0.42 + 0.18;
-    col = albedo * innerCore + col * 0.58;
-    col = mix(col, envRefl, fresnel * 0.34);
-    col += albedo * rimGlow * 0.44;
-    col += vec3<f32>(1.0, 0.97, 0.92) * spec * 1.05;
+    // Cathedral Glass (Theme 3): calm faceted stained-glass prism (zero constant glowing!)
+    let innerDepth = ndotv * sqrt(ndotv) * 0.24 + 0.10;
+    col = albedo * innerDepth + col * 0.68;
+    col = mix(col, envRefl, fresnel * 0.30);
+    col += albedo * rimGlow * 0.26;
+    col += vec3<f32>(1.0, 0.97, 0.92) * spec * 0.90;
   }
 
-  // 4.0-SECOND THEATRICAL SPOTLIGHT + INACTIVE-PEARL ANTIPATTERN DIMMING!
-  // On level start & new color unlock: highlighted target pearls radiate pure saturated inner light while
-  // non-highlighted board pearls darken cleanly into rich shadow (no muddy gray washout!).
-  let spotlightT = scene.queueFX.w;
-  if (interiorGlowT > 0.005) {
-    let fade = smoothstep(0.0, 0.35, interiorGlowT);
-    let breath = 0.82 + 0.18 * sin(renderU.time * 5.2);
-    let coreMask = ndotv * sqrt(ndotv);
-    let innerLight = albedo * 1.15 + vec3<f32>(0.08, 0.07, 0.05);
-    col += innerLight * coreMask * (0.78 * fade * breath);
-  } else if (isBoardPearl && spotlightT > 0.005) {
-    let dimFade = smoothstep(0.0, 0.35, spotlightT);
-    // Clean physical shadow darkening preserves jewel hue while making active pearls leap out!
-    col *= mix(1.0, 0.30, dimFade);
+  // PURE ADDITIVE 3.5s DOUBLE-HEARTBEAT INTERIOR GLOW (default = ZERO glow & ZERO dimming!):
+  // Strictly lights ONLY the 2 starting active colors at start & ONLY a newly unlocked color on unlock,
+  // using pure chromatic inner jewel fire + a tight luminous center ember (zero pastel washout!).
+  if (isBoardPearl && interiorGlowT > 0.005) {
+    let fade = smoothstep(0.0, 0.30, interiorGlowT);
+    // Two smooth breathing heartbeats peaking at t=0s and t=1.75s, then smoothly fading to calm rest
+    let heartbeat = 0.56 + 0.44 * cos((1.0 - interiorGlowT) * 12.566);
+    let jewelFire = pow(ndotv, 1.65) * 1.15;
+    let centerEmber = pow(ndotv, 6.5) * 0.68;
+    col += (albedo * jewelFire + mix(albedo, vec3<f32>(1.0, 0.96, 0.86), 0.55) * centerEmber) * (fade * heartbeat);
   }
 
   col += toLinear(vec3<f32>(1.0, 0.92, 0.72)) * (sparkle * 0.55);
@@ -825,16 +821,12 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           let pearlAO = mix(0.60, 1.0, smoothstep(tl.posRad.w * 0.72, tl.posRad.w * 1.48, distToPearl));
           tileCol *= pearlAO;
 
-          let spotlightT = scene.queueFX.w;
-          let isSpotlitTile = tl.props.w > 0.005;
-          let tileDim = select(0.0, smoothstep(0.0, 0.35, spotlightT), spotlightT > 0.005 && !isSpotlitTile);
-
           let rimWidth = select(-0.022, -0.028, theme == 2u);
           let tRimMask = smoothstep(rimWidth - aa, rimWidth + aa, dTile);
           if (tRimMask > 0.002) {
             tileCol = mix(tileCol, borderCol, tRimMask);
             if (theme == 1u) {
-              emissive += pal * (0.36 * mix(1.0, 0.28, tileDim)) * tRimMask * tileMask;
+              emissive += pal * 0.36 * tRimMask * tileMask;
             }
           }
 
@@ -851,10 +843,6 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
             tileCol = mix(tileCol, arrowCol, arrowAA);
             emissive += arrowEmissive * arrowAA * tileMask;
             tRough = mix(tRough, 0.22, arrowAA);
-          }
-
-          if (tileDim > 0.002) {
-            tileCol *= mix(1.0, 0.52, tileDim);
           }
 
           boardCol = mix(boardCol, tileCol, tileMask);

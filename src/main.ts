@@ -621,7 +621,7 @@ async function bootstrap(): Promise<void> {
         trayFullModal.classList.toggle('hidden', screenMode !== 'playing' || snap.phase !== 'tray_full');
       }
       if (completeModal) {
-        const showComplete = screenMode === 'playing' && snap.phase === 'complete' && !snap.isAnimating;
+        const showComplete = screenMode === 'playing' && snap.phase === 'complete' && snap.flyingCount === 0;
         completeModal.classList.toggle('hidden', !showComplete);
         if (showComplete) {
           displayedScore = snap.score;

@@ -172,8 +172,8 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     for (const sample of chapterSamples) {
       await page.evaluate(async (lvl) => {
         window.__GAME_TEST__!.loadLevel(lvl);
-        // Step 25 ticks (~0.4s) so the subtle temporary interior start glow is mid-breath
-        await window.__GAME_TEST__!.stepTicks(25);
+        // Step 4 ticks so Peak 1 of the 3.5s pure additive interior glow is clearly visible on active colors!
+        await window.__GAME_TEST__!.stepTicks(4);
       }, sample.level);
       const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
       expect(st.themeIndex, `${sample.label} native theme mismatch`).toBe(sample.expectedTheme);
@@ -335,7 +335,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     });
     await page.screenshot({ path: path.join(RESULTS_DIR, 'mid-puzzle-streak.png') });
 
-    // Finish remaining pearls of Jewel Heart & settle completion shimmer
+    // Finish remaining pearls of Jewel Heart & verify completion modal appears FAST (~0.45s, not 2+s lag!)
     await page.evaluate(async () => {
       for (let i = 0; i < 20; i++) {
         const cur = window.__GAME_TEST__!.getState();
@@ -345,10 +345,12 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         window.__GAME_TEST__!.tapTile(h);
         await window.__GAME_TEST__!.stepTicks(24, true);
       }
-      await window.__GAME_TEST__!.stepTicks(260, false);
+      // Only 28 ticks (~0.46s) after the final pearl tap -> modal MUST already be visible!
+      await window.__GAME_TEST__!.stepTicks(28, false);
     });
     const completed = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(completed.phase).toBe('complete');
+    expect(completed.flyingCount).toBe(0);
     expect(completed.stitchedCount).toBe(21);
     expect(completed.totalPearls).toBe(21);
     expect(completed.trayColors).toEqual([]);
@@ -423,10 +425,10 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const reloaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(reloaded.gallery.completedCuratedIds).toContain(0);
 
-    // 12. Verify 4.0s interior spotlight + antipattern dim decays cleanly AND true 0-FPS idle battery mode engages!
+    // 12. Verify 3.5s additive interior pulse decays cleanly AND true 0-FPS idle battery mode engages!
     await page.evaluate(async () => {
-      // Step past the 4.0s temporary start spotlight (260 ticks = 4.33s)
-      await window.__GAME_TEST__!.stepTicks(260);
+      // Step past the 3.5s temporary start glow (230 ticks = 3.83s)
+      await window.__GAME_TEST__!.stepTicks(230);
     });
     await page.waitForFunction(
       () => {

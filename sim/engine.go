@@ -1044,10 +1044,10 @@ func (e *Engine) Step(dt float32) {
 	e.FrameCount++
 	e.ElapsedSec += dt
 
-	// Smooth decay on juice pulses, screenshake & temporary interior unlock spotlight (4.0s)
+	// Smooth decay on juice pulses, screenshake & temporary 3.5s double-beat interior unlock glow
 	for c := 0; c < NumColors; c++ {
 		if e.ColorGlowT[c] > 0 {
-			e.ColorGlowT[c] -= dt * 0.25
+			e.ColorGlowT[c] -= dt * 0.285
 			if e.ColorGlowT[c] < 0 {
 				e.ColorGlowT[c] = 0
 			}

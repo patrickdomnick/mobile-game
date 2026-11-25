@@ -100,7 +100,22 @@ Informed by real-device playtesting of v2.2:
 
 ---
 
-## 5. Iteration Log
+## 5. Pearl Loom v2.4 Design Delta (`Status: Locked`)
+
+Informed by real-device playtesting of v2.3:
+
+1. **Pure Additive 3.5s Double-Heartbeat Interior Glow (Default = Zero Glow, Zero Dimming)**:
+   - Remove all antipattern darkening/dimming on non-target pearls and tile cards (which previously caused active non-new colors and locked tiles to feel oddly altered).
+   - **Calm Non-Glowing Default**: At rest, ALL pearls sit in clean physical diffuse + subtle directional gloss with **zero** artificial self-glow or dimming.
+   - **Targeted Interior Pulse Only**: ONLY the 2 starting active colors (at puzzle start) and ONLY a newly unlocked color (on color unlock) illuminate vividly **from inside the sphere** with **2 smooth breathing heartbeats over `3.5s`** (`ColorGlowT` decay `dt * 0.285`), then fade cleanly back to the calm non-glowing default and **0 FPS** idle.
+2. **Instant Level Completion Screen (`~0.35s` instead of `~2.2s`)**:
+   - Gate `#overlay-complete` on `phase === 'complete' && flyingCount === 0` (the exact moment the final pearl lands on the embroidery hoop!) instead of waiting for `CelebrateT` and all shimmer bursts to decay (`!isAnimating`). The celebratory hoop shimmer continues live behind the completion card.
+3. **Real iPhone 16 Safari Taptic Engine Haptics**:
+   - Supplement `navigator.vibrate()` (unsupported in WebKit/iOS Safari) with the iOS 17.4+/18+/26+ Safari `<input type="checkbox" switch>` label-click bridge inside [`src/audio/soundscape.ts`](file:///home/antigravity/patrickdomnick/mobile-game/src/audio/soundscape.ts), firing real native Taptic Engine clicks synchronously on tile taps and button presses in standalone Safari PWA mode.
+
+---
+
+## 6. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -108,5 +123,6 @@ Informed by real-device playtesting of v2.2:
 | 2026-11-24 | **Pearl Loom v2.0 Overhaul** | **Shipped & Playtested** | Full redesign: `uint64` 5×5–7×7 boards, zero-spoiler tiles + blocker pulse, Balatro/VS juice, linear-space PBR across 5 themes, 24h solar override, Start Menu + Settings, plus automated fail-fast ABI/contrast guards & port `5173` WASM hot-reload. |
 | 2026-11-24 | **Pearl Loom v2.1 — Chapters, Smart Hints & Active-Target Glow** | **Shipped & Playtested** | 40 patterns across 5 native Chapters, Daily/Endless theme rotation, pinch-rescue Hint (`-2` Undo beacon) + Hint/Undo score deductions, active-target glow. Playtest revealed: Noir mode was unenjoyable, permanent outer pearl glow looked cheap & hurt battery, binary ray-sphere/SDF edges looked jagged, and the final two colors were too easy when unlocked together. |
 | 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Playtested** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary pearl glow; solo finale unlock; analytic 1-spp AA at 2.0x DPR; true 0-FPS idle. Playtest revealed: initial glow too short/subtle vs always-bright pearls, Neon pearls still looked flat/out-of-place, Pop Art pearls had white center dots, some puzzles lacked verified 3-star paths, and Endless/Daily needed richer procedural seed variety + custom seed input. |
-| 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Verified** | 4.0s spotlight + rich shadow antipattern dimming; sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input verified via `pnpm verify` + screenshot audit. |
+| 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Playtested** | Sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input. Playtest revealed: darkening non-target pearls felt reversed/off, completion result screen lagged ~2s waiting for `CelebrateT`, and `navigator.vibrate` is ignored on iOS Safari. |
+| 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Verified** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks verified via `pnpm verify` + screenshot audit. |
 

@@ -86,20 +86,20 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 		t.Fatalf("expected Scene[63] antipattern spotlight signal == 1.0 at start, got %v", e.Scene[63])
 	}
 
-	// At 2.0s (120 ticks) the 4.0s spotlight MUST still be clearly visible (>= 0.45)!
-	for i := 0; i < 120; i++ {
+	// At 1.5s (90 ticks) the 3.5s interior pulse MUST still be active (>= 0.50)!
+	for i := 0; i < 90; i++ {
 		e.Step(FixedDT)
 	}
-	if e.ColorGlowT[c0] < 0.45 || e.Scene[63] < 0.45 {
-		t.Fatalf("expected 4.0s spotlight still active at 2.0s, got glow=%v scene63=%v", e.ColorGlowT[c0], e.Scene[63])
+	if e.ColorGlowT[c0] < 0.50 || e.Scene[63] < 0.50 {
+		t.Fatalf("expected 3.5s interior glow still active at 1.5s, got glow=%v scene63=%v", e.ColorGlowT[c0], e.Scene[63])
 	}
 
-	// Step another 2.2s (total 4.2s) -> temporary spotlight fades completely to 0 so GPU sleeps at 0 FPS!
+	// Step another 2.25s (total 3.75s) -> temporary glow fades completely to 0 so GPU sleeps at 0 FPS!
 	for i := 0; i < 135; i++ {
 		e.Step(FixedDT)
 	}
 	if e.ColorGlowT[c0] != 0 || e.ColorGlowT[c1] != 0 || e.Scene[63] != 0 {
-		t.Fatalf("expected 4.0s start spotlight to settle to 0, got %v scene63=%v", e.ColorGlowT, e.Scene[63])
+		t.Fatalf("expected 3.5s start glow to settle to 0, got %v scene63=%v", e.ColorGlowT, e.Scene[63])
 	}
 	if e.IsAnimating() {
 		t.Fatalf("expected IsAnimating() == false once start spotlight finishes (for 0-FPS battery idle)")
