@@ -429,6 +429,59 @@ test.describe('Pearl Loom v2.9 — iPhone 16 WebGPU Special Pearls, Live Config 
     expect(afterUndo.undoUsed).toBe(1);
     expect(afterUndo.streak).toBe(0);
 
+    // 8b. Verify Optimal Hints lead cleanly to Final-Color Victory Rush Mode (upbeat music, FINISH HUD, zero jiggles, zero-error click-to-queue auto-resolve!)
+    await page.evaluate(async () => {
+      for (let i = 0; i < 30; i++) {
+        const cur = window.__GAME_TEST__!.getState();
+        if (cur.phase === 'complete' || cur.finalColorMode) break;
+        const mv = window.__GAME_TEST__!.hint();
+        if (mv < 0) break;
+        window.__GAME_TEST__!.tapTile(mv);
+        await window.__GAME_TEST__!.stepTicks(16, true);
+      }
+      await window.__GAME_TEST__!.stepTicks(6, false);
+    });
+    const rushSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(rushSt.finalColorMode, 'Level 3 must reach Final-Color Victory Rush Mode').toBe(true);
+    expect(rushSt.audio.finalRushMode, 'Music must switch to Final Rush mode when 1 color remains').toBe(true);
+    await expect(page.locator('#app')).toHaveAttribute('data-rush', 'on');
+    await expect(page.locator('#swatch-caption')).toHaveText('FINISH');
+    const rushWiggle = await page.evaluate(() => window.__GAME_TEST__!.triggerActiveWiggle());
+    expect(rushWiggle, 'Jiggles must be disabled in Final-Color Mode').toBe(-1);
+
+    // If a blocked gem exists in Final-Color Mode, tapping it must NOT error and MUST queue + auto-resolve!
+    const rushBlocked = rushSt.tiles.find((t) => t.alive && !t.unblocked);
+    if (rushBlocked) {
+      const blockedBefore = rushSt.events.blockedEvents;
+      const queuedOk = await page.evaluate((idx) => window.__GAME_TEST__!.tapTile(idx), rushBlocked.index);
+      expect(queuedOk).toBe(true);
+      await page.evaluate(() => window.__GAME_TEST__!.stepTicks(2, false));
+      const afterQueue = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      expect(afterQueue.events.blockedEvents).toBe(blockedBefore);
+      expect(afterQueue.queuedCount).toBeGreaterThanOrEqual(1);
+      expect(afterQueue.events.queueEvents).toBeGreaterThanOrEqual(1);
+      await page.screenshot({ path: path.join(RESULTS_DIR, 'final-color-rush-queue.png') });
+    }
+
+    // Finish remaining playable tiles -> queued gems auto-resolve smoothly to completion & music reverts!
+    await page.evaluate(async () => {
+      for (let i = 0; i < 16; i++) {
+        const cur = window.__GAME_TEST__!.getState();
+        if (cur.phase === 'complete') break;
+        const free = cur.tiles.find((t) => t.alive && t.unblocked);
+        if (free) {
+          window.__GAME_TEST__!.tapTile(free.index);
+        }
+        await window.__GAME_TEST__!.stepTicks(22, true);
+      }
+      await window.__GAME_TEST__!.stepTicks(20, false);
+    });
+    const afterRushWin = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(afterRushWin.phase).toBe('complete');
+    expect(afterRushWin.finalColorMode).toBe(false);
+    expect(afterRushWin.audio.finalRushMode).toBe(false);
+    expect(afterRushWin.queuedCount).toBe(0);
+
     // 9. Verify 4 Seeded Difficulty Tiers (Easy 5x5 -> Extreme 8x8) & Custom Seed UI!
     const expectedDims = [
       { tier: 0 as const, dim: 5 },

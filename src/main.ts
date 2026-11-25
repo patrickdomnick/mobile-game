@@ -38,6 +38,7 @@ export interface GameTestState extends SimSnapshot {
     muted: boolean;
     notesScheduled: number;
     state?: string;
+    finalRushMode: boolean;
   };
   gallery: {
     completedCuratedIds: number[];
@@ -522,6 +523,8 @@ async function bootstrap(): Promise<void> {
       hudTopEl?.classList.toggle('hidden', next !== 'playing');
       hudBottomEl?.classList.toggle('hidden', next !== 'playing');
       if (next === 'menu') {
+        soundscape.setFinalRushMode(false);
+        if (appEl) appEl.dataset.rush = 'off';
         trayFullModal?.classList.add('hidden');
         completeModal?.classList.add('hidden');
         refreshStartMenuCopy();
@@ -781,6 +784,12 @@ async function bootstrap(): Promise<void> {
     };
 
     const updateHud = (snap: SimSnapshot): void => {
+      const isRush = screenMode === 'playing' && snap.finalColorMode;
+      soundscape.setFinalRushMode(isRush);
+      if (appEl) {
+        appEl.dataset.rush = isRush ? 'on' : 'off';
+      }
+
       soundscape.syncEvents(snap.events, {
         streak: snap.streak,
         trayTension: snap.trayTension,
@@ -876,13 +885,15 @@ async function bootstrap(): Promise<void> {
         undoBtn.classList.toggle('is-rescue', snap.hintNeedsUndo && snap.undoDepth > 0);
       }
 
-      // Smooth Balatro rolling score ticker
+      // Smooth Balatro rolling score ticker (2x snappier in Final-Color Victory Rush Mode!)
       if (displayedScore !== snap.score) {
         const diff = snap.score - displayedScore;
-        if (Math.abs(diff) <= 35 || snap.score < displayedScore) {
+        const snapThresh = isRush ? 75 : 35;
+        const stepRatio = isRush ? 0.65 : 0.35;
+        if (Math.abs(diff) <= snapThresh || snap.score < displayedScore) {
           displayedScore = snap.score;
         } else {
-          displayedScore += Math.ceil(diff * 0.35);
+          displayedScore += Math.ceil(diff * stepRatio);
         }
       }
       if (scoreEl) scoreEl.textContent = displayedScore.toLocaleString();
@@ -895,13 +906,13 @@ async function bootstrap(): Promise<void> {
       const isDone = snap.activeColors.length === 0 && snap.phase === 'complete';
       const swatchKey = isDone
         ? `DONE:${snap.themeIndex}`
-        : `${snap.themeIndex}|${snap.activeColors.map((c, i) => `${c}:${snap.activeRemain[i]}`).join('|')}|N:${snap.nextQueuedColor}`;
+        : `${snap.themeIndex}|R:${isRush ? 1 : 0}|${snap.activeColors.map((c, i) => `${c}:${snap.activeRemain[i]}`).join('|')}|N:${snap.nextQueuedColor}`;
 
       if (swatchListEl && swatchKey !== lastSwatchKey) {
         lastSwatchKey = swatchKey;
         swatchListEl.innerHTML = '';
         if (swatchCaptionEl) {
-          swatchCaptionEl.textContent = isDone ? '✦ DONE' : 'STITCH';
+          swatchCaptionEl.textContent = isDone ? '✦ DONE' : isRush ? 'FINISH' : 'STITCH';
         }
         if (!isDone) {
           for (let i = 0; i < snap.activeColors.length; i++) {
@@ -1519,11 +1530,12 @@ async function bootstrap(): Promise<void> {
       // Smoothly roll DOM score counter without waking the GPU!
       const liveScore = sim.score();
       if (displayedScore !== liveScore) {
+        const rushNow = sim.isFinalColorMode();
         const diff = liveScore - displayedScore;
         displayedScore =
-          Math.abs(diff) <= 35 || liveScore < displayedScore
+          Math.abs(diff) <= (rushNow ? 75 : 35) || liveScore < displayedScore
             ? liveScore
-            : displayedScore + Math.ceil(diff * 0.35);
+            : displayedScore + Math.ceil(diff * (rushNow ? 0.65 : 0.35));
         if (scoreEl) scoreEl.textContent = displayedScore.toLocaleString();
       }
 
@@ -1547,9 +1559,10 @@ async function bootstrap(): Promise<void> {
       requestAnimationFrame(frame);
     };
 
-    // Live-configurable periodic zero-spoiler active-color pearl wiggle (driven by public/config.json)
+    // Live-configurable periodic zero-spoiler active-color pearl wiggle (suppressed in Final-Color Mode!)
     window.setInterval(() => {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
+      if (sim.isFinalColorMode()) return;
       if (performance.now() - lastUserTapAt < gameConfig.jiggle.quietHandMs) return;
       const sheetOpen =
         Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
@@ -1561,9 +1574,10 @@ async function bootstrap(): Promise<void> {
       }
     }, gameConfig.jiggle.intervalMs);
 
-    // Independent periodic Rainbow Wild Pearl wiggle (always gently shimmers on its own cadence!)
+    // Independent periodic Rainbow Wild Pearl wiggle (suppressed in Final-Color Mode!)
     window.setInterval(() => {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
+      if (sim.isFinalColorMode()) return;
       const sheetOpen =
         Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
         Boolean(settingsSheet && !settingsSheet.classList.contains('hidden')) ||

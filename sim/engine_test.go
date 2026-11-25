@@ -257,14 +257,26 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 		t.Fatalf("final color C3 must not glow before unlocking")
 	}
 
-	// Finish C2 -> NOW final color C3 unlocks solo and triggers interior spotlight!
+	// Finish C2 -> NOW final color C3 unlocks solo into Final-Color Victory Rush Mode:
+	// ZERO gem highlights (ColorGlowT == 0) & ZERO jiggles since only one color is left!
 	e.Remain[c2] = 0
 	e.refillActiveColors()
 	if e.Active[0] != c3 || e.Active[1] != -1 {
 		t.Fatalf("after finishing C2, expected FINAL color [%d,-1], got [%d,%d]", c3, e.Active[0], e.Active[1])
 	}
-	if e.ColorGlowT[c3] < 0.99 {
-		t.Fatalf("expected final color C3 to trigger interior spotlight upon unlocking, got %v", e.ColorGlowT[c3])
+	if !e.IsFinalColorMode() {
+		t.Fatalf("expected IsFinalColorMode() == true when only C3 remains")
+	}
+	if e.ColorGlowT[c3] != 0 {
+		t.Fatalf("expected ZERO gem highlight in Final-Color Mode, got %v", e.ColorGlowT[c3])
+	}
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].JiggleT != 0 || e.Tiles[i].JiggleDelay != 0 {
+			t.Fatalf("expected ZERO jiggles in Final-Color Mode, tile %d has JiggleT=%v Delay=%v", i, e.Tiles[i].JiggleT, e.Tiles[i].JiggleDelay)
+		}
+	}
+	if wig := e.TriggerRandomActiveWiggle(); wig >= 0 {
+		t.Fatalf("expected TriggerRandomActiveWiggle() == -1 in Final-Color Mode, got %d", wig)
 	}
 }
 
@@ -686,4 +698,153 @@ func TestSeeded4DifficultiesAndSpecialPearlRules(t *testing.T) {
 	}
 	e.SetTuning(TuningTopLight, 1.0)
 }
+
+func TestFinalColorVictoryRushAndAutoQueue(t *testing.T) {
+	var e Engine
+	// Start with a clean custom board of 3 tiles all of color 0 in a blocked chain:
+	// tile 0 at (0,0) DirRight -> blocked by tile 1 at (1,0) DirRight -> blocked by tile 2 at (2,0) DirRight (unblocked!)
+	// Plus tile 3 at (1,1) SpecialLocked (adjacent to tile 1) DirDown (unblocked once tile 1 clears!).
+	e.LoadCuratedLevel(0)
+	e.GridCols = 4
+	e.GridRows = 4
+	e.TileCount = 4
+	e.HoopCount = 4
+	e.Phase = PhasePlaying
+	e.TrayLen = 0
+	e.AutoQueueLen = 0
+	e.BlockedEvents = 0
+	e.LockedTapEvents = 0
+	e.QueueEvents = 0
+	for c := 0; c < NumColors; c++ {
+		e.Remain[c] = 0
+		e.ColorGlowT[c] = 0
+	}
+	e.Remain[0] = 4
+	e.ColorQueue = [NumColors]uint8{0}
+	e.QueueLen = 1
+	e.QueuePos = 1
+	e.Active = [ActiveSlots]int{0, -1}
+	for i := 0; i < 4; i++ {
+		e.HoopPearls[i] = HoopPearl{Color: 0, Claimed: false, Stitched: false}
+	}
+	e.Tiles[0] = Tile{Col: 0, Row: 0, Color: 0, Dir: DirRight, Alive: true}
+	e.Tiles[1] = Tile{Col: 1, Row: 0, Color: 0, Dir: DirRight, Alive: true}
+	e.Tiles[2] = Tile{Col: 2, Row: 0, Color: 0, Dir: DirRight, Alive: true}
+	e.Tiles[3] = Tile{Col: 1, Row: 1, Color: 0, Dir: DirDown, Alive: true, Special: SpecialLocked}
+	e.syncBuffers()
+
+	if !e.IsFinalColorMode() || e.State[61] != 1 {
+		t.Fatalf("expected Final-Color Mode active (State[61]=%v)", e.State[61])
+	}
+
+	// Tap blocked tile 0, blocked tile 1, AND locked tile 3 BEFORE clearing tile 2!
+	// MUST produce ZERO errors (BlockedEvents == 0, LockedTapEvents == 0) and queue all 3!
+	if !e.TapTile(0) || !e.TapTile(1) || !e.TapTile(3) {
+		t.Fatalf("expected Final-Color taps on blocked/locked tiles to queue cleanly and return true")
+	}
+	if e.BlockedEvents != 0 || e.LockedTapEvents != 0 {
+		t.Fatalf("expected ZERO error events in Final-Color Mode, got blocked=%d locked=%d", e.BlockedEvents, e.LockedTapEvents)
+	}
+	if e.AutoQueueLen != 3 || e.QueueEvents != 3 {
+		t.Fatalf("expected 3 queued tiles & 3 queue events, got len=%d events=%d", e.AutoQueueLen, e.QueueEvents)
+	}
+	// Verify queued GPU flag bit 16 is set ONLY on queued tiles (not tile 2)
+	if (uint32(e.Scene[SceneTileOffset+0*8+6]) & 16) == 0 {
+		t.Fatalf("expected queued tile 0 to expose GPU bit 16")
+	}
+	if (uint32(e.Scene[SceneTileOffset+2*8+6]) & 16) != 0 {
+		t.Fatalf("un-queued tile 2 must NOT set GPU bit 16")
+	}
+
+	// Now tap ONLY the unblocked front tile 2 -> stepping should domino-resolve tiles 1 -> 0 & 3 automatically to PhaseComplete!
+	if !e.TapTile(2) {
+		t.Fatalf("expected TapTile(2) to succeed")
+	}
+	for s := 0; s < 60; s++ {
+		e.Step(FixedDT)
+	}
+	if e.Phase != PhaseComplete {
+		t.Fatalf("expected AutoQueue domino cascade to reach PhaseComplete automatically, got phase=%d alive0=%v alive1=%v alive3=%v queueLen=%d",
+			e.Phase, e.Tiles[0].Alive, e.Tiles[1].Alive, e.Tiles[3].Alive, e.AutoQueueLen)
+	}
+	if e.AutoQueueLen != 0 {
+		t.Fatalf("expected AutoQueueLen cleared on completion, got %d", e.AutoQueueLen)
+	}
+}
+
+func TestOptimalHintNeverSabotagesWhenNoDirectColorAvailable(t *testing.T) {
+	var e Engine
+	e.LoadCuratedLevel(0)
+	e.GridCols = 4
+	e.GridRows = 4
+	e.Phase = PhasePlaying
+	e.AutoQueueLen = 0
+	// Scenario: Tray already holds 4/5 pearls (only 1 slot left!).
+	// Active color = 0 (2 pearls left). Next queued color = 1 (1 pearl left). Color 2 is ALREADY FINISHED (dead surplus!).
+	// NO active color 0 tile is currently unblocked!
+	// - Tile 0 (index 0): DEAD color 2, unblocked (SABOTAGE TRAP! Putting it in tray fills 5/5 -> instant Tray Full loss!)
+	// - Tile 1 (index 1): Color 1 (unblocked, blocks NOTHING -> SABOTAGE TRAP! Fills 5/5 -> instant Tray Full loss!)
+	// - Tile 2 (index 2): Color 1 (unblocked, directly unblocks Tile 3 & Tile 4 of active color 0 -> ONLY WINNING MOVE!)
+	// - Tile 3 (index 3): Active color 0, blocked ONLY by Tile 2!
+	// - Tile 4 (index 4): Active color 0, blocked ONLY by Tile 2!
+	e.Tray = [TrayCapacity]uint8{3, 3, 3, 3, 0}
+	e.TrayLen = 4
+	e.TrayUses = 4
+	for c := 0; c < NumColors; c++ {
+		e.Remain[c] = 0
+	}
+	e.Remain[0] = 2
+	e.Remain[1] = 2
+	e.Remain[3] = 4 // matches the 4 tray pearls once color 3 activates later
+	e.ColorQueue = [NumColors]uint8{0, 1, 3}
+	e.QueueLen = 3
+	e.QueuePos = 1
+	e.Active = [ActiveSlots]int{0, -1}
+	e.HoopCount = 8
+	for i := 0; i < 8; i++ {
+		c := uint8(0)
+		if i >= 2 && i < 4 {
+			c = 1
+		} else if i >= 4 {
+			c = 3
+		}
+		e.HoopPearls[i] = HoopPearl{Color: c, Claimed: false}
+	}
+	e.TileCount = 5
+	e.Tiles[0] = Tile{Col: 0, Row: 0, Color: 2, Dir: DirUp, Alive: true}    // Dead color trap!
+	e.Tiles[1] = Tile{Col: 3, Row: 0, Color: 1, Dir: DirRight, Alive: true} // Useless tray trap!
+	e.Tiles[2] = Tile{Col: 2, Row: 2, Color: 1, Dir: DirRight, Alive: true} // OPTIMAL: unblocks Tile 3 & Tile 4!
+	e.Tiles[3] = Tile{Col: 1, Row: 2, Color: 0, Dir: DirRight, Alive: true} // Blocked by Tile 2
+	e.Tiles[4] = Tile{Col: 0, Row: 2, Color: 0, Dir: DirRight, Alive: true} // Blocked by Tile 2 & 3
+	e.syncBuffers()
+
+	mv := e.ComputeHint()
+	if mv != 2 {
+		t.Fatalf("Optimal Hint MUST pick tile 2 (the ONLY winning move), got %d (sabotage trap!)", mv)
+	}
+
+	// Now verify that following ComputeHint() step-by-step wins cleanly!
+	for step := 0; step < 10 && e.Phase != PhaseComplete; step++ {
+		h := e.ComputeHint()
+		if h < 0 {
+			t.Fatalf("expected winning hint at step %d, got %d", step, h)
+		}
+		if !e.TapTile(h) {
+			t.Fatalf("hint move %d failed TapTile at step %d", h, step)
+		}
+	}
+	if e.Phase != PhaseComplete {
+		t.Fatalf("expected following Optimal Hints to win cleanly, got phase=%d", e.Phase)
+	}
+
+	// Also verify a true dead-end board (all 5 tray slots full, 0 direct moves) returns HintNeedsUndo (-2) with ZERO sabotage!
+	e.TrayLen = 5
+	e.Phase = PhaseTrayFull
+	e.HintTileIdx = -1
+	deadHint := e.ComputeHint()
+	if deadHint != HintNeedsUndo {
+		t.Fatalf("expected HintNeedsUndo (-2) on dead-end board, got %d", deadHint)
+	}
+}
+
 

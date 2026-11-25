@@ -50,6 +50,7 @@ export interface AudioDiagnostics {
   muted: boolean;
   notesScheduled: number;
   state?: string;
+  finalRushMode: boolean;
 }
 
 export interface SyncAudioContext {
@@ -95,6 +96,8 @@ export class ProceduralSoundscape {
 
   private muted = false;
   private rumbleScale = 1.0;
+  private finalRushMode = false;
+  private rushStep = 0;
   private timeOfDayHours = 12.0;
   private notesScheduled = 0;
   private ambientTimer: number | null = null;
@@ -120,6 +123,24 @@ export class ProceduralSoundscape {
     this.rumbleScale = Math.max(0, Math.min(2.5, Number.isFinite(scale) ? scale : 1.0));
   }
 
+  /** Shifts ambient music into an upbeat, sparkling Victory Rush arpeggio when only 1 color remains! */
+  setFinalRushMode(active: boolean): void {
+    if (this.finalRushMode === active) return;
+    this.finalRushMode = active;
+    this.rushStep = 0;
+    this.applySolarAtmosphere(this.timeOfDayHours);
+    if (active && this.ctx && !this.muted) {
+      // Bright celebratory home-stretch lift chord!
+      const { rootMidi } = this.computeSolarParams(this.timeOfDayHours);
+      [0, 7, 11, 14, 19].forEach((semi, idx) => {
+        this.playTone(midiToHz(rootMidi + semi), 0.52, 0.085, 'triangle', idx * 0.032, 0.005);
+      });
+    }
+    if (this.ctx) {
+      this.scheduleNextAmbientDroplet();
+    }
+  }
+
   isMuted(): boolean {
     return this.muted;
   }
@@ -130,6 +151,7 @@ export class ProceduralSoundscape {
       muted: this.muted,
       notesScheduled: this.notesScheduled,
       state: this.ctx ? this.ctx.state : 'uninitialized',
+      finalRushMode: this.finalRushMode,
     };
   }
 
@@ -416,11 +438,13 @@ export class ProceduralSoundscape {
     const { rootMidi, cutoffHz, daylight } = this.computeSolarParams(hours);
     const now = this.ctx.currentTime;
 
-    this.filter.frequency.setTargetAtTime(Math.max(620, cutoffHz), now, 0.4);
-    this.padOscA.frequency.setTargetAtTime(midiToHz(rootMidi - 12), now, 0.6);
-    this.padOscB.frequency.setTargetAtTime(midiToHz(rootMidi - 5), now, 0.6);
+    const effCutoff = this.finalRushMode ? Math.min(4600, cutoffHz * 1.48) : Math.max(620, cutoffHz);
+    this.filter.frequency.setTargetAtTime(effCutoff, now, 0.25);
+    this.padOscA.frequency.setTargetAtTime(midiToHz(rootMidi + (this.finalRushMode ? 0 : -12)), now, 0.35);
+    this.padOscB.frequency.setTargetAtTime(midiToHz(rootMidi + (this.finalRushMode ? 7 : -5)), now, 0.35);
     if (this.padGain) {
-      this.padGain.gain.setTargetAtTime(lerp(0.020, 0.032, daylight), now, 0.5);
+      const targetPad = this.finalRushMode ? 0.038 : lerp(0.020, 0.032, daylight);
+      this.padGain.gain.setTargetAtTime(targetPad, now, 0.30);
     }
   }
 
@@ -467,10 +491,34 @@ export class ProceduralSoundscape {
       window.clearTimeout(this.ambientTimer);
     }
     const { intervalMs, rootMidi, daylight } = this.computeSolarParams(this.timeOfDayHours);
-    const jitter = (Math.sin(this.melodyStep * 1.618) * 0.5 + 0.5) * 900;
 
+    if (this.finalRushMode) {
+      // Upbeat, joyous Final-Color Victory Rush arpeggio pulse (~410ms sparkling Lydian groove!)
+      const RUSH_PATTERN = [0, 4, 7, 11, 12, 14, 16, 19];
+      this.ambientTimer = window.setTimeout(() => {
+        if (this.ctx && this.ctx.state === 'running' && !this.muted && this.finalRushMode) {
+          const idx = this.rushStep % RUSH_PATTERN.length;
+          const semi = RUSH_PATTERN[idx];
+          const freq = midiToHz(rootMidi + semi);
+          this.playTone(freq, 0.44, 0.056, 'triangle', 0, 0.008);
+          if (idx % 4 === 0) {
+            // Warm upbeat bass pulse on beat 1 & 5
+            this.playTone(midiToHz(rootMidi - 12 + (idx === 0 ? 0 : 7)), 0.55, 0.048, 'sine', 0, 0.012);
+          }
+          if (idx % 2 === 1) {
+            // Crisp upper crystal shimmer on off-beats
+            this.playTone(freq * 2.0, 0.24, 0.022, 'sine', 0.015, 0.005);
+          }
+          this.rushStep++;
+        }
+        this.scheduleNextAmbientDroplet();
+      }, 410);
+      return;
+    }
+
+    const jitter = (Math.sin(this.melodyStep * 1.618) * 0.5 + 0.5) * 900;
     this.ambientTimer = window.setTimeout(() => {
-      if (this.ctx && this.ctx.state === 'running' && !this.muted) {
+      if (this.ctx && this.ctx.state === 'running' && !this.muted && !this.finalRushMode) {
         const deg = SOLAR_SCALE_SEMITONES[this.melodyStep % 7];
         const freq = midiToHz(rootMidi + deg);
         const type: OscillatorType = daylight > 0.55 ? 'triangle' : 'sine';
@@ -504,6 +552,15 @@ export class ProceduralSoundscape {
         });
       }
       return;
+    }
+
+    if (events.queueEvents > prev.queueEvents) {
+      // Crisp, light high-pitched confirmation tick for queued Final-Color gems (zero error!)
+      vibratePattern(info.hapticsEnabled, 6, rScale);
+      if (this.ctx && !this.muted) {
+        this.playTone(midiToHz(rootMidi + 19), 0.11, 0.068, 'sine', 0, 0.003);
+        this.playTone(midiToHz(rootMidi + 24), 0.12, 0.042, 'triangle', 0.022, 0.003);
+      }
     }
 
     if (events.layerClearEvents > prev.layerClearEvents) {

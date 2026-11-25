@@ -214,7 +214,24 @@ Finalizing the full gameplay feature suite before mass-producing the 200-level c
 
 ---
 
-## 11. Iteration Log
+## 11. Pearl Loom v2.10 Design Delta — Final-Color Victory Rush & Optimal Solver Hints (`Status: Locked`)
+
+Elevating end-of-puzzle momentum and making Hints genuinely trustworthy on hard boards:
+
+1. **Final-Color Victory Rush Mode (`finalColorMode`)**:
+   - Automatically engages when strictly **1 hoop color remains** (`remainingColors == 1 && Phase == Playing`) — the win is effectively in hand, so the game shifts into a snappy, effortless victory lap:
+   - **Upbeat Rush Music**: Shifts [`ProceduralSoundscape`](file:///home/antigravity/patrickdomnick/mobile-game/src/audio/soundscape.ts) from calm atelier droplets into a bright, rhythmic Lydian victory-stretch arpeggio groove (auto-reverting on completion, reset, undo back to 2+ colors, or Start Menu).
+   - **Zero Jiggles & Zero Gem Highlights**: Immediately clears and suppresses all `ColorGlowT` gem highlights, load/unlock wiggles, and periodic active/rainbow wiggles — only 1 color is left, so the board stays calm and crystal-clear.
+   - **Snappier Motion & UI**: Nearly 2× faster pearl flight (`0.16s`), tighter tray cascade stagger (`0.03s`), faster hoop bloom (`9.5/s`), faster rolling score ticker, snappier floating callouts, and `FINISH` HUD caption.
+   - **Zero-Error Auto-Resolve Tap Queue**: Tapping any blocked or locked gem in Final-Color Mode produces **zero error** (no red blocker flash, no error buzz, no error shake) and instead **queues** the gem (`AutoQueue`, confirmed with a crisp queue tick chime & subtle queued tile border). The moment its path/locks clear, queued gems automatically cascade into the hoop in rapid domino rhythm (`~55ms` beat).
+2. **Mathematically Optimal, Never-Sabotaging Hints (`solveOptimalHint`)**:
+   - Replaces first-found unrestricted DFS + unverified heuristic fallback with **Iterative-Deepening Minimum-Tray-Cost Search** (`extraTrayUses = 0, 1, 2, ..., 6` + unrestricted fallback).
+   - Evaluates all playable root moves at the **minimum winning tray-cost tier** and picks the strictly best path to victory (lowest resulting tray fill, maximum newly unlocked direct stitches, earliest queued color, never dropping a dead/finished surplus color unless forced, early Heart & Locked-neighbor priority).
+   - Never falls back to an unverified move that can sabotage the player into a Tray Full dead-end; if no winning path exists from the current board, cleanly prompts `Undo` (`HintNeedsUndo = -2`).
+
+---
+
+## 12. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -229,4 +246,5 @@ Finalizing the full gameplay feature suite before mass-producing the 200-level c
 | 2026-11-25 | **Pearl Loom v2.7 — Full-Screen Standalone Fix, Cozy UI, Heart Pearls & Remote Cached `levels.json`** | **Shipped & Playtested** | Edge-to-edge standalone PWA height fix (confirmed working on iPhone!); clean non-technical UI without redundant Time/Install buttons; 1–3 Bonus Heart Pearls with contrast-adaptive ♥ inlay, early-placement score scaling, periodic wiggle & crystalline chime; remote-fetched + offline-cached `public/levels.json` loaded dynamically into WASM (`pearl-loom-v11`). |
 | 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Playtested** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). Confirmed `8×8` is ideal upper bound on iPhone 16 and ramp feels great! |
 | 2026-11-25 | **Pearl Loom v2.9 — Special Pearls Suite (3D Heart, Rainbow, Hidden, Locked), Live `config.json` & Seeded Difficulties** | **Shipped & Verified** | True 3D raymarched heart pearl; Rainbow wild pearls (surplus pearl + independent jiggle + shimmer arp); Obsidian Hidden pearls (reveal when stitchable + chime); 4-neighbor Locked pearls (directional clasp overlay + latch-release audio); remote-cached `public/config.json`; 4 seeded difficulty tiers (`Easy 5×5` → `Extreme 8×8`) (`pearl-loom-v13`). |
+| 2026-11-25 | **Pearl Loom v2.10 — Final-Color Victory Rush, Auto-Resolve Queue & Optimal Solver Hints** | **Shipped & Verified** | Final-color rush mode: upbeat victory music, snappier flight/UI, zero jiggles & zero gem highlights, zero-error click-to-queue auto-resolve domino cascade; iterative-deepening minimum-tray-cost optimal Hint solver that always picks the best winning path (`pearl-loom-v14`). |
 

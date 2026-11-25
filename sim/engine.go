@@ -219,8 +219,11 @@ type Engine struct {
 	lastWiggleIdx        int
 	lastRainbowWiggleIdx int
 
-	HintTileIdx int
-	HintPulse   float32
+	HintTileIdx       int
+	HintPulse         float32
+	AutoQueue         [MaxGridTiles]int
+	AutoQueueLen      int
+	AutoQueueCooldown float32
 
 	// Event counters consumed by procedural Web Audio + floating score popups + haptics
 	StitchEvents       uint32
@@ -238,6 +241,7 @@ type Engine struct {
 	HiddenRevealEvents uint32
 	LockBreakEvents    uint32
 	LockedTapEvents    uint32
+	QueueEvents        uint32
 	CompleteEvents     uint32
 
 	undoStack []undoSnapshot
@@ -580,6 +584,8 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.ColorQueue = colorOrder
 	e.QueueLen = colorCount
 	e.QueuePos = 0
+	e.AutoQueueLen = 0
+	e.AutoQueueCooldown = 0
 	e.wiggleRng = newPRNG(art.Seed ^ 0x51C3D7A1)
 	e.lastWiggleIdx = -1
 	e.lastRainbowWiggleIdx = -1
@@ -595,9 +601,86 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.syncBuffers()
 }
 
+// IsFinalColorMode returns true when strictly ONE hoop color remains to be stitched while playing.
+// The win is effectively in hand: upbeat rush music plays, jiggles & gem highlights stop, flights speed up,
+// and tapping any blocked/locked gem queues it silently to auto-resolve as soon as it becomes free!
+func (e *Engine) IsFinalColorMode() bool {
+	if e.Phase != PhasePlaying || e.HoopCount <= 0 {
+		return false
+	}
+	remColors := 0
+	for c := 0; c < NumColors; c++ {
+		if e.Remain[c] > 0 {
+			remColors++
+			if remColors > 1 {
+				return false
+			}
+		}
+	}
+	return remColors == 1
+}
+
+func (e *Engine) clearHighlightsAndJiggles() {
+	for c := 0; c < NumColors; c++ {
+		e.ColorGlowT[c] = 0
+	}
+	for i := 0; i < e.TileCount; i++ {
+		e.Tiles[i].JiggleT = 0
+		e.Tiles[i].JiggleDelay = 0
+	}
+}
+
+func (e *Engine) isTileQueued(idx int) bool {
+	for i := 0; i < e.AutoQueueLen; i++ {
+		if e.AutoQueue[i] == idx {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) enqueueTile(idx int) {
+	if e.isTileQueued(idx) || e.AutoQueueLen >= MaxGridTiles {
+		return
+	}
+	e.AutoQueue[e.AutoQueueLen] = idx
+	e.AutoQueueLen++
+}
+
+func (e *Engine) removeFromAutoQueue(idx int) {
+	w := 0
+	for i := 0; i < e.AutoQueueLen; i++ {
+		if e.AutoQueue[i] != idx {
+			e.AutoQueue[w] = e.AutoQueue[i]
+			w++
+		}
+	}
+	e.AutoQueueLen = w
+}
+
+func (e *Engine) hasReadyQueuedTile() bool {
+	if e.Phase != PhasePlaying || e.AutoQueueLen == 0 {
+		return false
+	}
+	for i := 0; i < e.AutoQueueLen; i++ {
+		qIdx := e.AutoQueue[i]
+		if qIdx < 0 || qIdx >= e.TileCount || !e.Tiles[qIdx].Alive {
+			continue
+		}
+		if isTileLockedNow(e.Tiles[:e.TileCount], qIdx) {
+			continue
+		}
+		if findFirstBlocker(e.Tiles[:e.TileCount], qIdx, e.GridCols, e.GridRows) < 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // updateSpecialStates reveals any Hidden Pearl that is now stitchable (unblocked + active color)
 // and unlocks any Locked Pearl whose 4 orthogonal adjacent tiles are now empty.
 func (e *Engine) updateSpecialStates(silent bool) {
+	finalMode := e.IsFinalColorMode()
 	for i := 0; i < e.TileCount; i++ {
 		t := &e.Tiles[i]
 		if !t.Alive {
@@ -607,8 +690,10 @@ func (e *Engine) updateSpecialStates(silent bool) {
 			if e.isActiveColor(t.Color) && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
 				t.Revealed = true
 				if !silent {
-					t.JiggleDelay = 0
-					t.JiggleT = 0.90
+					if !finalMode {
+						t.JiggleDelay = 0
+						t.JiggleT = 0.90
+					}
 					e.HiddenRevealEvents++
 				}
 			}
@@ -616,8 +701,10 @@ func (e *Engine) updateSpecialStates(silent bool) {
 			if adjacentAliveDirMask(e.Tiles[:e.TileCount], i) == 0 {
 				t.Unlocked = true
 				if !silent {
-					t.JiggleDelay = 0
-					t.JiggleT = 1.0
+					if !finalMode {
+						t.JiggleDelay = 0
+						t.JiggleT = 1.0
+					}
 					e.LockBreakEvents++
 					e.addShake(0.30)
 				}
@@ -725,8 +812,11 @@ func (e *Engine) nextQueuedColor() int {
 }
 
 // triggerColorJiggle queues a calm, playful wiggle on ONLY visible alive board pearls of color c.
-// Never wiggles concealed Hidden pearls (zero color spoiler!) or Rainbow pearls (which have their own independent timer!).
+// Never wiggles concealed Hidden pearls (zero color spoiler!), Rainbow pearls, or during Final-Color Mode!
 func (e *Engine) triggerColorJiggle(color uint8, delay float32) {
+	if e.IsFinalColorMode() {
+		return
+	}
 	for i := 0; i < e.TileCount; i++ {
 		t := &e.Tiles[i]
 		if !t.Alive || t.Special == SpecialRainbow || (t.Special == SpecialHidden && !t.Revealed) {
@@ -746,8 +836,9 @@ func (e *Engine) triggerColorJiggle(color uint8, delay float32) {
 
 // TriggerRandomActiveWiggle picks 1 random visible alive pearl matching ANY currently active stitch color OR an alive
 // Heart Pearl (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a gentle wiggle.
+// Automatically suppressed once only 1 color remains (Final-Color Mode).
 func (e *Engine) TriggerRandomActiveWiggle() int {
-	if e.Phase != PhasePlaying {
+	if e.Phase != PhasePlaying || e.IsFinalColorMode() {
 		return -1
 	}
 	var activeCands [MaxGridTiles]int
@@ -800,8 +891,9 @@ func (e *Engine) TriggerRandomActiveWiggle() int {
 }
 
 // TriggerRandomRainbowWiggle independently wiggles an alive Rainbow Wild Pearl on its own cadence!
+// Automatically suppressed in Final-Color Mode.
 func (e *Engine) TriggerRandomRainbowWiggle() int {
-	if e.Phase != PhasePlaying {
+	if e.Phase != PhasePlaying || e.IsFinalColorMode() {
 		return -1
 	}
 	var cands [MaxGridTiles]int
@@ -834,6 +926,7 @@ func (e *Engine) refillActiveColors() {
 
 // refillActiveColorsWithDelay fills up to 2 active stitch slots, EXCEPT the very last color in the queue
 // is held back until the penultimate color is 100% completed (so the final two colors unlock separately!).
+// Once only 1 color remains (Final-Color Mode), all highlights & jiggles are cleared immediately.
 func (e *Engine) refillActiveColorsWithDelay(jiggleDelay float32) {
 	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
@@ -844,6 +937,7 @@ func (e *Engine) refillActiveColorsWithDelay(jiggleDelay float32) {
 		}
 	}
 
+	finalMode := e.IsFinalColorMode()
 	for i := 0; i < ActiveSlots; i++ {
 		if e.Active[i] >= 0 {
 			continue
@@ -860,11 +954,17 @@ func (e *Engine) refillActiveColorsWithDelay(jiggleDelay float32) {
 			}
 			e.QueuePos++
 			e.Active[i] = c
-			e.ColorGlowT[c] = 1.0
-			e.triggerColorJiggle(uint8(c), jiggleDelay)
+			if !finalMode {
+				e.ColorGlowT[c] = 1.0
+				e.triggerColorJiggle(uint8(c), jiggleDelay)
+			}
 			activeAlive++
 			break
 		}
+	}
+
+	if finalMode {
+		e.clearHighlightsAndJiggles()
 	}
 }
 
@@ -969,6 +1069,13 @@ func (e *Engine) spawnFlight(color uint8, special uint8, sx, sy, sz, ex, ey, ez 
 	if !toHoop {
 		ctrlY = 0.85
 	}
+	dur := float32(0.30)
+	if e.IsFinalColorMode() {
+		dur = 0.16
+		if toHoop {
+			ctrlY = 1.15
+		}
+	}
 
 	e.Flying[slot] = FlyingPearl{
 		Active:      true,
@@ -985,7 +1092,7 @@ func (e *Engine) spawnFlight(color uint8, special uint8, sx, sy, sz, ex, ey, ez 
 		EndZ:        ez,
 		Progress:    0,
 		Delay:       delay,
-		Duration:    0.30,
+		Duration:    dur,
 		ToHoop:      toHoop,
 		TargetIndex: targetIdx,
 	}
@@ -1033,6 +1140,11 @@ func (e *Engine) captureUndoSnapshot() undoSnapshot {
 
 func (e *Engine) drainTrayToHoop() {
 	stagger := float32(0.07)
+	staggerStep := float32(0.08)
+	if e.IsFinalColorMode() {
+		stagger = 0.03
+		staggerStep = 0.04
+	}
 	for {
 		progressed := false
 		writeIdx := 0
@@ -1049,7 +1161,7 @@ func (e *Engine) drainTrayToHoop() {
 						sp = SpecialHeart
 					}
 					e.spawnFlight(c, sp, sx, 0.22, sz, hp.WorldX, 0.14, hp.WorldZ, stagger, true, hoopIdx)
-					stagger += 0.08
+					stagger += staggerStep
 					e.Remain[c]--
 					e.Streak++
 					if e.Streak > e.MaxStreak {
@@ -1102,6 +1214,8 @@ func (e *Engine) updatePhase() {
 	if allClaimed && e.HoopCount > 0 {
 		if e.Phase != PhaseComplete {
 			e.Phase = PhaseComplete
+			e.AutoQueueLen = 0
+			e.AutoQueueCooldown = 0
 			e.CelebrateT = 1.0
 			e.addShake(0.92)
 			if e.TrayUses == 0 {
@@ -1180,14 +1294,23 @@ func (e *Engine) TapWorld(wx, wz float32) bool {
 	return e.TapTile(bestIdx)
 }
 
-// TapTile attempts to untangle tile idx. Returns true if the tile was freed.
+// TapTile attempts to untangle tile idx. Returns true if the tile was freed (or queued in Final-Color Mode).
 func (e *Engine) TapTile(idx int) bool {
 	if e.Phase == PhaseComplete || idx < 0 || idx >= e.TileCount || !e.Tiles[idx].Alive {
 		return false
 	}
 
+	finalMode := e.IsFinalColorMode()
+
 	// 1. Check Locked Pearl rule FIRST: cannot be used while ANY of the 4 orthogonal adjacent cells holds an alive pearl!
 	if isTileLockedNow(e.Tiles[:e.TileCount], idx) {
+		if finalMode {
+			// In Final-Color Victory Rush Mode: zero error! Silently queue it to auto-resolve the moment it unlocks!
+			e.enqueueTile(idx)
+			e.QueueEvents++
+			e.syncBuffers()
+			return true
+		}
 		adj := findFirstAdjacentAlive(e.Tiles[:e.TileCount], idx)
 		e.Tiles[idx].WobbleT = 1.0
 		if adj >= 0 {
@@ -1205,6 +1328,13 @@ func (e *Engine) TapTile(idx int) bool {
 	// 2. Check directional arrow lane blocker
 	blocker := findFirstBlocker(e.Tiles[:e.TileCount], idx, e.GridCols, e.GridRows)
 	if blocker >= 0 {
+		if finalMode {
+			// In Final-Color Victory Rush Mode: zero error! Silently queue it to auto-resolve as soon as its lane opens!
+			e.enqueueTile(idx)
+			e.QueueEvents++
+			e.syncBuffers()
+			return true
+		}
 		e.Tiles[idx].WobbleT = 1.0
 		e.Tiles[blocker].WobbleT = 0.65
 		e.LastTappedBlockedIdx = idx
@@ -1242,6 +1372,7 @@ func (e *Engine) TapTile(idx int) bool {
 	}
 
 	e.undoStack = append(e.undoStack, e.captureUndoSnapshot())
+	e.removeFromAutoQueue(idx)
 	e.LastScoreDelta = 0
 	e.LastTappedBlockedIdx = -1
 	e.LastBlockerIdx = -1
@@ -1323,7 +1454,14 @@ func (e *Engine) TapTile(idx int) bool {
 
 	// Reveal newly stitchable Hidden pearls & break open newly freed Locked pearls!
 	e.updateSpecialStates(false)
+	if e.IsFinalColorMode() {
+		e.clearHighlightsAndJiggles()
+	}
 	e.updatePhase()
+	if e.AutoQueueLen > 0 && e.Phase == PhasePlaying && e.AutoQueueCooldown <= 0 {
+		// Short 45ms beat before firing the next newly-freed queued gem in domino rhythm!
+		e.AutoQueueCooldown = 0.045
+	}
 	e.syncBuffers()
 	return true
 }
@@ -1367,6 +1505,8 @@ func (e *Engine) Undo() bool {
 	e.Remain = snap.remain
 	e.Active = snap.active
 	e.QueuePos = snap.queuePos
+	e.AutoQueueLen = 0
+	e.AutoQueueCooldown = 0
 	undoPen := e.Tuning.UndoPenalty
 	if snap.score > undoPen {
 		e.Score = snap.score - undoPen
@@ -1398,9 +1538,10 @@ func (e *Engine) Undo() bool {
 	return true
 }
 
-// ComputeHint finds a guaranteed safe next tile from the live state using priority-guided search.
+// ComputeHint finds the mathematically optimal next tile on the best path to victory
+// using iterative-deepening minimum-tray-cost search (NEVER sabotages the player with an unverified move!).
 // Limitless in use: deducts Tuning.HintPenalty on each new highlighted hint.
-// Returns HintNeedsUndo (-2) if the current board is in a dead-end pinch requiring Undo!
+// Returns HintNeedsUndo (-2) with ZERO penalty if the current board is in a dead-end pinch requiring Undo!
 func (e *Engine) ComputeHint() int {
 	if e.Phase == PhaseComplete {
 		return -1
@@ -1419,6 +1560,7 @@ func (e *Engine) ComputeHint() int {
 		aliveMask: aliveMask,
 		tray:      e.Tray,
 		trayLen:   e.TrayLen,
+		trayUses:  e.TrayUses,
 		remain:    e.Remain,
 		active:    e.Active,
 		queue:     e.ColorQueue,
@@ -1426,7 +1568,7 @@ func (e *Engine) ComputeHint() int {
 		queuePos:  e.QueuePos,
 	}
 
-	ok, bestMove, exhausted := solveFromStateDetailed(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, 16000)
+	ok, bestMove, _ := solveOptimalHint(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st)
 
 	if ok && bestMove >= 0 {
 		if bestMove != e.HintTileIdx {
@@ -1447,35 +1589,7 @@ func (e *Engine) ComputeHint() int {
 		return bestMove
 	}
 
-	if exhausted || e.TrayLen >= TrayCapacity {
-		e.HintTileIdx = HintNeedsUndo
-		e.HintPulse = 1.0
-		e.LastPenaltyDelta = 0
-		e.HintEvents++
-		e.syncBuffers()
-		return HintNeedsUndo
-	}
-
-	fallback := pickBestHeuristicMove(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st)
-	if fallback >= 0 {
-		if fallback != e.HintTileIdx {
-			if e.Score > hintPen {
-				e.Score -= hintPen
-			} else {
-				e.Score = 0
-			}
-			e.HintsUsed++
-			e.LastPenaltyDelta = hintPen
-		} else {
-			e.LastPenaltyDelta = 0
-		}
-		e.HintTileIdx = fallback
-		e.HintPulse = 1.0
-		e.HintEvents++
-		e.syncBuffers()
-		return fallback
-	}
-
+	// No verified winning path exists from this board state -> cleanly guide the player to Undo!
 	e.HintTileIdx = HintNeedsUndo
 	e.HintPulse = 1.0
 	e.LastPenaltyDelta = 0
@@ -1484,10 +1598,11 @@ func (e *Engine) ComputeHint() int {
 	return HintNeedsUndo
 }
 
-// IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, or tension pulse needs 60 FPS.
+// IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, or queued cascade needs 60 FPS.
 func (e *Engine) IsAnimating() bool {
 	if e.CelebrateT > 0.005 || e.HintTileIdx >= 0 || e.ShakeAmt > 0.005 ||
-		e.ColorBurstPulse > 0.005 || e.LayerBurstPulse > 0.005 || e.BlockerFlashT > 0.005 {
+		e.ColorBurstPulse > 0.005 || e.LayerBurstPulse > 0.005 || e.BlockerFlashT > 0.005 ||
+		e.hasReadyQueuedTile() {
 		return true
 	}
 	for i := range e.Flying {
@@ -1518,6 +1633,45 @@ func (e *Engine) IsAnimating() bool {
 	return false
 }
 
+// processAutoQueue automatically resolves queued Final-Color gems the instant their lane/locks clear!
+func (e *Engine) processAutoQueue(dt float32) {
+	if e.AutoQueueLen == 0 || e.Phase != PhasePlaying {
+		return
+	}
+	if e.AutoQueueCooldown > 0 {
+		e.AutoQueueCooldown -= dt
+		if e.AutoQueueCooldown > 0 {
+			return
+		}
+		e.AutoQueueCooldown = 0
+	}
+
+	// Compact dead entries and fire the earliest newly playable queued tile in crisp domino order!
+	w := 0
+	firedIdx := -1
+	for i := 0; i < e.AutoQueueLen; i++ {
+		qIdx := e.AutoQueue[i]
+		if qIdx < 0 || qIdx >= e.TileCount || !e.Tiles[qIdx].Alive {
+			continue
+		}
+		if firedIdx < 0 && !isTileLockedNow(e.Tiles[:e.TileCount], qIdx) &&
+			findFirstBlocker(e.Tiles[:e.TileCount], qIdx, e.GridCols, e.GridRows) < 0 {
+			firedIdx = qIdx
+			continue
+		}
+		e.AutoQueue[w] = qIdx
+		w++
+	}
+	e.AutoQueueLen = w
+
+	if firedIdx >= 0 {
+		e.TapTile(firedIdx)
+		if e.AutoQueueLen > 0 && e.Phase == PhasePlaying {
+			e.AutoQueueCooldown = 0.055
+		}
+	}
+}
+
 // Step advances animations and updates GPU/telemetry buffers deterministically.
 func (e *Engine) Step(dt float32) {
 	if dt <= 0 {
@@ -1529,6 +1683,14 @@ func (e *Engine) Step(dt float32) {
 
 	e.FrameCount++
 	e.ElapsedSec += dt
+
+	// Auto-resolve queued Final-Color gems as soon as their blockers/locks vanish!
+	e.processAutoQueue(dt)
+
+	finalMode := e.IsFinalColorMode()
+	if finalMode {
+		e.clearHighlightsAndJiggles()
+	}
 
 	// Smooth decay on juice pulses, screenshake & temporary 3.5s double-beat interior unlock glow
 	for c := 0; c < NumColors; c++ {
@@ -1607,16 +1769,22 @@ func (e *Engine) Step(dt float32) {
 		}
 	}
 
+	bloomRate := float32(4.8)
+	shimmerRate := float32(1.65)
+	if finalMode {
+		bloomRate = 9.5
+		shimmerRate = 3.2
+	}
 	for i := 0; i < e.HoopCount; i++ {
 		hp := &e.HoopPearls[i]
 		if hp.Stitched && hp.BloomT < 1.0 {
-			hp.BloomT += dt * 4.8
+			hp.BloomT += dt * bloomRate
 			if hp.BloomT > 1.0 {
 				hp.BloomT = 1.0
 			}
 		}
 		if hp.ShimmerPulse > 0 {
-			hp.ShimmerPulse -= dt * 1.65
+			hp.ShimmerPulse -= dt * shimmerRate
 			if hp.ShimmerPulse < 0 {
 				hp.ShimmerPulse = 0
 			}
@@ -1843,6 +2011,7 @@ func (e *Engine) syncBuffers() {
 		// Bit 1 (1) = alive
 		// Bit 4 (4) = hinted
 		// Bit 8 (8) = blocker flash
+		// Bit 16 (16) = player-queued auto-resolve gem (Final-Color Mode only)
 		// Bit 32 (32) = 3D Heart-Shaped Pearl
 		// Bit 64 (64) = Rainbow Wild Pearl
 		// Bit 128 (128) = Hidden Pearl (currently concealed black)
@@ -1858,6 +2027,9 @@ func (e *Engine) syncBuffers() {
 		if e.BlockerFlashT > 0.01 && (i == e.LastBlockerIdx || i == e.LastTappedBlockedIdx) {
 			flags |= 8
 		}
+		if t.Alive && e.isTileQueued(i) {
+			flags |= 16
+		}
 		if t.IsHeart || t.Special == SpecialHeart {
 			flags |= 32
 		}
@@ -1871,9 +2043,10 @@ func (e *Engine) syncBuffers() {
 			flags |= 256 | (adjMask << 10)
 		}
 
-		// Suppress interior active-color glow on concealed Hidden pearls so they never spoil their color!
+		// Suppress interior active-color glow on concealed Hidden pearls, Rainbow pearls, AND Final-Color Mode!
+		finalModeNow := e.IsFinalColorMode()
 		glowVal := e.ColorGlowT[t.Color] * e.Tuning.GlowIntensity
-		if hiddenConcealed || t.Special == SpecialRainbow {
+		if hiddenConcealed || t.Special == SpecialRainbow || finalModeNow {
 			glowVal = 0
 		}
 
@@ -2092,4 +2265,11 @@ func (e *Engine) syncBuffers() {
 	e.State[58] = float32(e.LockBreakEvents)
 	e.State[59] = float32(e.LockedTapEvents)
 	e.State[60] = float32(e.SeedDifficulty)
+	if e.IsFinalColorMode() {
+		e.State[61] = 1
+	} else {
+		e.State[61] = 0
+	}
+	e.State[62] = float32(e.AutoQueueLen)
+	e.State[63] = float32(e.QueueEvents)
 }

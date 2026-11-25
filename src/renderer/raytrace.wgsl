@@ -897,6 +897,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
         }
 
         let tileMask = smoothstep(aa, -aa, dTile);
+        let isQueuedTile = (flags & 16u) != 0u;
         let isRainbowTile = (flags & 64u) != 0u;
         let isHiddenTile = (flags & 128u) != 0u;
         let isLockedTile = (flags & 256u) != 0u;
@@ -981,6 +982,14 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
             if (theme == 1u || isRainbowTile) {
               emissive += borderCol * select(0.36, 0.55, isRainbowTile) * tRimMask * tileMask;
             }
+          }
+
+          // Final-Color Mode player-queued tile indicator: crisp clean gold-ivory lock-on rim (zero gem glow!)
+          if (isQueuedTile) {
+            let qRim = smoothstep(-pitch * 0.065 - aa, -pitch * 0.065 + aa, dTile);
+            let qCol = toLinear(vec3<f32>(1.0, 0.88, 0.42));
+            tileCol = mix(tileCol, qCol, qRim * 0.88);
+            emissive += qCol * 0.42 * qRim * tileMask;
           }
 
           // Locked Pearl Overlay: crisp brass-gold lock frame + directional clasp bars pointing ONLY to still-alive N/E/S/W neighbors!

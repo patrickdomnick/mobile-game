@@ -1784,4 +1784,20 @@ html.is-standalone #app {
   box-shadow: 0 6px 18px rgba(245, 180, 42, 0.46);
 }
 
+/* v2.10: Snappier, faster Final-Color Victory Rush UI */
+#app[data-rush='on'] .fx-callout {
+  animation-duration: 0.62s;
+}
+
+#app[data-rush='on'] .pill,
+#app[data-rush='on'] .control-btn {
+  transition-duration: 0.08s;
+}
+
+#app[data-rush='on'] .swatch-caption {
+  color: var(--accent);
+  letter-spacing: 0.14em;
+}
+
+
 

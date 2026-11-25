@@ -300,6 +300,7 @@ export interface AudioEventCounters {
   hiddenRevealEvents: number;
   lockBreakEvents: number;
   lockedTapEvents: number;
+  queueEvents: number;
   completeEvents: number;
 }
 
@@ -310,6 +311,8 @@ export interface SimSnapshot {
   chapterIndex: number;
   seed: number;
   seedDifficulty: SeedDifficultyTier;
+  finalColorMode: boolean;
+  queuedCount: number;
   levelName: string;
   mode: GameMode;
   phase: GamePhase;
@@ -628,6 +631,13 @@ export class WasmSimulation {
     return Math.round(view[0]);
   }
 
+  /** Zero-allocation check for whether Final-Color Victory Rush Mode is active. */
+  isFinalColorMode(): boolean {
+    if (this.stateLen <= 61) return false;
+    const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 61 * 4, 1);
+    return view[0] > 0.5;
+  }
+
   readState(aspect: number): SimSnapshot {
     const s = new Float32Array(this.exports.memory.buffer, this.statePtr, this.stateLen);
     const tBuf = new Float32Array(this.exports.memory.buffer, this.tilesPtr, this.tilesLen);
@@ -644,6 +654,8 @@ export class WasmSimulation {
         : 0;
     const rawDiff = s.length > 60 ? Math.round(s[60]) : 1;
     const seedDifficulty = Math.max(0, Math.min(3, rawDiff)) as SeedDifficultyTier;
+    const finalColorMode = s.length > 61 ? s[61] > 0.5 : false;
+    const queuedCount = s.length > 62 ? Math.round(s[62]) : 0;
 
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
@@ -716,6 +728,8 @@ export class WasmSimulation {
       chapterIndex,
       seed,
       seedDifficulty,
+      finalColorMode,
+      queuedCount,
       levelName,
       mode,
       phase: PHASE_MAP[phaseIdx] ?? 'playing',
@@ -770,6 +784,7 @@ export class WasmSimulation {
         hiddenRevealEvents: s.length > 57 ? Math.round(s[57]) : 0,
         lockBreakEvents: s.length > 58 ? Math.round(s[58]) : 0,
         lockedTapEvents: s.length > 59 ? Math.round(s[59]) : 0,
+        queueEvents: s.length > 63 ? Math.round(s[63]) : 0,
         completeEvents: Math.round(s[30]),
       },
     };

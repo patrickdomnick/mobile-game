@@ -375,13 +375,44 @@ func isPlayableMask(tiles []Tile, mask uint64, idx int, cols, rows int) bool {
 	return true
 }
 
+// queueDistance returns how many upcoming colors away color c is (0 = nextQueuedColor, -1 = finished/dead!).
+func (s *solverState) queueDistance(c uint8) int {
+	if s.remain[c] <= 0 {
+		return -1
+	}
+	if s.isActiveColor(c) {
+		return 0
+	}
+	dist := 0
+	for p := s.queuePos; p < s.queueLen; p++ {
+		qc := s.queue[p]
+		if s.remain[qc] <= 0 || s.isActiveColor(qc) {
+			continue
+		}
+		if qc == c {
+			return dist
+		}
+		dist++
+	}
+	return dist + 1
+}
+
 // scoreTrayCandidate prioritizes tray moves that directly unblock active-color pearls,
-// free Locked Pearls, or hold the next-up color so DFS finds winning escapes rapidly!
+// free Locked Pearls, avoid dead surplus colors, or hold soon-to-activate colors.
 func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) int {
 	score := 0
-	if int(tiles[idx].Color) == st.nextQueuedColor() {
-		score += 6
+	qDist := st.queueDistance(tiles[idx].Color)
+	if qDist < 0 {
+		// Dead/finished surplus color (after Rainbow use): occupies tray FOREVER unless forced!
+		score -= 60
+	} else if qDist == 0 {
+		score += 10
+	} else if qDist == 1 {
+		score += 4
+	} else {
+		score -= qDist * 2
 	}
+
 	nextMask := st.aliveMask &^ (uint64(1) << uint(idx))
 	tc := tiles[idx].Col
 	tr := tiles[idx].Row
@@ -390,21 +421,52 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 			continue
 		}
 		// Bonus for peeling a neighbor off a Locked Pearl!
-		if tiles[j].Special == SpecialLocked && absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
-			score += 9
+		if tiles[j].Special == SpecialLocked && !tiles[j].Unlocked && absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
+			score += 12
+			if !hasAdjacentAliveMask(tiles, nextMask, j) && (st.isActiveColor(tiles[j].Color) || tiles[j].Special == SpecialRainbow) {
+				score += 16
+			}
 		}
 		if tiles[j].Col != tc && tiles[j].Row != tr {
 			continue
 		}
 		if !isUnblockedMask(tiles, st.aliveMask, j, cols, rows) && isUnblockedMask(tiles, nextMask, j, cols, rows) {
 			if tiles[j].Special == SpecialRainbow || st.isActiveColor(tiles[j].Color) {
-				score += 14
+				score += 18
 			} else {
-				score += 3
+				score += 4
+				// 2-ply lookahead: does clearing j immediately open an active/Rainbow pearl?
+				afterJ := nextMask &^ (uint64(1) << uint(j))
+				jc, jr := tiles[j].Col, tiles[j].Row
+				for k := range tiles {
+					if k == j || (afterJ&(uint64(1)<<uint(k))) == 0 {
+						continue
+					}
+					if tiles[k].Col != jc && tiles[k].Row != jr {
+						continue
+					}
+					if (tiles[k].Special == SpecialRainbow || st.isActiveColor(tiles[k].Color)) &&
+						!isUnblockedMask(tiles, nextMask, k, cols, rows) &&
+						isUnblockedMask(tiles, afterJ, k, cols, rows) {
+						score += 7
+						break
+					}
+				}
 			}
 		}
 	}
 	return score
+}
+
+func countPlayableDirectMoves(tiles []Tile, st *solverState, cols, rows int) int {
+	cnt := 0
+	for i := range tiles {
+		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) &&
+			(tiles[i].Special == SpecialRainbow || st.isActiveColor(tiles[i].Color)) {
+			cnt++
+		}
+	}
+	return cnt
 }
 
 // fixedMaskSet is a zero-allocation open-addressed hash set for full 64-bit aliveMasks + separate trayUses tag.
@@ -571,6 +633,147 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 	return ok, mv, !hitBudget
 }
 
+// solveOptimalHint uses iterative-deepening over additional tray uses (0, 1, 2, ..., 6, then unrestricted)
+// and evaluates ALL playable root moves at the minimum winning tray-cost tier so Hint ALWAYS picks the
+// mathematically best path to victory (minimum tray drops, lowest tray fill, maximum newly unlocked stitches)
+// and NEVER sabotages the player with an unverified or wasteful move!
+func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, int, bool) {
+	if start.isComplete() {
+		return true, -1, true
+	}
+
+	var directCands [MaxGridTiles]int
+	var trayCands [MaxGridTiles]int
+	var trayQual [MaxGridTiles]int
+	directN := 0
+	trayN := 0
+
+	for i := range tiles {
+		if !isPlayableMask(tiles, start.aliveMask, i, cols, rows) {
+			continue
+		}
+		isRain := tiles[i].Special == SpecialRainbow
+		if isRain || start.isActiveColor(tiles[i].Color) {
+			directCands[directN] = i
+			directN++
+		} else if start.trayLen < TrayCapacity {
+			trayCands[trayN] = i
+			trayQual[trayN] = scoreTrayCandidate(tiles, &start, i, cols, rows)
+			trayN++
+		}
+	}
+
+	// Sort tray root candidates descending so the strongest escapes are tested first
+	for a := 1; a < trayN; a++ {
+		mv := trayCands[a]
+		sc := trayQual[a]
+		b := a - 1
+		for b >= 0 && trayQual[b] < sc {
+			trayCands[b+1] = trayCands[b]
+			trayQual[b+1] = trayQual[b]
+			b--
+		}
+		trayCands[b+1] = mv
+		trayQual[b+1] = sc
+	}
+
+	if directN == 0 && trayN == 0 {
+		return false, -1, true
+	}
+
+	// Iterative deepening over extra tray drops needed to win: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> unrestricted (-1)
+	extraBudgets := [8]int{0, 1, 2, 3, 4, 5, 6, -1}
+	for _, extra := range extraBudgets {
+		if extra == 0 && directN == 0 {
+			continue
+		}
+		maxTray := -1
+		perCandBudget := 7500
+		if extra >= 0 {
+			maxTray = start.trayUses + extra
+			if extra <= 2 {
+				perCandBudget = 4500
+			} else {
+				perCandBudget = 6000
+			}
+		}
+
+		bestMove := -1
+		bestRank := -1_000_000
+		allExhausted := true
+
+		// Evaluate direct/Rainbow candidates first (always strictly better than a tray drop at equal total tray cost!)
+		for k := 0; k < directN; k++ {
+			mv := directCands[k]
+			next := start
+			isRain := tiles[mv].Special == SpecialRainbow
+			if !next.applyTap(mv, tiles[mv].Color, isRain) {
+				continue
+			}
+			ok, _, ex := solveWithTrayBudgetDetailed(tiles, cols, rows, next, maxTray, perCandBudget)
+			if !ex {
+				allExhausted = false
+			}
+			if ok {
+				rank := 10000 - next.trayLen*120 + countPlayableDirectMoves(tiles, &next, cols, rows)*40
+				if tiles[mv].IsHeart || tiles[mv].Special == SpecialHeart {
+					rank += 120
+				}
+				if isRain {
+					// Save Rainbow slightly if a normal direct stitch is equally optimal, unless Rainbow unlocks more!
+					rank -= 30
+				}
+				if rank > bestRank {
+					bestRank = rank
+					bestMove = mv
+				}
+			}
+		}
+
+		// Only evaluate tray candidates if extra != 0 AND no direct candidate already won at this minimum tray cost!
+		if bestMove < 0 && extra != 0 {
+			for k := 0; k < trayN; k++ {
+				mv := trayCands[k]
+				next := start
+				if !next.applyTap(mv, tiles[mv].Color, false) {
+					continue
+				}
+				if maxTray >= 0 && next.trayUses > maxTray {
+					continue
+				}
+				ok, _, ex := solveWithTrayBudgetDetailed(tiles, cols, rows, next, maxTray, perCandBudget)
+				if !ex {
+					allExhausted = false
+				}
+				if ok {
+					// Strongly favor winning tray moves that:
+					// 1) Keep resulting tray fill minimal (especially draining immediately!)
+					// 2) Immediately unlock stitchable direct/Rainbow pearls on the very next move
+					// 3) Avoid dropping dead surplus colors (qDist < 0) and prefer soonest queued colors
+					directAfter := countPlayableDirectMoves(tiles, &next, cols, rows)
+					rank := 2000 - next.trayLen*240 + directAfter*140 + trayQual[k]*8
+					if tiles[mv].IsHeart || tiles[mv].Special == SpecialHeart {
+						rank += 45
+					}
+					if rank > bestRank {
+						bestRank = rank
+						bestMove = mv
+					}
+				}
+			}
+		}
+
+		if bestMove >= 0 {
+			return true, bestMove, true
+		}
+		if extra < 0 {
+			return false, -1, allExhausted
+		}
+	}
+
+	return false, -1, true
+}
+
 // solveFromStateDetailed returns (solved, firstMove, exhausted).
 func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int, bool) {
 	return solveWithTrayBudgetDetailed(tiles, cols, rows, start, -1, nodeBudget)
@@ -588,7 +791,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 	return ok, mv
 }
 
-// pickBestHeuristicMove selects the smartest legal playable move if a very deep board hits search budget.
+// pickBestHeuristicMove selects a fallback legal playable move (used only in non-hint diagnostics).
 func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
 	for i := range tiles {
 		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) &&
@@ -600,7 +803,7 @@ func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
 		return -1
 	}
 	bestIdx := -1
-	bestScore := -1
+	bestScore := -9999
 	for i := range tiles {
 		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) {
 			sc := scoreTrayCandidate(tiles, &st, i, cols, rows)
