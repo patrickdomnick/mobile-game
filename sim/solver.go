@@ -90,10 +90,16 @@ func isTileUnblocked(tiles []Tile, idx int, cols, rows int) bool {
 	return findFirstBlocker(tiles, idx, cols, rows) < 0
 }
 
+// ThreeStarTrayLimit returns the maximum number of tray drops allowed for a 3-star rating.
+func ThreeStarTrayLimit(totalPearls int) int {
+	return totalPearls / 6
+}
+
 type solverState struct {
 	aliveMask uint64
 	tray      [TrayCapacity]uint8
 	trayLen   int
+	trayUses  int
 	remain    [NumColors]int
 	active    [ActiveSlots]int
 	queue     [NumColors]uint8
@@ -191,6 +197,7 @@ func (s *solverState) applyTap(tileIdx int, color uint8) bool {
 	}
 	s.tray[s.trayLen] = color
 	s.trayLen++
+	s.trayUses++
 	s.drainTray()
 	return true
 }
@@ -254,7 +261,7 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 	return score
 }
 
-// fixedMaskSet is a zero-allocation open-addressed hash set for 49-bit aliveMasks.
+// fixedMaskSet is a zero-allocation open-addressed hash set for 49-bit aliveMasks (+ optional trayUses tag).
 const visitedTableSize = 8192 // power of two
 
 type fixedMaskSet struct {
@@ -295,11 +302,11 @@ func (s *fixedMaskSet) add(k uint64) {
 	}
 }
 
-// solveFromStateDetailed returns (solved, firstMove, exhausted).
-// When !solved && exhausted, the state is provably a dead-end pinch requiring Undo!
-func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int, bool) {
+// solveWithTrayBudgetDetailed returns (solved, firstMove, exhausted) while enforcing an optional
+// cumulative trayUses <= maxTrayUses budget (pass maxTrayUses < 0 for unrestricted search).
+func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState, maxTrayUses int, nodeBudget int) (bool, int, bool) {
 	if start.aliveMask == 0 {
-		return start.trayLen == 0, -1, true
+		return start.trayLen == 0 && (maxTrayUses < 0 || start.trayUses <= maxTrayUses), -1, true
 	}
 
 	nodes := 0
@@ -309,7 +316,7 @@ func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nod
 	var dfs func(st solverState) (bool, int)
 	dfs = func(st solverState) (bool, int) {
 		if st.aliveMask == 0 {
-			return st.trayLen == 0, -1
+			return st.trayLen == 0 && (maxTrayUses < 0 || st.trayUses <= maxTrayUses), -1
 		}
 		if nodes >= nodeBudget {
 			hitBudget = true
@@ -317,7 +324,11 @@ func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nod
 		}
 		nodes++
 
-		if visited.has(st.aliveMask) {
+		visitKey := st.aliveMask
+		if maxTrayUses >= 0 {
+			visitKey |= uint64(st.trayUses&0x7F) << 56
+		}
+		if visited.has(visitKey) {
 			return false, -1
 		}
 
@@ -326,13 +337,14 @@ func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nod
 		var trayMoves [MaxGridTiles]int
 		var trayScores [MaxGridTiles]int
 		trayN := 0
+		canUseTray := st.trayLen < TrayCapacity && (maxTrayUses < 0 || st.trayUses < maxTrayUses)
 
 		for i := range tiles {
 			if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) {
 				if st.isActiveColor(tiles[i].Color) {
 					directMoves[directN] = i
 					directN++
-				} else if st.trayLen < TrayCapacity {
+				} else if canUseTray {
 					trayMoves[trayN] = i
 					trayScores[trayN] = scoreTrayCandidate(tiles, &st, i, cols, rows)
 					trayN++
@@ -375,12 +387,24 @@ func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nod
 			}
 		}
 
-		visited.add(st.aliveMask)
+		visited.add(visitKey)
 		return false, -1
 	}
 
 	ok, mv := dfs(start)
 	return ok, mv, !hitBudget
+}
+
+// solveFromStateDetailed returns (solved, firstMove, exhausted).
+// When !solved && exhausted, the state is provably a dead-end pinch requiring Undo!
+func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int, bool) {
+	return solveWithTrayBudgetDetailed(tiles, cols, rows, start, -1, nodeBudget)
+}
+
+// solveWithTrayBudget finds a guaranteed winning sequence staying within maxTrayUses total tray drops.
+func solveWithTrayBudget(tiles []Tile, cols, rows int, start solverState, maxTrayUses int, nodeBudget int) (bool, int) {
+	ok, mv, _ := solveWithTrayBudgetDetailed(tiles, cols, rows, start, maxTrayUses, nodeBudget)
+	return ok, mv
 }
 
 // solveFromState finds a guaranteed winning sequence respecting the 5-slot silk tray rule.
@@ -443,13 +467,14 @@ func distToEdge(c, r, cols, rows int, dir uint8) int {
 }
 
 // generateSolvableBoard constructs an engaging, interlocking, 100%-solvable untangle board
-// verified under the exact 5-slot silk tray rule.
+// that is ALSO mathematically verified to have a 3-star winning path (TrayUses <= n/6)!
 func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 	colorOrder, colorCount, colorCounts := buildColorOrder(art.Stitches)
 	n := len(art.Stitches)
 	if n > MaxGridTiles {
 		n = MaxGridTiles
 	}
+	starLimit := ThreeStarTrayLimit(n)
 
 	type cell struct{ c, r int }
 	allCells := make([]cell, 0, art.Cols*art.Rows)
@@ -481,7 +506,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 
 	rng := newPRNG(art.Seed)
 
-	for attempt := 0; attempt < 64; attempt++ {
+	for attempt := 0; attempt < 96; attempt++ {
 		tiles := make([]Tile, n)
 		for i, cl := range chosen {
 			tiles[i] = Tile{
@@ -524,7 +549,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 				}
 				if vCount > 0 {
 					chosenDir := validDirs[rng.intn(vCount)]
-					// Gentler interlock for lower difficulty (e.g. Noir Salon), richer inward interlock for higher!
 					inwardBias := 5 + art.Difficulty
 					if inwardBias > 8 {
 						inwardBias = 8
@@ -567,8 +591,17 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
+		// Progressively refine color shuffle window if early high-scramble attempts exceed 3-star tray budget
 		window := 3 + art.Difficulty*2
 		swaps := n * (art.Difficulty + 1)
+		if attempt >= 48 {
+			window = 2 + art.Difficulty
+			swaps = n * 2
+		}
+		if attempt >= 76 {
+			window = 2
+			swaps = n
+		}
 		for s := 0; s < swaps; s++ {
 			a := rng.intn(n)
 			b := a + rng.intn(window*2+1) - window
@@ -591,12 +624,13 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		}
 		st.refillActive()
 
-		if ok, _ := solveFromState(tiles, art.Cols, art.Rows, st, 6000); ok {
+		// Provably verify BOTH 100% solvability AND 3-star achievability (TrayUses <= n/6)!
+		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 8000); ok {
 			return tiles, colorOrder, colorCount
 		}
 	}
 
-	// Deterministic guaranteed-solvable fallback
+	// Deterministic guaranteed 0-tray-use 3-star fallback
 	tiles := make([]Tile, n)
 	for i, cl := range chosen {
 		tiles[i] = Tile{Col: cl.c, Row: cl.r, Dir: DirUp, Alive: true}

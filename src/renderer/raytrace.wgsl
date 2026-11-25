@@ -26,7 +26,7 @@ struct SceneData {
   juiceFX: vec4<f32>,      // [12] x = colorBurstPulse, y = colorBurstColor, z = layerBurstPulse, w = trayTension
   blockerFX: vec4<f32>,    // [13] x = tappedX, y = tappedZ, z = blockerX, w = blockerZ
   extraFX: vec4<f32>,      // [14] x = blockerFlashT, y = streakFloat, z = layersDoneRatio, w = hintIdx
-  queueFX: vec4<f32>,      // [15] x = multiplier, y = nextQueuedColor, z = levelIdx, w = trayCap
+  queueFX: vec4<f32>,      // [15] x = multiplier, y = nextQueuedColor, z = levelIdx, w = spotlightMaxGlowT
   palette: array<vec4<f32>, 6>,
   tiles: array<PearlNode, 49>,
   hoopPearls: array<PearlNode, 49>,
@@ -134,7 +134,7 @@ fn skyReflection(rd: vec3<f32>, theme: u32) -> vec3<f32> {
   return col;
 }
 
-// Physical linear-space 3D raytraced pearl shading with subtle interior-only subsurface unlock radiance
+// Physical linear-space 3D raytraced pearl shading with 4s interior unlock spotlight & inactive-pearl antipattern dimming
 fn shadePearl(
   pos: vec3<f32>,
   normal: vec3<f32>,
@@ -144,6 +144,7 @@ fn shadePearl(
   sparkle: f32,
   isBlockerFlash: bool,
   interiorGlowT: f32,
+  isBoardPearl: bool,
 ) -> vec3<f32> {
   let theme = getTheme();
   let n = normalize(normal);
@@ -158,21 +159,25 @@ fn shadePearl(
   if (theme == 0u || theme == 3u) {
     let phase = (1.0 - ndotv) * 4.5 + pos.x * 0.35;
     let irid = toLinear(0.5 + 0.5 * vec3<f32>(sin(phase), sin(phase + 2.094), sin(phase + 4.188)));
-    albedo = mix(albedo, mix(albedo, irid, 0.24), (1.0 - ndotv) * (1.0 - ndotv) * iridescence * 0.5);
+    albedo = mix(albedo, mix(albedo, irid, 0.22), (1.0 - ndotv) * (1.0 - ndotv) * iridescence * 0.45);
   }
 
+  // Blend real solar angle with a subtle upper-left studio key so pearls always show natural 3D roundness
+  // (and never develop a harsh dead-center pinhole dot at solar noon!)
+  let studioKey = normalize(vec3<f32>(-0.46, 0.72, -0.52));
+  let keyDir = normalize(mix(sunDir, studioKey, 0.45));
   let sunLin = toLinear(scene.sunColor.rgb);
-  let wrapDiffuse = clamp((dot(n, sunDir) + 0.34) / 1.34, 0.0, 1.0);
-  let direct = sunLin * wrapDiffuse * (0.55 + 0.70 * scene.sunDir.w);
+  let wrapDiffuse = clamp((dot(n, keyDir) + 0.30) / 1.30, 0.0, 1.0);
+  let direct = sunLin * wrapDiffuse * (0.48 + 0.64 * scene.sunDir.w);
 
-  // Crisp glossy specular highlight
-  let hVec = normalize(sunDir + v);
-  let specPow = select(96.0, 128.0, theme == 1u || theme == 3u);
-  let spec = pow(max(dot(n, hVec), 0.0), specPow) * (0.95 + 0.55 * scene.sunDir.w);
+  // Smooth upper-left glossy specular sheen
+  let hVec = normalize(keyDir + v);
+  let specPow = select(44.0, 56.0, theme == 1u || theme == 3u);
+  let spec = pow(max(dot(n, hVec), 0.0), specPow) * (0.62 + 0.40 * scene.sunDir.w);
 
-  // Studio rim fill light for smooth 3D roundness
-  let fillDir = normalize(vec3<f32>(-0.55, 0.48, -0.64));
-  let fillDiff = max(dot(n, fillDir), 0.0) * 0.32;
+  // Soft studio rim fill light for 3D volume
+  let fillDir = normalize(vec3<f32>(0.52, 0.40, 0.62));
+  let fillDiff = max(dot(n, fillDir), 0.0) * 0.22;
   let oneMinusV = 1.0 - ndotv;
   let rimGlow = oneMinusV * oneMinusV * oneMinusV;
 
@@ -184,57 +189,67 @@ fn shadePearl(
   let candleAtten = scene.sunColor.w * (10.5 / (1.0 + candleDistSq * 0.24));
   let candleDiff = max(dot(n, candleDir), 0.0) * candleAtten;
   let candleHalf = normalize(candleDir + v);
-  let candleSpec = pow(max(dot(n, candleHalf), 0.0), 64.0) * candleAtten * 1.1;
+  let candleSpec = pow(max(dot(n, candleHalf), 0.0), 48.0) * candleAtten * 0.85;
   let candleTint = toLinear(vec3<f32>(1.0, 0.74, 0.38));
 
-  let hemiBot = mix(vec3<f32>(0.08), vec3<f32>(0.18), daylight);
-  let hemiTop = mix(vec3<f32>(0.22), vec3<f32>(0.42), daylight);
+  let hemiBot = mix(vec3<f32>(0.06), vec3<f32>(0.14), daylight);
+  let hemiTop = mix(vec3<f32>(0.18), vec3<f32>(0.36), daylight);
   let hemi = mix(hemiBot, hemiTop, n.y * 0.5 + 0.5);
 
-  let fresnel = 0.05 + 0.36 * oneMinusV * oneMinusV * oneMinusV * oneMinusV;
+  let fresnel = 0.04 + 0.32 * oneMinusV * oneMinusV * oneMinusV * oneMinusV;
   let envRefl = skyReflection(reflect(rd, n), theme);
 
-  var col = albedo * (hemi + direct + fillDiff + candleTint * candleDiff * 0.65);
+  var col = albedo * (hemi + direct + fillDiff + candleTint * candleDiff * 0.60);
 
   if (theme == 0u) {
-    // Jewel Atelier: glossy enameled gemstone with crisp studio reflection
-    col = mix(col, envRefl, fresnel * 0.28);
-    col += albedo * (0.14 + rimGlow * 0.32);
-    col += vec3<f32>(1.0, 0.98, 0.94) * spec * 1.35;
+    // Jewel Atelier: calm, natural polished gemstone (never feels like a glowing bulb at rest!)
+    col = mix(col, envRefl, fresnel * 0.24);
+    col += albedo * (0.04 + rimGlow * 0.18);
+    col += vec3<f32>(1.0, 0.98, 0.94) * spec * 0.95;
     col += candleTint * candleSpec;
   } else if (theme == 1u) {
-    // Cyber Arcade: radiant neon plasma orbs
-    col = albedo * (0.48 + 0.62 * ndotv) + col * 0.35;
-    col += albedo * rimGlow * 1.25;
-    col += vec3<f32>(1.0) * spec * 1.40;
+    // Cyber Arcade: sleek, physically rounded 3D glossy neon glass orbs with dark grazing falloff
+    let edgeRound = 0.44 + 0.56 * smoothstep(0.0, 0.36, ndotv);
+    let innerCore = ndotv * ndotv * 0.28 + 0.08;
+    col = (col * 0.92 + albedo * innerCore) * edgeRound;
+    col = mix(col, envRefl, fresnel * 0.28);
+    col += albedo * rimGlow * 0.36 * smoothstep(0.0, 0.24, ndotv);
+    col += vec3<f32>(0.95, 0.98, 1.0) * spec * 0.92;
   } else if (theme == 2u) {
-    // Pop Studio: bold comic primaries + crisp glossy highlight + sleek AA ink contour
-    let cel = 0.68 + 0.44 * smoothstep(0.08, 0.48, dot(n, sunDir));
-    col = albedo * cel + candleTint * candleDiff * 0.20;
-    let dotSpec = smoothstep(0.968, 0.986, max(dot(n, hVec), 0.0));
-    col += vec3<f32>(1.0) * dotSpec * 1.15;
-    let inkRim = smoothstep(0.28, 0.16, ndotv);
+    // Pop Studio: crisp comic cel-shaded primaries (ZERO white center dot!) + sleek AA ink contour
+    let popKey = normalize(vec3<f32>(-0.55, 0.68, -0.48));
+    let ndotlPop = dot(n, popKey);
+    let cel = 0.62 + 0.44 * smoothstep(0.05, 0.42, ndotlPop);
+    let softCrescent = smoothstep(0.72, 0.88, ndotlPop) * 0.20;
+    col = albedo * cel + mix(albedo, vec3<f32>(1.0), 0.35) * softCrescent + candleTint * candleDiff * 0.16;
+    let inkRim = smoothstep(0.24, 0.12, ndotv);
     col = mix(col, vec3<f32>(0.005, 0.005, 0.008), inkRim);
   } else {
-    // Cathedral Glass (Theme 3): luminous translucent prism jewel
-    let innerCore = ndotv * sqrt(ndotv) * 0.68 + 0.26;
-    col = albedo * innerCore + col * 0.48;
-    col = mix(col, envRefl, fresnel * 0.38);
-    col += albedo * rimGlow * 0.80;
-    col += vec3<f32>(1.0, 0.97, 0.92) * spec * 1.50;
+    // Cathedral Glass (Theme 3): refined translucent prism jewel with calm resting luster
+    let innerCore = ndotv * sqrt(ndotv) * 0.42 + 0.18;
+    col = albedo * innerCore + col * 0.58;
+    col = mix(col, envRefl, fresnel * 0.34);
+    col += albedo * rimGlow * 0.44;
+    col += vec3<f32>(1.0, 0.97, 0.92) * spec * 1.05;
   }
 
-  // REFINED INTERIOR-ONLY PEARL GLOW (strictly inside the sphere, ONLY on level start & new color unlock!)
+  // 4.0-SECOND THEATRICAL SPOTLIGHT + INACTIVE-PEARL ANTIPATTERN DIMMING!
+  // On level start & new color unlock: highlighted target pearls radiate pure saturated inner light while
+  // non-highlighted board pearls darken cleanly into rich shadow (no muddy gray washout!).
+  let spotlightT = scene.queueFX.w;
   if (interiorGlowT > 0.005) {
-    let fade = smoothstep(0.0, 0.45, interiorGlowT) * interiorGlowT;
-    let breath = 0.78 + 0.22 * sin(renderU.time * 5.2);
-    // Warm subsurface core radiance focused inside the jewel center (zero external spill!)
+    let fade = smoothstep(0.0, 0.35, interiorGlowT);
+    let breath = 0.82 + 0.18 * sin(renderU.time * 5.2);
     let coreMask = ndotv * sqrt(ndotv);
-    let innerLight = mix(albedo, vec3<f32>(1.0, 0.96, 0.86), 0.36);
-    col += innerLight * coreMask * (0.44 * fade * breath);
+    let innerLight = albedo * 1.15 + vec3<f32>(0.08, 0.07, 0.05);
+    col += innerLight * coreMask * (0.78 * fade * breath);
+  } else if (isBoardPearl && spotlightT > 0.005) {
+    let dimFade = smoothstep(0.0, 0.35, spotlightT);
+    // Clean physical shadow darkening preserves jewel hue while making active pearls leap out!
+    col *= mix(1.0, 0.30, dimFade);
   }
 
-  col += toLinear(vec3<f32>(1.0, 0.92, 0.72)) * (sparkle * 0.58);
+  col += toLinear(vec3<f32>(1.0, 0.92, 0.72)) * (sparkle * 0.55);
 
   if (isBlockerFlash && scene.extraFX.x > 0.01) {
     let flash = scene.extraFX.x * (0.65 + 0.35 * sin(renderU.time * 28.0));
@@ -810,12 +825,16 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           let pearlAO = mix(0.60, 1.0, smoothstep(tl.posRad.w * 0.72, tl.posRad.w * 1.48, distToPearl));
           tileCol *= pearlAO;
 
+          let spotlightT = scene.queueFX.w;
+          let isSpotlitTile = tl.props.w > 0.005;
+          let tileDim = select(0.0, smoothstep(0.0, 0.35, spotlightT), spotlightT > 0.005 && !isSpotlitTile);
+
           let rimWidth = select(-0.022, -0.028, theme == 2u);
           let tRimMask = smoothstep(rimWidth - aa, rimWidth + aa, dTile);
           if (tRimMask > 0.002) {
             tileCol = mix(tileCol, borderCol, tRimMask);
             if (theme == 1u) {
-              emissive += pal * 0.70 * tRimMask * tileMask;
+              emissive += pal * (0.36 * mix(1.0, 0.28, tileDim)) * tRimMask * tileMask;
             }
           }
 
@@ -832,6 +851,10 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
             tileCol = mix(tileCol, arrowCol, arrowAA);
             emissive += arrowEmissive * arrowAA * tileMask;
             tRough = mix(tRough, 0.22, arrowAA);
+          }
+
+          if (tileDim > 0.002) {
+            tileCol *= mix(1.0, 0.52, tileDim);
           }
 
           boardCol = mix(boardCol, tileCol, tileMask);
@@ -947,6 +970,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var hitSpark: f32 = 0.0;
   var hitBlocker = false;
   var hitInteriorGlow: f32 = 0.0;
+  var hitIsBoard = false;
 
   let hoopC = scene.hoopBounds.xy;
   let hoopR = scene.hoopBounds.z;
@@ -980,6 +1004,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitSpark = max(hp.props.z, celebrate * (0.5 + 0.5 * sin(renderU.time * 5.5 + f32(i))));
         hitBlocker = false;
         hitInteriorGlow = 0.0;
+        hitIsBoard = false;
       }
     }
   } else if (abs(pDesk.z - trayZ) < 0.36) {
@@ -1000,6 +1025,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitSpark = tp.props.z * 0.55;
         hitBlocker = false;
         hitInteriorGlow = 0.0;
+        hitIsBoard = false;
       }
     }
   } else if (abs(pDesk.x - boardC.x) < boardHalf.x + 0.42 && abs(pDesk.z - boardC.y) < boardHalf.y + 0.42) {
@@ -1030,6 +1056,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitSpark = select(0.0, 0.42 + 0.28 * sin(renderU.time * 5.0), hinted);
         hitBlocker = (flags & 8u) != 0u;
         hitInteriorGlow = tl.props.w;
+        hitIsBoard = true;
       }
     }
   }
@@ -1053,6 +1080,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitSpark = 0.50;
         hitBlocker = false;
         hitInteriorGlow = 0.45;
+        hitIsBoard = false;
       }
     }
   }
@@ -1061,10 +1089,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var finalCol = vec3<f32>(0.0);
   if (bestCov >= 0.995) {
     // Fully inside pearl silhouette -> skip desk shading completely (fast & battery-friendly!)
-    finalCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow);
+    finalCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
   } else if (bestCov > 0.002) {
     // Subpixel silhouette rim -> silky-smooth analytic anti-aliased blend over desk/tile!
-    let pearlCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow);
+    let pearlCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
     let bgCol = select(skyReflection(rd, theme), shadeAtelierDesk(pDesk, rd, deskAA), tDesk < MAX_DIST);
     finalCol = mix(bgCol, pearlCol, bestCov);
   } else if (tDesk < MAX_DIST) {

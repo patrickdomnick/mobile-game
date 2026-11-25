@@ -11,6 +11,7 @@ import {
   WasmSimulation,
   getDailyThemeForDateKey,
   getThemePalette,
+  parseSeedInput,
   type SimSnapshot,
 } from './wasmBridge';
 
@@ -44,6 +45,7 @@ export interface GameTestBridge {
   reset(): void;
   loadLevel(levelIndex: number): void;
   loadMandala(seed: number): void;
+  loadCustomSeed(raw: string): number;
   loadDaily(dateKey?: number): void;
   setTimeOfDayOverride(hours: number | null): void;
   setTheme(themeIndex: number): void;
@@ -146,6 +148,8 @@ async function bootstrap(): Promise<void> {
   const dailyStatusEl = document.getElementById('daily-status');
   const endlessBtn = document.getElementById('btn-endless-mandala');
   const mandalaStatusEl = document.getElementById('mandala-status');
+  const seedForm = document.getElementById('seed-form') as HTMLFormElement | null;
+  const customSeedInput = document.getElementById('input-custom-seed') as HTMLInputElement | null;
   const chapterTabsEl = document.getElementById('chapter-tabs');
   const chapterBannerTitle = document.getElementById('chapter-banner-title');
   const chapterBannerSub = document.getElementById('chapter-banner-sub');
@@ -652,10 +656,11 @@ async function bootstrap(): Promise<void> {
               ? `Enter ${nextChapter.name} →`
               : snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVELS.length
                 ? 'Next Pattern'
-                : 'New Mandala';
+                : 'New Seed';
           }
           if (completeBonusLine) {
             const badges: string[] = [];
+            if (snap.mode !== 'curated' && snap.seed > 0) badges.push(`Seed #${snap.seed}`);
             if (snap.trayUses === 0) badges.push('Pure No-Tray +1,500');
             if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('Flawless +750');
             completeBonusLine.textContent =
@@ -868,6 +873,21 @@ async function bootstrap(): Promise<void> {
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     });
+    seedForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      soundscape.unlock();
+      soundscape.playUiTap(settings.hapticsEnabled);
+      const raw = customSeedInput?.value ?? '';
+      const parsedSeed = parseSeedInput(raw);
+      if (customSeedInput) customSeedInput.value = String(parsedSeed);
+      recordedCompleteKey = '';
+      displayedScore = 0;
+      sim.loadMandala(parsedSeed);
+      closeGallery();
+      setScreen('playing');
+      updateHud(sim.readState(getAspect()));
+      wakeRenderer();
+    });
 
     audioBtn?.addEventListener('click', () => {
       soundscape.toggleMute();
@@ -976,6 +996,15 @@ async function bootstrap(): Promise<void> {
         sim.loadMandala(seed);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
+      },
+      loadCustomSeed: (raw: string) => {
+        const seed = parseSeedInput(raw);
+        recordedCompleteKey = '';
+        displayedScore = 0;
+        sim.loadMandala(seed);
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+        return seed;
       },
       loadDaily: (dateKey?: number) => {
         recordedCompleteKey = '';

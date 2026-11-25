@@ -321,7 +321,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       await page.evaluate(() => window.__GAME_TEST__!.stepTicks(24, true));
     }
 
-    // Mid-puzzle streak render (after start glow settled, board pearls have zero resting glow!)
+    // Mid-puzzle streak render (after 4.0s spotlight settled, all pearls show calm natural luster!)
     await page.evaluate(async () => {
       for (let i = 0; i < 7; i++) {
         const cur = window.__GAME_TEST__!.getState();
@@ -331,7 +331,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         window.__GAME_TEST__!.tapTile(h);
         await window.__GAME_TEST__!.stepTicks(24, true);
       }
-      await window.__GAME_TEST__!.stepTicks(150, false);
+      await window.__GAME_TEST__!.stepTicks(260, false);
     });
     await page.screenshot({ path: path.join(RESULTS_DIR, 'mid-puzzle-streak.png') });
 
@@ -345,7 +345,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         window.__GAME_TEST__!.tapTile(h);
         await window.__GAME_TEST__!.stepTicks(24, true);
       }
-      await window.__GAME_TEST__!.stepTicks(160, false);
+      await window.__GAME_TEST__!.stepTicks(260, false);
     });
     const completed = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(completed.phase).toBe('complete');
@@ -387,18 +387,34 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(cyberLoaded.levelIndex).toBe(8);
     expect(cyberLoaded.themeIndex).toBe(1);
 
-    // Launch Daily Stitch & verify native theme rotation + smart hint works cleanly
+    // Launch Daily Stitch (20261125) & verify native theme + smart hint
     await page.evaluate(async () => {
       window.__GAME_TEST__!.loadDaily(20261125);
       await window.__GAME_TEST__!.stepTicks(3);
     });
     const dailySt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(dailySt.mode).toBe('daily');
+    expect(dailySt.seed).toBe(20261125);
     expect(dailySt.themeIndex).toBeGreaterThanOrEqual(0);
     expect(dailySt.themeIndex).toBeLessThan(4);
     const dailyHint = await page.evaluate(() => window.__GAME_TEST__!.hint());
     expect(dailyHint).toBeGreaterThanOrEqual(0);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'daily-stitch.png') });
+
+    // 11b. Test Custom Seed Input UI inside Chapters & Seeds drawer:
+    // Entering 20261125 as a custom seed MUST generate the exact same theme & tile count as Daily 20261125!
+    await page.locator('#btn-pattern').click();
+    await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await page.locator('#input-custom-seed').fill('20261125');
+    await page.locator('#btn-play-seed').click();
+    await expect(page.locator('#overlay-gallery')).toBeHidden();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
+    const customSeedSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(customSeedSt.mode).toBe('mandala');
+    expect(customSeedSt.seed).toBe(20261125);
+    expect(customSeedSt.levelName).toBe('Seed #20261125');
+    expect(customSeedSt.themeIndex).toBe(dailySt.themeIndex);
+    expect(customSeedSt.totalPearls).toBe(dailySt.totalPearls);
 
     // Reload page and confirm Gallery persistence survives full browser reload
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -407,10 +423,10 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const reloaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(reloaded.gallery.completedCuratedIds).toContain(0);
 
-    // 12. Verify temporary interior start glow decays cleanly AND true 0-FPS idle battery mode engages!
+    // 12. Verify 4.0s interior spotlight + antipattern dim decays cleanly AND true 0-FPS idle battery mode engages!
     await page.evaluate(async () => {
-      // Step past the ~2.2s temporary start glow (160 ticks = 2.66s)
-      await window.__GAME_TEST__!.stepTicks(160);
+      // Step past the 4.0s temporary start spotlight (260 ticks = 4.33s)
+      await window.__GAME_TEST__!.stepTicks(260);
     });
     await page.waitForFunction(
       () => {

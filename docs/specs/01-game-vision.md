@@ -81,12 +81,32 @@ Informed by real-device playtesting of v2.1:
 
 ---
 
-## 4. Iteration Log
+## 4. Pearl Loom v2.3 Design Delta (`Status: Locked`)
+
+Informed by real-device playtesting of v2.2:
+
+1. **4.0-Second Spotlight + Inactive-Pearl Antipattern Dimming**:
+   - Increase initial & new-color-unlock interior highlight duration from `2.2s` to **`4.0s`** (`ColorGlowT` decay `dt * 0.25`, holding crisp peak radiance for `~2.6s` before smoothly easing out).
+   - **Antipattern Contrast**: While `ColorGlowT` is active for newly unlocked/starting colors, **non-highlighted board pearls and tile cards darken cleanly into rich shadow** (preserving vivid hue with zero gray washout), creating an unmistakable theatrical spotlight on the target pearls without outer tile halos or visual spoilers — while calming overall resting Jewel & Prism intensity so resting pearls look like natural polished gemstones rather than lightbulbs.
+2. **Cyber Arcade & Pop Studio Pearl Material Polish**:
+   - **Cyber Arcade (`theme == 1`)**: Replace blown-out rim-lit neon discs with sleek, physically rounded 3D obsidian-glass cyber orbs (true directional spherical volume, subtle controlled neon Fresnel edge, dark grazing falloff for silky anti-aliased silhouettes, and calmer tile border hairlines).
+   - **Pop Studio (`theme == 2`)**: Remove the centered white specular dot completely; use clean angled comic-book cel shading (warm top-left crescent, punchy flat primary midtone, darker shadow crescent, and crisp anti-aliased dark ink contour).
+3. **Mathematically Proven 3-Star Achievability on 100% of Puzzles**:
+   - Upgrade `sim/solver.go` with tray-budgeted search (`solveWithTrayBudget`) so `generateSolvableBoard` guarantees EVERY puzzle (all 32 curated Chapter levels, every Daily date seed, and every Endless/custom user seed) has a verified **3-star winning path** (`UndoUsed == 0 && HintsUsed == 0 && TrayUses <= n/6`).
+   - Enforced by automated unit tests in `sim/engine_test.go`.
+4. **True Procedural Seed Engine & Custom Seed Input (Daily & Endless)**:
+   - Both **Daily Stitch** (`YYYYMMDD` date seed) and **Endless Mode** (fresh random 6-digit seed or any user-entered custom seed) are 100% procedurally generated in `sim/mandala.go` across **5 distinct geometric pattern archetypes** (*Petal Blossom*, *Starburst Crown*, *Golden Spiral*, *Crystal Lattice*, *Orbital Constellation*), varying board sizes (`5×5`–`7×6`), pearl counts (`22–38`), and vibrant themes (`0–3`).
+   - Players can view the active seed and **enter any custom seed** (numeric or text) from the Chapters & Seeds drawer to replay or share identical verified 3-star procedural puzzles.
+
+---
+
+## 5. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
 | 2026-11-24 | Slices 0–4 (v1.0) | **Shipped & Playtested** | Real-device playtest revealed: pastel washout, unblocked tile spoilers, boards too small/easy (`3×3`/`4×4`), meaningless move counter, low reward juice, invisible day/night override, and missing Start Menu. |
 | 2026-11-24 | **Pearl Loom v2.0 Overhaul** | **Shipped & Playtested** | Full redesign: `uint64` 5×5–7×7 boards, zero-spoiler tiles + blocker pulse, Balatro/VS juice, linear-space PBR across 5 themes, 24h solar override, Start Menu + Settings, plus automated fail-fast ABI/contrast guards & port `5173` WASM hot-reload. |
 | 2026-11-24 | **Pearl Loom v2.1 — Chapters, Smart Hints & Active-Target Glow** | **Shipped & Playtested** | 40 patterns across 5 native Chapters, Daily/Endless theme rotation, pinch-rescue Hint (`-2` Undo beacon) + Hint/Undo score deductions, active-target glow. Playtest revealed: Noir mode was unenjoyable, permanent outer pearl glow looked cheap & hurt battery, binary ray-sphere/SDF edges looked jagged, and the final two colors were too easy when unlocked together. |
-| 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Verified** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary `2.2s` pearl glow on start & color unlock (hoop glow stays); last two colors unlock separately (solo finale); analytic 1-spp sphere & SDF anti-aliasing at 2.0x DPR; true 0-FPS idle & 15s solar sync verified via `pnpm verify` + screenshot audit. |
+| 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Playtested** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary pearl glow; solo finale unlock; analytic 1-spp AA at 2.0x DPR; true 0-FPS idle. Playtest revealed: initial glow too short/subtle vs always-bright pearls, Neon pearls still looked flat/out-of-place, Pop Art pearls had white center dots, some puzzles lacked verified 3-star paths, and Endless/Daily needed richer procedural seed variety + custom seed input. |
+| 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Verified** | 4.0s spotlight + rich shadow antipattern dimming; sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input verified via `pnpm verify` + screenshot audit. |
 

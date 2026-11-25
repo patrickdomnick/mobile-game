@@ -60,9 +60,9 @@
               <span id="menu-daily-meta" class="mode-btn-sub">Fresh themed mandala</span>
             </button>
             <button id="btn-mode-endless" class="mode-btn mode-btn-prism" type="button">
-              <span class="mode-btn-badge">ENDLESS</span>
-              <span class="mode-btn-main">Mandala</span>
-              <span id="menu-endless-meta" class="mode-btn-sub">Random theme · Infinite</span>
+              <span class="mode-btn-badge">PROCEDURAL · SEED</span>
+              <span class="mode-btn-main">Endless</span>
+              <span id="menu-endless-meta" class="mode-btn-sub">Random seed · 3★ verified</span>
             </button>
           </div>
         </div>
@@ -70,7 +70,7 @@
         <div class="start-footer-row">
           <button id="btn-menu-gallery" class="tactile-pill-btn" type="button">
             <span aria-hidden="true">✦</span>
-            <span>Chapters (32)</span>
+            <span>Chapters &amp; Seeds</span>
           </button>
           <button id="btn-menu-open-settings" class="tactile-pill-btn" type="button">
             <span aria-hidden="true">☀</span>
@@ -224,13 +224,13 @@
       </section>
 
       <!-- =============================================================== -->
-      <!-- CHAPTER-TABBED PATTERN GALLERY (4 Native Chapters × 8 Designs)  -->
+      <!-- CHAPTER-TABBED PATTERN GALLERY + PROCEDURAL CUSTOM SEED INPUT   -->
       <!-- =============================================================== -->
       <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Atelier Chapters Gallery">
         <div class="sheet-header">
           <div>
             <p class="modal-eyebrow">4 THEMED CHAPTERS · 32 PATTERNS</p>
-            <h2 class="sheet-title">Chapters</h2>
+            <h2 class="sheet-title">Chapters &amp; Seeds</h2>
           </div>
           <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Gallery">
             ✕
@@ -241,14 +241,29 @@
           <button id="btn-daily-stitch" class="gallery-special-card" type="button">
             <span id="gallery-daily-tag" class="special-tag">TODAY</span>
             <strong>Daily Stitch</strong>
-            <span id="daily-status" class="gallery-meta">Fresh calendar mandala</span>
+            <span id="daily-status" class="gallery-meta">Calendar seed</span>
           </button>
           <button id="btn-endless-mandala" class="gallery-special-card" type="button">
-            <span class="special-tag">RANDOM THEME</span>
-            <strong>New Mandala</strong>
+            <span class="special-tag">RANDOM SEED</span>
+            <strong>New Endless</strong>
             <span id="mandala-status" class="gallery-meta">0 stitched</span>
           </button>
         </div>
+
+        <form id="seed-form" class="seed-input-row" aria-label="Play Custom Procedural Seed">
+          <input
+            id="input-custom-seed"
+            class="seed-input"
+            type="text"
+            inputmode="text"
+            maxlength="24"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Enter seed (number or word)"
+            aria-label="Custom Seed Input"
+          />
+          <button id="btn-play-seed" class="seed-play-btn" type="submit">Play Seed</button>
+        </form>
 
         <div id="chapter-tabs" class="chapter-tabs" role="tablist" aria-label="Atelier Chapters"></div>
 

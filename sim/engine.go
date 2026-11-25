@@ -23,8 +23,8 @@ const (
 	SceneFlyingOffset  = SceneTrayOffset + TrayCapacity*8
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
-	// Telemetry / state buffer layout for JS & E2E bridge
-	StateFloats = 52
+	// Telemetry / state buffer layout for JS & E2E bridge (54 floats incl. exact 32-bit seed halves)
+	StateFloats = 54
 
 	// Per-tile telemetry layout (49 * 8 = 392 floats):
 	// [col, row, color, dir, alive, unblocked, worldX, worldZ]
@@ -110,8 +110,8 @@ type undoSnapshot struct {
 	phase       int
 }
 
-// Engine holds all deterministic Pearl Loom v2.0 state, Balatro/VS scoring, layers,
-// 5 visual themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
+// Engine holds all deterministic Pearl Loom v2.3 state, Balatro/VS scoring, layers,
+// 4 vivid visual themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
 type Engine struct {
 	FrameCount     uint32
 	ElapsedSec     float32
@@ -218,7 +218,7 @@ func (e *Engine) Reset() {
 	e.LoadCuratedLevel(e.LevelIndex)
 }
 
-// SetTheme switches the active visual theme (0..4) immediately (retained for diagnostics/tests).
+// SetTheme switches the active visual theme (0..3) immediately (retained for diagnostics/tests).
 func (e *Engine) SetTheme(idx int) {
 	if idx < 0 {
 		idx = 0
@@ -227,7 +227,7 @@ func (e *Engine) SetTheme(idx int) {
 	e.syncBuffers()
 }
 
-// LoadCuratedLevel initializes one of the 40 handcrafted theme-matched patterns across 5 Chapters.
+// LoadCuratedLevel initializes one of the 32 handcrafted theme-matched patterns across 4 Chapters.
 func (e *Engine) LoadCuratedLevel(idx int) {
 	if len(CuratedArtworks) == 0 {
 		return
@@ -242,7 +242,7 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 	e.loadArtwork(CuratedArtworks[idx])
 }
 
-// LoadMandala generates and loads an endless procedural 3-layer mandala with a native rotated theme.
+// LoadMandala procedurally generates and loads a verified 3-star puzzle purely from any uint32 seed.
 func (e *Engine) LoadMandala(seed uint32) {
 	if seed == 0 {
 		seed = 1
@@ -254,16 +254,16 @@ func (e *Engine) LoadMandala(seed uint32) {
 	e.loadArtwork(GenerateMandalaArtwork(seed, theme))
 }
 
-// LoadDaily loads the deterministic calendar-seeded Daily Stitch mandala with a rotating daily theme.
+// LoadDaily loads the deterministic calendar-seeded Daily Stitch (literally just seed = YYYYMMDD!).
 func (e *Engine) LoadDaily(dateKey uint32) {
 	if dateKey == 0 {
-		dateKey = 20261124
+		dateKey = 20261125
 	}
 	e.LevelIndex = int(dateKey % 100000)
 	e.Mode = 2
 	e.LastSeed = dateKey
 	theme := ThemeForDaily(dateKey)
-	e.loadArtwork(GenerateMandalaArtwork(dateKey^0x517CC1B7, theme))
+	e.loadArtwork(GenerateMandalaArtwork(dateKey, theme))
 }
 
 func (e *Engine) loadArtwork(art ArtworkDef) {
@@ -679,8 +679,8 @@ func (e *Engine) updatePhase() {
 				e.Score += 750
 				e.LastScoreDelta += 750
 			}
-			// Meaningful 1-3 Star mastery rating
-			if e.UndoUsed == 0 && e.HintsUsed == 0 && e.TrayUses <= e.HoopCount/6 {
+			// Meaningful 1-3 Star mastery rating (mathematically proven 3-star achievable on every board!)
+			if e.UndoUsed == 0 && e.HintsUsed == 0 && e.TrayUses <= ThreeStarTrayLimit(e.HoopCount) {
 				e.Stars = 3
 			} else if e.TrayUses <= e.HoopCount/3 {
 				e.Stars = 2
@@ -1044,10 +1044,10 @@ func (e *Engine) Step(dt float32) {
 	e.FrameCount++
 	e.ElapsedSec += dt
 
-	// Smooth exponential decay on juice pulses, screenshake & temporary interior unlock glow (~2.2s)
+	// Smooth decay on juice pulses, screenshake & temporary interior unlock spotlight (4.0s)
 	for c := 0; c < NumColors; c++ {
 		if e.ColorGlowT[c] > 0 {
-			e.ColorGlowT[c] -= dt * 0.45
+			e.ColorGlowT[c] -= dt * 0.25
 			if e.ColorGlowT[c] < 0 {
 				e.ColorGlowT[c] = 0
 			}
@@ -1280,11 +1280,17 @@ func (e *Engine) syncBuffers() {
 	e.Scene[58] = layerRatio
 	e.Scene[59] = float32(e.HintTileIdx)
 
-	// 15: reserved
+	// 15: reserved (multiplier, nextQueuedColor, levelIndex, spotlightMaxGlowT)
+	maxGlow := float32(0)
+	for c := 0; c < NumColors; c++ {
+		if e.ColorGlowT[c] > maxGlow {
+			maxGlow = e.ColorGlowT[c]
+		}
+	}
 	e.Scene[60] = float32(e.currentMultiplier())
 	e.Scene[61] = float32(e.nextQueuedColor())
 	e.Scene[62] = float32(e.LevelIndex)
-	e.Scene[63] = float32(TrayCapacity)
+	e.Scene[63] = maxGlow
 
 	// --- Palette (6 vec4s) ---
 	for c := 0; c < NumColors; c++ {
@@ -1521,4 +1527,6 @@ func (e *Engine) syncBuffers() {
 	e.State[49] = float32(e.HintEvents)
 	e.State[50] = float32(e.LastPenaltyDelta)
 	e.State[51] = float32(e.ChapterIndex)
+	e.State[52] = float32(e.LastSeed & 0xFFFF)
+	e.State[53] = float32(e.LastSeed >> 16)
 }

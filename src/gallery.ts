@@ -1,4 +1,4 @@
-import { CHAPTERS, CURATED_LEVELS } from './wasmBridge';
+import { CHAPTERS, CURATED_LEVELS, generateRandomSeed } from './wasmBridge';
 
 const GALLERY_STORAGE_KEY = 'pearl-loom-gallery-v2';
 
@@ -145,7 +145,7 @@ export class EmbroideryGalleryStore {
   }
 
   nextMandalaSeed(): number {
-    this.data.lastMandalaSeed = (this.data.lastMandalaSeed % 9999) + 1;
+    this.data.lastMandalaSeed = generateRandomSeed();
     this.save();
     return this.data.lastMandalaSeed;
   }

@@ -118,6 +118,31 @@ export function getDailyThemeForDateKey(dateKey: number): VisualThemeDef {
   return VISUAL_THEMES[h % VISUAL_THEMES.length] ?? VISUAL_THEMES[0];
 }
 
+/** Parses any numeric seed (e.g. "20261125", "482913") or text phrase (hashed via FNV-1a) into a non-zero uint32 seed. */
+export function parseSeedInput(raw: string): number {
+  const cleaned = raw.trim().replace(/^#/, '');
+  if (!cleaned) return generateRandomSeed();
+  if (/^\d+$/.test(cleaned)) {
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return (parsed >>> 0) || 1;
+    }
+  }
+  let h = 0x811c9dc5;
+  for (let i = 0; i < cleaned.length; i++) {
+    h ^= cleaned.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 0) || 1;
+}
+
+/** Generates a clean random 6-digit procedural seed (100000..999999). */
+export function generateRandomSeed(): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return 100000 + (buf[0] % 900000);
+}
+
 export interface CuratedLevelDef {
   id: number;
   chapter: number;
@@ -203,6 +228,7 @@ export interface SimSnapshot {
   elapsedSec: number;
   levelIndex: number;
   chapterIndex: number;
+  seed: number;
   levelName: string;
   mode: GameMode;
   phase: GamePhase;
@@ -427,6 +453,10 @@ export class WasmSimulation {
     const phaseIdx = Math.round(s[4]);
     const themeIndex = Math.round(s[32]);
     const chapterIndex = s.length > 51 ? Math.round(s[51]) : 0;
+    const seed =
+      s.length > 53
+        ? (((Math.round(s[52]) & 0xffff) | ((Math.round(s[53]) & 0xffff) << 16)) >>> 0)
+        : 0;
 
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
@@ -472,13 +502,12 @@ export class WasmSimulation {
     }
 
     const mode = MODE_MAP[modeIdx] ?? 'curated';
-    const themeShort = (VISUAL_THEMES[themeIndex] ?? VISUAL_THEMES[0]).shortName;
     const levelName =
       mode === 'curated'
         ? (CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
         : mode === 'daily'
-          ? `Daily · ${themeShort}`
-          : `${themeShort} #${levelIndex + 1}`;
+          ? `Daily #${seed || levelIndex}`
+          : `Seed #${seed || levelIndex}`;
 
     const hintTileIndex = Math.round(s[21]);
 
@@ -487,6 +516,7 @@ export class WasmSimulation {
       elapsedSec: s[1],
       levelIndex,
       chapterIndex,
+      seed,
       levelName,
       mode,
       phase: PHASE_MAP[phaseIdx] ?? 'playing',
