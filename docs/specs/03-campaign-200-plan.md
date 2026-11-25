@@ -39,13 +39,33 @@ Each campaign consists of **10 escalating 5-level tiers** (`10 × 5 = 50` levels
 | **Tier 9** | `41–45` | `8×8` (Expert) | `56–62` | `6` | Tight tray budget, deep multi-step untangles (`difficulty: 4`) | `3` |
 | **Tier 10** | `46–50` | `8×8` (Master) | `58–64` | `6` | Grand signature masterpieces, peak strategic interlock (`difficulty: 4+`) | `3` |
 
-> **Alternative Note for Review**: The strict monotonic rectangular ladder `5×5 → 6×5 → 6×6 → 7×6 → 7×7 → 8×7 → 8×8` has **7 distinct sizes** (`7 × 5 = 35` levels). To hit **50 levels per campaign**, the matrix above adds `8×6` (5 levels) and divides `8×8` into 3 escalating mastery tiers (Standard / Expert / Master = 15 levels). Alternative options before generation:
-> - **Option A (Recommended above)**: 7 sizes + `8×6` + 3 `8×8` mastery bands = 50 levels.
-> - **Option B (Landscape/Portrait pair sizes)**: `5×5`, `5×6`, `6×5`, `6×6`, `6×7`, `7×6`, `7×7`, `7×8`, `8×7`, `8×8` (literally 10 distinct grids × 5 levels = 50 levels!).
+> **Locked Grid Progression (Option A)**: `5×5` (Levels 1–2 zero blockers, 3–5 intro) → `6×5` → `6×6` → `7×6` → `7×7` → `8×6` → `8×7` → `8×8 Standard` → `8×8 Expert` → `8×8 Master` (10 tiers × 5 levels = **50 levels per campaign**, **200 levels total**).
+>
+> **Locked Campaign Access**: **All 4 tracks unlocked from Day 1** — players can freely jump into *Jewel Atelier*, *Cyber Arcade*, *Pop Studio*, or *Cathedral Glass* right away and progress each 50-level ladder independently.
 
 ---
 
-## 3. Technical Upgrades Required When Ready to Build `8×8`
+## 3. Planned Special Pearl Mechanics (Prototype & Lock BEFORE Generating the 200 Levels)
+
+Level generation remains **intentionally paused** until the full special-pearl suite is prototyped and playtested, so all 200 levels can be authored once with rich variety across tiers:
+
+| Special Pearl | Status | Core Mechanic Concept | Planned Campaign Tier Introduction |
+| :--- | :--- | :--- | :--- |
+| **Heart Pearl (`♥`)** | **Shipped (v2.7)** | Up to 3 per level; placing early grants scaling bonus (`+600 → +150`), periodic wiggle + crystalline chime. | **Tier 1+** (Levels `1–50`) |
+| **Mystery Pearl (`?`)** | **Planned** | Conceals its true color under a shimmering pearlescent/question shell until revealed (candidate reveal triggers to prototype: *when its lane becomes unblocked*, *when any neighbor clears*, or *when tapped into the tray*). | **Tier 2–3+** (`6×5` / `6×6`) |
+| **Rainbow / Wild Pearl (`✦`)** | **Planned** | Iridescent prismatic pearl that matches **any currently active hoop color** when tapped — acts as a clutch combo extender or tray rescuer, with solver-aware 3-star balance. | **Tier 4–5+** (`7×6` / `7×7`) |
+| **Locked Pearl (`🔒`)** | **Planned** | Wrapped in a delicate metallic clasp/seal that blocks movement until a trigger clears (candidate triggers to prototype: *a specific color layer finishes*, *N pearls are stitched*, or *a matching Key Pearl is placed*). | **Tier 6–7+** (`8×6` / `8×7`) |
+| **Combined Mastery** | **Planned** | Mixes Heart + Mystery + Rainbow + Locked pearls into signature multi-layer puzzles on full `8×8` boards. | **Tier 8–10** (`8×8` Standard / Expert / Master) |
+
+### Extensible JSON Schema Reservation (`public/levels.json`)
+Before generating the 200 levels, each level entry in `public/levels.json` can cleanly support per-level mechanic budgets or explicit per-tile modifiers without breaking older clients:
+- Level-level budgets/rules: `maxHearts`, `mysteryCount`, `rainbowCount`, `lockedRules` (e.g., `[{ "tile": 14, "unlockOn": "colorClear", "arg": 0 }]` or `unlockCount`).
+- Per-tile optional modifier bitmask (`modFlags`) & `modArg` packed into the WASM staging buffer alongside `(x, y, color, ring)`.
+- **Zero-Spoiler Rule Preserved**: Mystery, Rainbow, and Locked visual tells show only the pearl's special identity (never whether its arrow lane is currently blocked or free).
+
+---
+
+## 4. Technical Upgrades Required When Ready to Build `8×8`
 
 Because Pearl Loom v2.7 already ships the remote-cached `public/levels.json` pipeline and `noBlockers` flag, enabling the full 200-level `8×8` campaign later requires only one clean ABI upgrade:
 
@@ -54,21 +74,23 @@ Because Pearl Loom v2.7 already ships the remote-cached `public/levels.json` pip
    - Update `SceneFloats` in lockstep across `sim/engine.go`, `src/main.ts` (`SCENE_BUFFER_BYTES`), and `src/renderer/raytrace.wgsl` (`array<PearlNode, 64>`):
      - `64 (header) + 24 (palette) + (64 + 64 + 5 + 12) * 8 = 1248 floats` (`4,992 bytes`).
    - `pnpm check:contracts` automatically enforces exact 1248-float parity across Go, TypeScript, and WGSL.
-   - Update `CustomLevelBuf` staging buffer size from `256` → `300` floats (`10 + 64 * 4 = 266` floats).
+   - Update `CustomLevelBuf` staging buffer size from `256` → `340+` floats (room for 64 stitches + per-tile special pearl metadata).
    - Tune `BoardMaxSpan` / `CellPitch` for `8×8` (`3.16 / 8 = 0.395` world units) and verify comfortable iPhone 16 touch target accuracy (`~42px` per tile on `393px` portrait width — right at Apple HIG comfort!).
 
 2. **Zero-Blocker Mode (`noBlockers: true`) for Levels 1–2 of Each Campaign**:
    - Already wired into the `public/levels.json` schema (`flags |= 1` in `sim/engine.go`).
-   - When `noBlockers: true`, every tile's exit arrow points cleanly outward along an unobstructed lane (or is verified to have 0 blockers in its starting configuration), guaranteeing **100% direct placement from tap 1** for a relaxing, instant-win onboarding in every style!
+   - When `noBlockers: true`, every tile's exit arrow points cleanly outward along an unobstructed lane, guaranteeing **100% direct placement from tap 1** for a relaxing, instant-win onboarding in every style!
 
 3. **Offline Authoring & 3-Star Verification Tool (`cmd/gen-levels`)**:
-   - A small Go CLI that reads campaign design templates, generates/validates all 200 levels with `solveWithTrayBudget` (proving **100% 3-star achievability** on every single level, zero blockers on levels `1–2` of each campaign, exact size progression, and unique names/patterns), and outputs a single minified `public/levels.json` (`~60–90 KB` raw, `~15 KB` gzipped!).
-   - Once the app supports `64` tiles, future campaigns or seasonal packs can be pushed by editing `public/levels.json` alone — zero app rebuild!
+   - A small Go CLI that reads campaign design templates, generates/validates all 200 levels with `solveWithTrayBudget` (aware of Mystery, Rainbow, and Locked pearl rules — proving **100% solvability & 3-star achievability** on every single level, zero blockers on levels `1–2` of each campaign, exact Option A size progression, and unique names/patterns), and outputs a single minified `public/levels.json` (`~60–110 KB` raw, `~18 KB` gzipped!).
+   - Once the app supports `64` tiles + the finalized special pearls, future campaigns or seasonal packs can be pushed by editing `public/levels.json` alone — zero app rebuild!
 
 ---
 
-## 4. Open Design Decisions to Confirm Before Building the 200 Levels
+## 5. Locked Decisions Summary
 
-1. **10-Tier Grid Choice**: Prefer **Option A** (adding `8×6` + 3 escalating `8×8` mastery bands) or **Option B** (all 10 rectangular pairs `5×5, 5×6, 6×5, 6×6, 6×7, 7×6, 7×7, 7×8, 8×7, 8×8`)?
-2. **Campaign Unlocking**: Should all 4 campaigns be **unlocked from day 1** (play any style anytime), or unlock sequentially after beating e.g. 5 levels in the previous campaign?
-3. **Future Special Pearls**: Before locking all 200 JSON levels, do we want to reserve JSON hooks for any other special pearls alongside **Heart Pearls** (e.g., *Locked/Ice Pearls*, *Rainbow Wild Pearls*, *Chain Pearls*)?
+| Topic | Decision |
+| :--- | :--- |
+| **10-Tier Size Ladder (50 levels / campaign)** | **Option A**: `5×5` (1–2 zero blockers, 3–5 intro), `6×5`, `6×6`, `7×6`, `7×7`, `8×6`, `8×7`, `8×8 Standard`, `8×8 Expert`, `8×8 Master`. |
+| **Campaign Access** | **All 4 campaigns unlocked from Day 1** with independent per-campaign progress & stars. |
+| **Special Pearls Sequencing** | Prototype & finalize **Mystery Pearls**, **Rainbow Wild Pearls**, and **Locked Pearls** (alongside shipped **Heart Pearls**) *before* generating the 200-level catalog. |
