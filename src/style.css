@@ -26,18 +26,6 @@
 }
 
 [data-theme='2'] {
-  --hud-bg: rgba(18, 18, 22, 0.84);
-  --hud-bg-elevated: rgba(24, 24, 28, 0.94);
-  --hud-border: rgba(240, 240, 245, 0.45);
-  --accent: #ffffff;
-  --accent-2: #d4d6dc;
-  --primary-grad: linear-gradient(135deg, #ffffff 0%, #c8cbd2 100%);
-  --primary-ink: #0f0f12;
-  --gold-grad: linear-gradient(135deg, #d8dae0 0%, #ffffff 100%);
-  --prism-grad: linear-gradient(135deg, #34363d 0%, #141519 100%);
-}
-
-[data-theme='3'] {
   --hud-bg: rgba(255, 252, 240, 0.94);
   --hud-bg-elevated: rgba(255, 252, 240, 0.98);
   --hud-border: #111116;
@@ -51,7 +39,7 @@
   --primary-ink: #111116;
 }
 
-[data-theme='4'] {
+[data-theme='3'] {
   --hud-bg: rgba(20, 16, 40, 0.82);
   --hud-bg-elevated: rgba(28, 22, 54, 0.92);
   --hud-border: rgba(217, 155, 255, 0.42);
@@ -198,7 +186,7 @@ body {
 
 .chapter-tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
 }
 
@@ -250,19 +238,8 @@ body {
 }
 
 .swatch-dot-active {
-  animation: activeSwatchPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes activeSwatchPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 10px var(--accent);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.98), 0 0 16px var(--accent);
-    transform: scale(1.1);
-  }
+  box-shadow: inset -3px -3px 5px rgba(0, 0, 0, 0.28), inset 2px 2px 4px rgba(255, 255, 255, 0.65),
+    0 0 0 2px rgba(255, 255, 255, 0.88), 0 2px 6px rgba(0, 0, 0, 0.32);
 }
 
 .control-undo.is-rescue {
@@ -357,7 +334,7 @@ body {
   -webkit-backdrop-filter: blur(3px);
 }
 
-[data-theme='3'] .start-menu {
+[data-theme='2'] .start-menu {
   background: linear-gradient(
     180deg,
     rgba(255, 250, 232, 0.80) 0%,
@@ -420,7 +397,7 @@ body {
   background: radial-gradient(circle at 50% 45%, rgba(12, 16, 28, 0.56), transparent 78%);
 }
 
-[data-theme='3'] .start-hero {
+[data-theme='2'] .start-hero {
   background: radial-gradient(circle at 50% 45%, rgba(255, 250, 232, 0.85), transparent 80%);
 }
 
@@ -442,7 +419,7 @@ body {
   text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
 }
 
-[data-theme='3'] .start-title {
+[data-theme='2'] .start-title {
   text-shadow: 3px 3px 0 #ffd60a;
 }
 
@@ -484,7 +461,7 @@ body {
   transition: transform 0.12s cubic-bezier(0.2, 0.9, 0.3, 1), box-shadow 0.12s ease;
 }
 
-[data-theme='3'] .mode-btn {
+[data-theme='2'] .mode-btn {
   border: 2.5px solid #111116;
 }
 
@@ -814,57 +791,6 @@ body {
   width: 14px;
   height: 14px;
   opacity: 0.88;
-}
-
-/* Noir Monochrome geometric inlay cues right inside HUD swatch dots! */
-.swatch-dot.pattern-band::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 5px;
-  transform: translateY(-50%);
-  background: #0d0d12;
-}
-
-.swatch-dot.pattern-ring::after {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  border: 2.5px solid #ffffff;
-}
-
-.swatch-dot.pattern-diag::after {
-  content: '';
-  position: absolute;
-  left: -4px;
-  right: -4px;
-  top: 50%;
-  height: 5px;
-  transform: translateY(-50%) rotate(-45deg);
-  background: #0d0d12;
-}
-
-.swatch-dot.pattern-cross::before,
-.swatch-dot.pattern-cross::after {
-  content: '';
-  position: absolute;
-  background: #ffffff;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.swatch-dot.pattern-cross::before {
-  width: 11px;
-  height: 3px;
-}
-
-.swatch-dot.pattern-cross::after {
-  width: 3px;
-  height: 11px;
 }
 
 .swatch-count {

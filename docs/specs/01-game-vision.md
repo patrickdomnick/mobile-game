@@ -61,11 +61,32 @@ Informed by real-device playtesting of v2.0:
 
 ---
 
-## 3. Iteration Log
+## 3. Pearl Loom v2.2 Design Delta (`Status: Locked`)
+
+Informed by real-device playtesting of v2.1:
+
+1. **Remove Noir Monochrome Mode (4 Vivid Native Chapters × 8 = 32 Designs)**:
+   - Cut Noir B&W completely across Curated Chapters, Daily Stitch, and Endless Mandala.
+   - Keep **4 rich, vibrant native Chapters**: **I · Jewel Atelier** (`0..7`), **II · Cyber Arcade** (`8..15`), **III · Pop Studio** (`16..23`), and **IV · Cathedral Glass** (`24..31`).
+2. **Temporary Interior-Only Pearl Glow (Keep Stitchboard Glow)**:
+   - Active-color pearls on the board do **not** glow permanently and do **not** emit a cheap outer ring onto the tile.
+   - Instead, active pearls softly illuminate **from the inside** (subsurface jewel core radiance) for `~2.2s` ONLY when a puzzle starts or when a new color unlocks, then settle cleanly.
+   - The top embroidery hoop stitchboard continues showing clean, anti-aliased active stitch targets throughout the puzzle.
+3. **Solo Finale Endgame Unlock Rule**:
+   - In a `K`-color puzzle (`K >= 3`), the first 2 colors start unlocked, and each completion unlocks the next color **except** the very last color (`queuePos == K - 1`).
+   - The final color is held back until the penultimate color is 100% cleared — making the last two colors unlock **separately** (1 active color at a time) for a genuinely engaging endgame!
+4. **Analytic 1-SPP Retina Anti-Aliasing & True 0-FPS Battery Idle**:
+   - **Analytic Sphere Edge Coverage + Screen-Space SDF Anti-Aliasing** (`raytrace.wgsl`): Every pearl silhouette blends smoothly against the tile/hoop behind it using analytic ray-sphere closest-approach coverage (`smoothstep` over pixel footprint), making every pearl optically **perfectly round with silky-smooth edges** — alongside screen-space AA on the hoop ring, tray, board frame, tiles, and arrows at `2.0x` hardware DPR with zero MSAA overhead.
+   - **True 0-FPS Event-Driven Idle**: Stop syncing WASM buffers 60×/sec when idle (sync real-world solar clock every `15s`), and pause WebGPU rendering completely (**0 FPS**) once animations & the `2.2s` interior unlock glow settle!
+
+---
+
+## 4. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
 | 2026-11-24 | Slices 0–4 (v1.0) | **Shipped & Playtested** | Real-device playtest revealed: pastel washout, unblocked tile spoilers, boards too small/easy (`3×3`/`4×4`), meaningless move counter, low reward juice, invisible day/night override, and missing Start Menu. |
 | 2026-11-24 | **Pearl Loom v2.0 Overhaul** | **Shipped & Playtested** | Full redesign: `uint64` 5×5–7×7 boards, zero-spoiler tiles + blocker pulse, Balatro/VS juice, linear-space PBR across 5 themes, 24h solar override, Start Menu + Settings, plus automated fail-fast ABI/contrast guards & port `5173` WASM hot-reload. |
-| 2026-11-24 | **Pearl Loom v2.1 — Chapters, Smart Hints & Active-Target Glow** | **Locked & Shipped** | 40 handcrafted patterns across 5 native Chapters (Noir Salon calmer with 3–4 B&W types), Daily/Endless theme rotation, priority pinch-rescue Hint (`-2` Undo beacon) + limitless Hint (`-250`) / Undo (`-150`), active-color glow on board pearls & hoop target beacons, 3D tile bevels & pearl contact AO. |
+| 2026-11-24 | **Pearl Loom v2.1 — Chapters, Smart Hints & Active-Target Glow** | **Shipped & Playtested** | 40 patterns across 5 native Chapters, Daily/Endless theme rotation, pinch-rescue Hint (`-2` Undo beacon) + Hint/Undo score deductions, active-target glow. Playtest revealed: Noir mode was unenjoyable, permanent outer pearl glow looked cheap & hurt battery, binary ray-sphere/SDF edges looked jagged, and the final two colors were too easy when unlocked together. |
+| 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Verified** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary `2.2s` pearl glow on start & color unlock (hoop glow stays); last two colors unlock separately (solo finale); analytic 1-spp sphere & SDF anti-aliasing at 2.0x DPR; true 0-FPS idle & 15s solar sync verified via `pnpm verify` + screenshot audit. |
 

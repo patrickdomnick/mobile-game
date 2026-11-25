@@ -102,18 +102,36 @@ type solverState struct {
 }
 
 func (s *solverState) refillActive() {
+	// First clear any finished active slots and count how many colors remain active.
+	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
 		if s.active[i] >= 0 && s.remain[s.active[i]] > 0 {
+			activeAlive++
+		} else {
+			s.active[i] = -1
+		}
+	}
+
+	// Fill empty slots, EXCEPT hold back the very last color in the queue until all other
+	// active colors are completely finished (so the final two colors unlock separately!).
+	for i := 0; i < ActiveSlots; i++ {
+		if s.active[i] >= 0 {
 			continue
 		}
-		s.active[i] = -1
 		for s.queuePos < s.queueLen {
 			c := int(s.queue[s.queuePos])
-			s.queuePos++
-			if s.remain[c] > 0 {
-				s.active[i] = c
-				break
+			if s.remain[c] <= 0 {
+				s.queuePos++
+				continue
 			}
+			isFinalColor := s.queueLen >= 3 && s.queuePos == s.queueLen-1
+			if isFinalColor && activeAlive > 0 {
+				return
+			}
+			s.queuePos++
+			s.active[i] = c
+			activeAlive++
+			break
 		}
 	}
 }

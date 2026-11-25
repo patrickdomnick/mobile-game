@@ -174,6 +174,7 @@ type Engine struct {
 	QueuePos   int
 	Remain     [NumColors]int
 	Active     [ActiveSlots]int
+	ColorGlowT [NumColors]float32
 
 	HintTileIdx int
 	HintPulse   float32
@@ -358,6 +359,9 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.ColorQueue = colorOrder
 	e.QueueLen = colorCount
 	e.QueuePos = 0
+	for i := 0; i < NumColors; i++ {
+		e.ColorGlowT[i] = 0
+	}
 	for i := 0; i < ActiveSlots; i++ {
 		e.Active[i] = -1
 	}
@@ -416,19 +420,38 @@ func (e *Engine) nextQueuedColor() int {
 	return -1
 }
 
+// refillActiveColors fills up to 2 active stitch slots, EXCEPT the very last color in the queue
+// is held back until the penultimate color is 100% completed (so the final two colors unlock separately!).
+// Newly unlocked colors receive a gentle temporary 2.2s interior pearl glow (ColorGlowT = 1.0).
 func (e *Engine) refillActiveColors() {
+	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
 		if e.Active[i] >= 0 && e.Remain[e.Active[i]] > 0 {
+			activeAlive++
+		} else {
+			e.Active[i] = -1
+		}
+	}
+
+	for i := 0; i < ActiveSlots; i++ {
+		if e.Active[i] >= 0 {
 			continue
 		}
-		e.Active[i] = -1
 		for e.QueuePos < e.QueueLen {
 			c := int(e.ColorQueue[e.QueuePos])
-			e.QueuePos++
-			if e.Remain[c] > 0 {
-				e.Active[i] = c
-				break
+			if e.Remain[c] <= 0 {
+				e.QueuePos++
+				continue
 			}
+			isFinalColor := e.QueueLen >= 3 && e.QueuePos == e.QueueLen-1
+			if isFinalColor && activeAlive > 0 {
+				return
+			}
+			e.QueuePos++
+			e.Active[i] = c
+			e.ColorGlowT[c] = 1.0
+			activeAlive++
+			break
 		}
 	}
 }
@@ -1001,6 +1024,11 @@ func (e *Engine) IsAnimating() bool {
 			return true
 		}
 	}
+	for c := 0; c < NumColors; c++ {
+		if e.ColorGlowT[c] > 0.005 {
+			return true
+		}
+	}
 	return false
 }
 
@@ -1016,7 +1044,15 @@ func (e *Engine) Step(dt float32) {
 	e.FrameCount++
 	e.ElapsedSec += dt
 
-	// Smooth exponential decay on juice pulses & screenshake
+	// Smooth exponential decay on juice pulses, screenshake & temporary interior unlock glow (~2.2s)
+	for c := 0; c < NumColors; c++ {
+		if e.ColorGlowT[c] > 0 {
+			e.ColorGlowT[c] -= dt * 0.45
+			if e.ColorGlowT[c] < 0 {
+				e.ColorGlowT[c] = 0
+			}
+		}
+	}
 	if e.ShakeAmt > 0 {
 		e.ShakeAmt -= dt * 3.8
 		if e.ShakeAmt < 0 {
@@ -1291,14 +1327,11 @@ func (e *Engine) syncBuffers() {
 		}
 
 		// IMPORTANT: Zero-spoiler flags!
-		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash, Bit 16 = active target color (ALL tiles of that color, blocked OR free!).
-		// We intentionally DO NOT expose unblocked to visual styling in raytrace.wgsl!
+		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash.
+		// Temporary interior pearl glow (~2.2s on start & new color unlock) is passed via props.w!
 		flags := uint32(0)
 		if t.Alive {
 			flags |= 1
-			if e.isActiveColor(t.Color) {
-				flags |= 16
-			}
 		}
 		if i == e.HintTileIdx {
 			flags |= 4
@@ -1314,7 +1347,7 @@ func (e *Engine) syncBuffers() {
 		e.Scene[sBase+4] = float32(t.Color)
 		e.Scene[sBase+5] = float32(t.Dir)
 		e.Scene[sBase+6] = float32(flags)
-		e.Scene[sBase+7] = t.WobbleT
+		e.Scene[sBase+7] = e.ColorGlowT[t.Color]
 
 		e.TileTelemetry[tBase+0] = float32(t.Col)
 		e.TileTelemetry[tBase+1] = float32(t.Row)

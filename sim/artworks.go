@@ -13,16 +13,15 @@ const (
 
 	ThemeJewelAtelier = 0
 	ThemeCyberNeon    = 1
-	ThemeNoirBW       = 2
-	ThemePopArt       = 3
-	ThemeStainedGlass = 4
-	NumThemes         = 5
+	ThemePopArt       = 2
+	ThemeStainedGlass = 3
+	NumThemes         = 4
 
-	NumChapters       = 5
-	LevelsPerChapter  = 8
+	NumChapters      = 4
+	LevelsPerChapter = 8
 )
 
-// ThemePalettes defines high-pop, unmistakable 6-color jewel/neon/monochrome/pop/glass palettes.
+// ThemePalettes defines 4 vibrant, unmistakable high-pop 6-color themes.
 // 4th channel encodes iridescence / emissive luster.
 var ThemePalettes = [NumThemes][NumColors][4]float32{
 	// 0: Jewel Atelier (Rich high-pop gemstones on deep sunlit slate-walnut)
@@ -34,7 +33,7 @@ var ThemePalettes = [NumThemes][NumColors][4]float32{
 		{0.64, 0.24, 0.98, 0.62}, // 4: Royal Amethyst
 		{0.04, 0.82, 0.88, 0.55}, // 5: Bright Turquoise
 	},
-	// 1: Cyber Neon (Radiant electric synthwave)
+	// 1: Cyber Arcade (Radiant electric synthwave)
 	{
 		{1.00, 0.10, 0.58, 0.95}, // 0: Hot Magenta
 		{0.04, 0.92, 1.00, 0.95}, // 1: Electric Cyan
@@ -43,16 +42,7 @@ var ThemePalettes = [NumThemes][NumColors][4]float32{
 		{0.66, 0.22, 1.00, 0.95}, // 4: Ultraviolet
 		{1.00, 0.32, 0.16, 0.92}, // 5: Plasma Coral
 	},
-	// 2: Noir Monochrome (Pure high-contrast B&W — paired with distinct WGSL geometric inlays!)
-	{
-		{0.97, 0.97, 0.99, 0.30}, // 0: Alabaster Solid White
-		{0.09, 0.09, 0.11, 0.45}, // 1: Piano Obsidian Black
-		{0.82, 0.83, 0.86, 0.55}, // 2: Chrome + Black Band
-		{0.22, 0.23, 0.26, 0.45}, // 3: Charcoal + White Ring
-		{0.88, 0.88, 0.90, 0.40}, // 4: Ivory + Diagonal Noir Sash
-		{0.16, 0.16, 0.19, 0.50}, // 5: Onyx + Bright Cross Star
-	},
-	// 3: Pop Art (Bold Warhol / Lichtenstein primaries)
+	// 2: Pop Studio (Bold Warhol / Lichtenstein primaries)
 	{
 		{0.98, 0.14, 0.16, 0.30}, // 0: Pop Red
 		{0.10, 0.38, 0.98, 0.30}, // 1: Pop Cobalt
@@ -61,7 +51,7 @@ var ThemePalettes = [NumThemes][NumColors][4]float32{
 		{0.98, 0.22, 0.72, 0.30}, // 4: Hot Pink
 		{1.00, 0.46, 0.04, 0.30}, // 5: Tangerine
 	},
-	// 4: Stained Glass (Cathedral translucent prism jewels)
+	// 3: Cathedral Glass (Translucent prism jewels)
 	{
 		{0.94, 0.14, 0.38, 0.82}, // 0: Garnet Rose
 		{0.14, 0.52, 0.98, 0.85}, // 1: Cathedral Sapphire
@@ -84,12 +74,12 @@ type StitchPoint struct {
 // ArtworkDef defines a theme-matched, multi-layer embroidery pattern and paired untangle board.
 type ArtworkDef struct {
 	ID         int
-	Chapter    int // 0..4
+	Chapter    int // 0..3
 	Theme      int // Visual theme natively bound to this chapter/pattern
 	Name       string
 	Cols       int
 	Rows       int
-	Difficulty int // 1..4 (Noir Salon uses gentler 1..2!)
+	Difficulty int // 1..4
 	Seed       uint32
 	Stitches   []StitchPoint
 }
@@ -147,15 +137,12 @@ func diamondRing(radius float64, cAxis, cDiag uint8, layer uint8) []StitchPoint 
 
 func buildHeartStitches(cCore, cAccent, cMain, cTrim uint8) []StitchPoint {
 	return []StitchPoint{
-		// Layer 0: Core
 		{0.00, -0.14, cCore, 0}, {0.00, 0.14, cCore, 0},
 		{-0.22, -0.02, cAccent, 0}, {0.22, -0.02, cAccent, 0},
-		// Layer 1: Inner Heart
 		{-0.28, -0.34, cMain, 1}, {0.28, -0.34, cMain, 1},
 		{-0.46, -0.08, cMain, 1}, {0.46, -0.08, cMain, 1},
 		{-0.30, 0.24, cTrim, 1}, {0.30, 0.24, cTrim, 1},
 		{0.00, 0.44, cMain, 1},
-		// Layer 2: Outer Radiant Frame
 		{-0.44, -0.58, cMain, 2}, {0.44, -0.58, cMain, 2},
 		{0.00, -0.42, cCore, 2},
 		{-0.72, -0.26, cTrim, 2}, {0.72, -0.26, cTrim, 2},
@@ -208,9 +195,7 @@ func buildSymmetricGridMotif(pairs [][2]float32, center []StitchPoint, c0, c1, c
 	return pts
 }
 
-// buildCuratedArtworks constructs 5 native Thematic Chapters x 8 patterns = 40 handcrafted levels!
-// Each Chapter binds its own signature raytraced world & theme-appropriate designs.
-// Chapter 1 (Noir Salon) intentionally uses gentler 3-4 monochrome geometric inlays and calmer board sizes.
+// buildCuratedArtworks constructs 4 vibrant native Thematic Chapters x 8 patterns = 32 handcrafted levels!
 func buildCuratedArtworks() []ArtworkDef {
 	arts := make([]ArtworkDef, 0, NumChapters*LevelsPerChapter)
 	add := func(chapter, theme int, name string, cols, rows, diff int, seed uint32, st []StitchPoint) {
@@ -287,78 +272,11 @@ func buildCuratedArtworks() []ArtworkDef {
 	add(0, ThemeJewelAtelier, "Grand Starlight", 7, 6, 4, 8808, starlight)
 
 	// =========================================================================
-	// CHAPTER 1: NOIR SALON (Theme 2 — Pure Art-Deco B&W, 8 gentler patterns!)
-	// Strictly 3-4 distinct geometric B&W pearl types (0=White, 1=Black, 2=Band, 3=Ring)
-	// =========================================================================
-	nDiamond := append([]StitchPoint{{0, 0, 0, 0}}, ringPoints(4, 0.30, 0, 1, 1, 0)...)
-	nDiamond = append(nDiamond, ringPoints(4, 0.54, math.Pi/4, 2, 2, 1)...)
-	nDiamond = append(nDiamond, ringPoints(7, 0.76, -math.Pi/2, 0, 1, 2)...)
-	add(1, ThemeNoirBW, "Domino Diamond", 4, 4, 1, 9101, nDiamond)
-
-	bowtie := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.24, 0.0}, {0.42, -0.18}, {0.42, 0.18}, {0.64, -0.34},
-			{0.64, 0.0}, {0.64, 0.34}, {0.78, -0.22}, {0.78, 0.22},
-		},
-		[]StitchPoint{{0, -0.12, 1, 0}, {0, 0.12, 1, 0}},
-		0, 2, 1,
-	)
-	add(1, ThemeNoirBW, "Tuxedo Bowtie", 5, 4, 1, 9202, bowtie)
-
-	decoCross := []StitchPoint{
-		{0, 0, 0, 0},
-		{0, -0.26, 1, 0}, {0.26, 0, 1, 0}, {0, 0.26, 1, 0}, {-0.26, 0, 1, 0},
-		{0, -0.52, 2, 1}, {0.52, 0, 2, 1}, {0, 0.52, 2, 1}, {-0.52, 0, 2, 1},
-		{0.34, -0.34, 0, 1}, {0.34, 0.34, 0, 1}, {-0.34, 0.34, 0, 1}, {-0.34, -0.34, 0, 1},
-		{0, -0.76, 1, 2}, {0.76, 0, 1, 2}, {0, 0.76, 1, 2}, {-0.76, 0, 1, 2},
-		{0.58, -0.58, 2, 2}, {-0.58, 0.58, 2, 2},
-	}
-	add(1, ThemeNoirBW, "Art-Deco Cross", 5, 4, 1, 9303, decoCross)
-
-	crescent := []StitchPoint{
-		{-0.18, -0.20, 0, 0}, {-0.28, 0, 0, 0}, {-0.18, 0.20, 0, 0}, {0.34, 0, 3, 0},
-		{0.08, -0.48, 0, 1}, {-0.24, -0.46, 2, 1}, {-0.50, -0.24, 1, 1}, {-0.58, 0, 1, 1},
-		{-0.50, 0.24, 1, 1}, {-0.24, 0.46, 2, 1}, {0.08, 0.48, 0, 1}, {0.42, -0.34, 3, 1},
-		{0.42, 0.34, 3, 1}, {-0.72, -0.34, 0, 2}, {-0.78, 0, 2, 2}, {-0.72, 0.34, 0, 2},
-		{-0.36, -0.68, 1, 2}, {-0.36, 0.68, 1, 2}, {0.26, -0.66, 2, 2}, {0.26, 0.66, 2, 2},
-	}
-	add(1, ThemeNoirBW, "Noir Crescent", 5, 5, 2, 9404, crescent)
-
-	decoFan := []StitchPoint{
-		{0, 0.54, 1, 0}, {-0.24, 0.44, 0, 0}, {0.24, 0.44, 0, 0}, {0, 0.28, 2, 0},
-		{-0.46, 0.26, 1, 1}, {0.46, 0.26, 1, 1}, {-0.26, 0.08, 3, 1}, {0.26, 0.08, 3, 1}, {0, -0.02, 0, 1},
-		{-0.66, 0.02, 0, 1}, {0.66, 0.02, 0, 1},
-		{-0.72, -0.24, 2, 2}, {0.72, -0.24, 2, 2}, {-0.52, -0.48, 1, 2}, {0.52, -0.48, 1, 2},
-		{-0.26, -0.64, 0, 2}, {0.26, -0.64, 0, 2}, {0, -0.72, 3, 2},
-		{-0.46, -0.22, 0, 2}, {0.46, -0.22, 0, 2}, {0, -0.36, 1, 2},
-	}
-	add(1, ThemeNoirBW, "Deco Fan", 5, 5, 2, 9505, decoFan)
-
-	hourglass := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.20, -0.22}, {0.20, 0.22}, {0.42, -0.46}, {0.42, 0.46},
-			{0.64, -0.64}, {0.64, 0.64}, {0.32, -0.66}, {0.32, 0.66}, {0.54, -0.26}, {0.54, 0.26},
-		},
-		[]StitchPoint{{0, 0, 1, 0}, {0, -0.66, 0, 2}, {0, 0.66, 0, 2}},
-		0, 2, 3,
-	)
-	add(1, ThemeNoirBW, "Obsidian Hourglass", 5, 5, 2, 9606, hourglass)
-
-	checker := append(diamondRing(0.32, 0, 1, 0), diamondRing(0.58, 2, 3, 1)...)
-	checker = append(checker, diamondRing(0.80, 1, 0, 2)...)
-	add(1, ThemeNoirBW, "Checker Medallion", 5, 5, 2, 9707, checker)
-
-	nRose := append([]StitchPoint{{0, 0, 1, 0}}, ringPoints(6, 0.28, 0, 0, 2, 0)...)
-	nRose = append(nRose, ringPoints(8, 0.54, math.Pi/8, 1, 3, 1)...)
-	nRose = append(nRose, ringPoints(10, 0.78, 0, 0, 2, 2)...)
-	add(1, ThemeNoirBW, "Monochrome Rose", 5, 5, 2, 9808, nRose)
-
-	// =========================================================================
-	// CHAPTER 2: CYBER ARCADE (Theme 1 — Electric Synthwave Neon, 8 patterns)
+	// CHAPTER 1: CYBER ARCADE (Theme 1 — Electric Synthwave Neon, 8 patterns)
 	// =========================================================================
 	neonPulse := append(diamondRing(0.28, ColorCobalt, ColorRuby, 0), diamondRing(0.54, ColorEmerald, ColorGold, 1)...)
 	neonPulse = append(neonPulse, diamondRing(0.78, ColorAmethyst, ColorCobalt, 2)...)
-	add(2, ThemeCyberNeon, "Neon Pulse", 5, 5, 2, 10101, neonPulse)
+	add(1, ThemeCyberNeon, "Neon Pulse", 5, 5, 2, 10101, neonPulse)
 
 	invader := buildSymmetricGridMotif(
 		[][2]float32{
@@ -368,7 +286,7 @@ func buildCuratedArtworks() []ArtworkDef {
 		[]StitchPoint{{0, -0.18, ColorCobalt, 0}, {0, 0.04, ColorRuby, 0}, {0, 0.26, ColorEmerald, 1}, {0, -0.44, ColorGold, 1}},
 		ColorCobalt, ColorRuby, ColorEmerald,
 	)
-	add(2, ThemeCyberNeon, "Pixel Invader", 6, 5, 3, 10202, invader)
+	add(1, ThemeCyberNeon, "Pixel Invader", 6, 5, 3, 10202, invader)
 
 	synthSun := append([]StitchPoint{{0, -0.18, ColorGold, 0}}, ringPoints(6, 0.28, 0, ColorGold, ColorTurquoise, 0)...)
 	synthSun = append(synthSun, ringPoints(9, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
@@ -381,17 +299,17 @@ func buildCuratedArtworks() []ArtworkDef {
 		StitchPoint{-0.36, 0.76, ColorEmerald, 2}, StitchPoint{0.0, 0.76, ColorEmerald, 2},
 		StitchPoint{0.36, 0.76, ColorEmerald, 2},
 	)
-	add(2, ThemeCyberNeon, "Synth Horizon", 6, 5, 3, 10303, synthSun)
+	add(1, ThemeCyberNeon, "Synth Horizon", 6, 5, 3, 10303, synthSun)
 
 	laserGrid := append(ringPoints(6, 0.24, 0, ColorCobalt, ColorRuby, 0), ringPoints(10, 0.50, math.Pi/10, ColorEmerald, ColorAmethyst, 1)...)
 	laserGrid = append(laserGrid, ringPoints(14, 0.78, 0, ColorCobalt, ColorGold, 2)...)
-	add(2, ThemeCyberNeon, "Laser Grid", 6, 5, 3, 10404, laserGrid)
+	add(1, ThemeCyberNeon, "Laser Grid", 6, 5, 3, 10404, laserGrid)
 
 	circuit := append(diamondRing(0.28, ColorEmerald, ColorCobalt, 0), ringPoints(12, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
 	circuit = append(circuit, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorTurquoise, 2)...)
-	add(2, ThemeCyberNeon, "Cyber Circuit", 6, 6, 3, 10505, circuit)
+	add(1, ThemeCyberNeon, "Cyber Circuit", 6, 6, 3, 10505, circuit)
 
-	add(2, ThemeCyberNeon, "Hyper Portal", 6, 6, 3, 10606,
+	add(1, ThemeCyberNeon, "Hyper Portal", 6, 6, 3, 10606,
 		buildSpiralStitches(34, 2.2, []uint8{ColorCobalt, ColorRuby, ColorAmethyst, ColorEmerald, ColorGold}))
 
 	bolt := buildSymmetricGridMotif(
@@ -406,59 +324,59 @@ func buildCuratedArtworks() []ArtworkDef {
 		},
 		ColorGold, ColorCobalt, ColorRuby,
 	)
-	add(2, ThemeCyberNeon, "Plasma Bolt", 6, 6, 4, 10707, bolt)
+	add(1, ThemeCyberNeon, "Plasma Bolt", 6, 6, 4, 10707, bolt)
 
 	matrix := append([]StitchPoint{{0, 0, ColorEmerald, 0}}, ringPoints(7, 0.25, 0, ColorEmerald, ColorCobalt, 0)...)
 	matrix = append(matrix, ringPoints(14, 0.52, 0, ColorRuby, ColorAmethyst, 1)...)
 	matrix = append(matrix, ringPoints(16, 0.79, math.Pi/16, ColorCobalt, ColorTurquoise, 2)...)
-	add(2, ThemeCyberNeon, "Matrix Core", 7, 6, 4, 10808, matrix)
+	add(1, ThemeCyberNeon, "Matrix Core", 7, 6, 4, 10808, matrix)
 
 	// =========================================================================
-	// CHAPTER 3: POP STUDIO (Theme 3 — Bold Comic & Warhol Primaries, 8 patterns)
+	// CHAPTER 2: POP STUDIO (Theme 2 — Bold Comic & Warhol Primaries, 8 patterns)
 	// =========================================================================
 	cStar := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(5, 0.44, 0.22, ColorRuby, ColorGold, 0)...)
 	cStar = append(cStar, ringPoints(13, 0.76, -math.Pi/2, ColorCobalt, ColorAmethyst, 2)...)
-	add(3, ThemePopArt, "Comic Star", 5, 5, 2, 11101, cStar)
+	add(2, ThemePopArt, "Comic Star", 5, 5, 2, 11101, cStar)
 
 	popHeart := append(buildHeartStitches(ColorGold, ColorCobalt, ColorRuby, ColorAmethyst),
 		StitchPoint{-0.76, -0.54, ColorGold, 2}, StitchPoint{0.76, -0.54, ColorGold, 2},
 		StitchPoint{-0.70, 0.48, ColorEmerald, 2}, StitchPoint{0.70, 0.48, ColorEmerald, 2},
 		StitchPoint{0, -0.72, ColorTurquoise, 2},
 	)
-	add(3, ThemePopArt, "Pop Heart", 6, 5, 3, 11202, popHeart)
+	add(2, ThemePopArt, "Pop Heart", 6, 5, 3, 11202, popHeart)
 
 	pBolt := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(6, 0.46, 0.24, ColorGold, ColorRuby, 0)...)
 	pBolt = append(pBolt, ringPoints(15, 0.77, 0, ColorCobalt, ColorTurquoise, 2)...)
-	add(3, ThemePopArt, "Halftone Bolt", 6, 5, 3, 11303, pBolt)
+	add(2, ThemePopArt, "Halftone Bolt", 6, 5, 3, 11303, pBolt)
 
 	warhol := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.24, 0, ColorGold, ColorTurquoise, 0)...)
 	warhol = append(warhol, ringPoints(11, 0.50, 0, ColorAmethyst, ColorRuby, 1)...)
 	warhol = append(warhol, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorEmerald, 2)...)
-	add(3, ThemePopArt, "Warhol Flower", 6, 5, 3, 11404, warhol)
+	add(2, ThemePopArt, "Warhol Flower", 6, 5, 3, 11404, warhol)
 
 	boom := append(starPoints(7, 0.44, 0.24, ColorRuby, ColorGold, 0), starPoints(9, 0.80, 0.56, ColorCobalt, ColorAmethyst, 2)...)
-	add(3, ThemePopArt, "Boom Burst", 6, 6, 3, 11505, boom)
+	add(2, ThemePopArt, "Boom Burst", 6, 6, 3, 11505, boom)
 
 	retroSun := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.25, 0, ColorGold, ColorTurquoise, 0)...)
 	retroSun = append(retroSun, ringPoints(12, 0.52, 0, ColorRuby, ColorGold, 1)...)
 	retroSun = append(retroSun, ringPoints(14, 0.79, 0, ColorCobalt, ColorAmethyst, 2)...)
-	add(3, ThemePopArt, "Retro Sun", 6, 6, 3, 11606, retroSun)
+	add(2, ThemePopArt, "Retro Sun", 6, 6, 3, 11606, retroSun)
 
 	popDia := append(diamondRing(0.24, ColorGold, ColorRuby, 0), diamondRing(0.50, ColorCobalt, ColorAmethyst, 1)...)
 	popDia = append(popDia, ringPoints(20, 0.78, 0, ColorEmerald, ColorTurquoise, 2)...)
-	add(3, ThemePopArt, "Pop Diamond", 6, 6, 4, 11707, popDia)
+	add(2, ThemePopArt, "Pop Diamond", 6, 6, 4, 11707, popDia)
 
 	sCrown := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(8, 0.44, 0.24, ColorRuby, ColorGold, 0)...)
 	sCrown = append(sCrown, ringPoints(21, 0.79, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
-	add(3, ThemePopArt, "Studio Crown", 7, 6, 4, 11808, sCrown)
+	add(2, ThemePopArt, "Studio Crown", 7, 6, 4, 11808, sCrown)
 
 	// =========================================================================
-	// CHAPTER 4: CATHEDRAL GLASS (Theme 4 — Glowing Stained Glass, 8 patterns)
+	// CHAPTER 3: CATHEDRAL GLASS (Theme 3 — Glowing Stained Glass, 8 patterns)
 	// =========================================================================
 	lantern := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorGold, ColorTurquoise, 0)...)
 	lantern = append(lantern, ringPoints(8, 0.52, math.Pi/8, ColorRuby, ColorAmethyst, 1)...)
 	lantern = append(lantern, ringPoints(11, 0.78, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
-	add(4, ThemeStainedGlass, "Prism Lantern", 6, 5, 3, 12101, lantern)
+	add(3, ThemeStainedGlass, "Prism Lantern", 6, 5, 3, 12101, lantern)
 
 	chalice := buildSymmetricGridMotif(
 		[][2]float32{
@@ -472,11 +390,11 @@ func buildCuratedArtworks() []ArtworkDef {
 		},
 		ColorGold, ColorCobalt, ColorAmethyst,
 	)
-	add(4, ThemeStainedGlass, "Sapphire Chalice", 6, 5, 3, 12202, chalice)
+	add(3, ThemeStainedGlass, "Sapphire Chalice", 6, 5, 3, 12202, chalice)
 
 	arch := append(ringPoints(8, 0.26, -math.Pi/2, ColorGold, ColorTurquoise, 0), ringPoints(10, 0.52, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
 	arch = append(arch, ringPoints(14, 0.78, -math.Pi/2, ColorRuby, ColorEmerald, 2)...)
-	add(4, ThemeStainedGlass, "Gothic Arch", 6, 6, 3, 12303, arch)
+	add(3, ThemeStainedGlass, "Gothic Arch", 6, 6, 3, 12303, arch)
 
 	wings := buildSymmetricGridMotif(
 		[][2]float32{
@@ -490,28 +408,28 @@ func buildCuratedArtworks() []ArtworkDef {
 		},
 		ColorTurquoise, ColorCobalt, ColorAmethyst,
 	)
-	add(4, ThemeStainedGlass, "Angel Wings", 6, 6, 3, 12404, wings)
+	add(3, ThemeStainedGlass, "Angel Wings", 6, 6, 3, 12404, wings)
 
 	catCross := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorRuby, ColorGold, 0)...)
 	catCross = append(catCross, ringPoints(12, 0.54, 0, ColorCobalt, ColorAmethyst, 1)...)
 	catCross = append(catCross, ringPoints(15, 0.80, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-	add(4, ThemeStainedGlass, "Cathedral Cross", 6, 6, 4, 12505, catCross)
+	add(3, ThemeStainedGlass, "Cathedral Cross", 6, 6, 4, 12505, catCross)
 
-	add(4, ThemeStainedGlass, "Aurora Spire", 7, 6, 4, 12606,
+	add(3, ThemeStainedGlass, "Aurora Spire", 7, 6, 4, 12606,
 		buildSpiralStitches(38, 2.3, []uint8{ColorEmerald, ColorCobalt, ColorAmethyst, ColorRuby, ColorGold, ColorTurquoise}))
 
 	roseWin := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.24, -math.Pi/2, ColorRuby, ColorGold, 0)...)
 	roseWin = append(roseWin, ringPoints(14, 0.50, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
 	roseWin = append(roseWin, ringPoints(20, 0.79, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-	add(4, ThemeStainedGlass, "Rose Window", 7, 6, 4, 12707, roseWin)
+	add(3, ThemeStainedGlass, "Rose Window", 7, 6, 4, 12707, roseWin)
 
 	vault := append([]StitchPoint{{0, 0, ColorTurquoise, 0}}, ringPoints(8, 0.24, 0, ColorGold, ColorRuby, 0)...)
 	vault = append(vault, ringPoints(16, 0.52, math.Pi/16, ColorCobalt, ColorAmethyst, 1)...)
 	vault = append(vault, ringPoints(20, 0.80, 0, ColorEmerald, ColorGold, 2)...)
-	add(4, ThemeStainedGlass, "Celestial Vault", 7, 7, 4, 12808, vault)
+	add(3, ThemeStainedGlass, "Celestial Vault", 7, 7, 4, 12808, vault)
 
 	return arts
 }
 
-// CuratedArtworks holds all 40 handcrafted, theme-matched patterns across 5 native Chapters (Ateliers).
+// CuratedArtworks holds all 32 handcrafted, vibrant theme-matched patterns across 4 native Chapters.
 var CuratedArtworks = buildCuratedArtworks()

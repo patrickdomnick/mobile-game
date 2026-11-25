@@ -58,9 +58,7 @@ declare global {
 }
 
 const FIXED_DT = 1 / 60;
-const CALM_FRAME_INTERVAL_MS = 250;
-const DEEP_IDLE_INTERVAL_MS = 1000;
-const DEEP_IDLE_AFTER_MS = 3000;
+const SOLAR_SYNC_INTERVAL_MS = 15_000;
 const SCENE_BUFFER_BYTES = 1008 * 4;
 
 function getRealTimeOfDayHours(): number {
@@ -83,14 +81,6 @@ function describeSolarPhase(hours: number): { icon: string; name: string } {
   if (h >= 16.5 && h < 19.75) return { icon: '🌇', name: 'Golden Hour' };
   if (h >= 19.75 && h < 21.5) return { icon: '🌆', name: 'Twilight' };
   return { icon: '☾', name: 'Night' };
-}
-
-function applyPatternClass(dot: HTMLElement, pattern?: string): void {
-  dot.classList.remove('pattern-band', 'pattern-ring', 'pattern-diag', 'pattern-cross');
-  if (pattern === 'band') dot.classList.add('pattern-band');
-  else if (pattern === 'ring') dot.classList.add('pattern-ring');
-  else if (pattern === 'diag') dot.classList.add('pattern-diag');
-  else if (pattern === 'cross') dot.classList.add('pattern-cross');
 }
 
 async function bootstrap(): Promise<void> {
@@ -207,8 +197,7 @@ async function bootstrap(): Promise<void> {
     let lastSwatchKey = '';
     let lastLightingTheme = '';
     let lastDomTheme = '';
-    let lastRenderAt = 0;
-    let lastActiveMotionAt = performance.now();
+    let lastSolarSyncAt = 0;
     let needsImmediateRender = true;
     let frameInFlight = false;
     let recordedCompleteKey = '';
@@ -240,11 +229,11 @@ async function bootstrap(): Promise<void> {
       sim.setTimeOfDayHours(hours);
       soundscape.applySolarAtmosphere(hours);
       updateSolarUi(hours);
+      lastSolarSyncAt = performance.now();
     };
 
     const wakeRenderer = (): void => {
       needsImmediateRender = true;
-      lastActiveMotionAt = performance.now();
       renderer.setIdleThrottled(false);
     };
 
@@ -604,7 +593,6 @@ async function bootstrap(): Promise<void> {
             const dot = document.createElement('span');
             dot.className = 'swatch-dot swatch-dot-active';
             dot.style.backgroundColor = info.hex;
-            applyPatternClass(dot, info.pattern);
 
             const count = document.createElement('span');
             count.className = 'swatch-count';
@@ -619,7 +607,6 @@ async function bootstrap(): Promise<void> {
             const nextInfo = pal[snap.nextQueuedColor];
             swatchNextWrap.classList.remove('hidden');
             swatchNextDot.style.backgroundColor = nextInfo.hex;
-            applyPatternClass(swatchNextDot, nextInfo.pattern);
           } else {
             swatchNextWrap.classList.add('hidden');
           }
@@ -1028,14 +1015,16 @@ async function bootstrap(): Promise<void> {
     sim.step(FIXED_DT);
     const firstSnap = renderNow();
     syncEventCountersBaseline(firstSnap);
+    needsImmediateRender = false;
     await renderer.flush();
     isReady = true;
     resolveReady();
 
-    // Two-tier battery-saving frame loop:
-    // - 60 FPS during active 3D motion (pearl flight, bloom, shake, shockwaves)
-    // - 4 FPS calm settle -> 1 FPS deep idle while player contemplates (>95% GPU power savings)
-    // - 0 FPS completely paused when tab is hidden or Gallery/Settings drawer covers canvas
+    // True 0-FPS Event-Driven Battery-Saving Frame Loop:
+    // - 60 FPS ONLY during active 3D motion (pearl flight, temporary 2.2s unlock interior glow, shake, shockwaves)
+    // - 0 FPS (ZERO WebGPU submissions & ZERO WASM repacks) while player thinks!
+    // - Real-world solar clock syncs once every 15 seconds (not 60x/sec) for effortless battery life.
+    // - 0 FPS completely paused when tab is hidden or Gallery/Settings drawer covers canvas.
     let lastTs = performance.now();
     let accumulator = 0;
     const frame = (now: number) => {
@@ -1049,24 +1038,30 @@ async function bootstrap(): Promise<void> {
         return;
       }
 
-      syncClock();
       const dt = Math.min(0.05, Math.max(0, (now - lastTs) / 1000));
       lastTs = now;
 
-      const preSnap = sim.readState(getAspect());
+      // Sync real-world solar position at most once every 15 seconds when in Auto mode
+      if (now - lastSolarSyncAt >= SOLAR_SYNC_INTERVAL_MS) {
+        syncClock();
+        if (settings.timeMode === 'auto') {
+          needsImmediateRender = true;
+        }
+      }
+
       // Smoothly roll DOM score counter without waking the GPU!
-      if (displayedScore !== preSnap.score) {
-        const diff = preSnap.score - displayedScore;
+      const liveScore = sim.score();
+      if (displayedScore !== liveScore) {
+        const diff = liveScore - displayedScore;
         displayedScore =
-          Math.abs(diff) <= 35 || preSnap.score < displayedScore
-            ? preSnap.score
+          Math.abs(diff) <= 35 || liveScore < displayedScore
+            ? liveScore
             : displayedScore + Math.ceil(diff * 0.35);
         if (scoreEl) scoreEl.textContent = displayedScore.toLocaleString();
       }
-      const activeMotion = preSnap.isAnimating || needsImmediateRender;
 
+      const activeMotion = sim.isAnimating() || needsImmediateRender;
       if (activeMotion) {
-        lastActiveMotionAt = now;
         renderer.setIdleThrottled(false);
         accumulator += dt;
         while (accumulator >= FIXED_DT) {
@@ -1075,20 +1070,11 @@ async function bootstrap(): Promise<void> {
         }
         if (!frameInFlight) {
           renderNonBlocking();
-          lastRenderAt = now;
           needsImmediateRender = false;
         }
       } else {
+        accumulator = 0;
         renderer.setIdleThrottled(true);
-        const idleInterval =
-          now - lastActiveMotionAt > DEEP_IDLE_AFTER_MS
-            ? DEEP_IDLE_INTERVAL_MS
-            : CALM_FRAME_INTERVAL_MS;
-        if (!frameInFlight && now - lastRenderAt >= idleInterval) {
-          sim.step(Math.min(0.05, (now - lastRenderAt) / 1000));
-          renderNonBlocking();
-          lastRenderAt = now;
-        }
       }
 
       requestAnimationFrame(frame);

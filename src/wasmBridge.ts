@@ -8,7 +8,6 @@ export const HINT_NEEDS_UNDO = -2;
 export interface PearlColorInfo {
   name: string;
   hex: string;
-  pattern?: 'solid-light' | 'solid-dark' | 'band' | 'ring' | 'diag' | 'cross';
 }
 
 export interface VisualThemeDef {
@@ -56,22 +55,6 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
   {
     id: 2,
-    name: 'Noir Salon',
-    shortName: 'Noir B&W',
-    tagline: 'Calm Art-Deco monochrome inlays',
-    swatchGradient: 'linear-gradient(135deg, #ffffff 0%, #8a8d96 50%, #141418 100%)',
-    accent: '#e8eaef',
-    colors: [
-      { name: 'Alabaster', hex: '#f7f7fc', pattern: 'solid-light' },
-      { name: 'Obsidian', hex: '#17171c', pattern: 'solid-dark' },
-      { name: 'Striped Silver', hex: '#e2e4eb', pattern: 'band' },
-      { name: 'Ringed Onyx', hex: '#26272e', pattern: 'ring' },
-      { name: 'Sash Ivory', hex: '#ededf2', pattern: 'diag' },
-      { name: 'Star Charcoal', hex: '#1e1f26', pattern: 'cross' },
-    ],
-  },
-  {
-    id: 3,
     name: 'Pop Studio',
     shortName: 'Pop Art',
     tagline: 'Bold halftone comic ink & primaries',
@@ -87,7 +70,7 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
     ],
   },
   {
-    id: 4,
+    id: 3,
     name: 'Cathedral Glass',
     shortName: 'Prism',
     tagline: 'Glowing stained-glass prisms & caustics',
@@ -117,10 +100,9 @@ export interface ChapterDef {
 
 export const CHAPTERS: readonly ChapterDef[] = [
   { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 8 },
-  { id: 1, roman: 'II', name: 'Noir Salon', shortName: 'Noir', themeId: 2, subtitle: 'Calm Art-Deco monochrome silhouettes', startIndex: 8, count: 8 },
-  { id: 2, roman: 'III', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 16, count: 8 },
-  { id: 3, roman: 'IV', name: 'Pop Studio', shortName: 'Pop', themeId: 3, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 24, count: 8 },
-  { id: 4, roman: 'V', name: 'Cathedral Glass', shortName: 'Prism', themeId: 4, subtitle: 'Grand rose windows & glowing caustics', startIndex: 32, count: 8 },
+  { id: 1, roman: 'II', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 8, count: 8 },
+  { id: 2, roman: 'III', name: 'Pop Studio', shortName: 'Pop', themeId: 2, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 16, count: 8 },
+  { id: 3, roman: 'IV', name: 'Cathedral Glass', shortName: 'Prism', themeId: 3, subtitle: 'Grand rose windows & glowing caustics', startIndex: 24, count: 8 },
 ] as const;
 
 export function getThemePalette(themeIndex: number): readonly PearlColorInfo[] {
@@ -157,45 +139,35 @@ export const CURATED_LEVELS: readonly CuratedLevelDef[] = [
   { id: 6, chapter: 0, theme: 0, name: 'Nautilus Prism', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
   { id: 7, chapter: 0, theme: 0, name: 'Grand Starlight', grid: '7×6', pearls: 41, colors: [0, 1, 2, 3, 4, 5] },
 
-  // Chapter 1: Noir Salon (Theme 2 — gentler 3-4 monochrome geometric inlays!)
-  { id: 8, chapter: 1, theme: 2, name: 'Domino Diamond', grid: '4×4', pearls: 16, colors: [0, 1, 2] },
-  { id: 9, chapter: 1, theme: 2, name: 'Tuxedo Bowtie', grid: '5×4', pearls: 18, colors: [0, 1, 2] },
-  { id: 10, chapter: 1, theme: 2, name: 'Art-Deco Cross', grid: '5×4', pearls: 19, colors: [0, 1, 2] },
-  { id: 11, chapter: 1, theme: 2, name: 'Noir Crescent', grid: '5×5', pearls: 20, colors: [0, 1, 2, 3] },
-  { id: 12, chapter: 1, theme: 2, name: 'Deco Fan', grid: '5×5', pearls: 21, colors: [0, 1, 2, 3] },
-  { id: 13, chapter: 1, theme: 2, name: 'Obsidian Hourglass', grid: '5×5', pearls: 23, colors: [0, 1, 2, 3] },
-  { id: 14, chapter: 1, theme: 2, name: 'Checker Medallion', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3] },
-  { id: 15, chapter: 1, theme: 2, name: 'Monochrome Rose', grid: '5×5', pearls: 25, colors: [0, 1, 2, 3] },
+  // Chapter 1: Cyber Arcade (Theme 1)
+  { id: 8, chapter: 1, theme: 1, name: 'Neon Pulse', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3, 4] },
+  { id: 9, chapter: 1, theme: 1, name: 'Pixel Invader', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3] },
+  { id: 10, chapter: 1, theme: 1, name: 'Synth Horizon', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 11, chapter: 1, theme: 1, name: 'Laser Grid', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4] },
+  { id: 12, chapter: 1, theme: 1, name: 'Cyber Circuit', grid: '6×6', pearls: 32, colors: [0, 1, 2, 4, 5] },
+  { id: 13, chapter: 1, theme: 1, name: 'Hyper Portal', grid: '6×6', pearls: 34, colors: [0, 1, 2, 3, 4] },
+  { id: 14, chapter: 1, theme: 1, name: 'Plasma Bolt', grid: '6×6', pearls: 36, colors: [0, 1, 3] },
+  { id: 15, chapter: 1, theme: 1, name: 'Matrix Core', grid: '7×6', pearls: 38, colors: [0, 1, 2, 4, 5] },
 
-  // Chapter 2: Cyber Arcade (Theme 1)
-  { id: 16, chapter: 2, theme: 1, name: 'Neon Pulse', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3, 4] },
-  { id: 17, chapter: 2, theme: 1, name: 'Pixel Invader', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3] },
-  { id: 18, chapter: 2, theme: 1, name: 'Synth Horizon', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 19, chapter: 2, theme: 1, name: 'Laser Grid', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4] },
-  { id: 20, chapter: 2, theme: 1, name: 'Cyber Circuit', grid: '6×6', pearls: 32, colors: [0, 1, 2, 4, 5] },
-  { id: 21, chapter: 2, theme: 1, name: 'Hyper Portal', grid: '6×6', pearls: 34, colors: [0, 1, 2, 3, 4] },
-  { id: 22, chapter: 2, theme: 1, name: 'Plasma Bolt', grid: '6×6', pearls: 36, colors: [0, 1, 3] },
-  { id: 23, chapter: 2, theme: 1, name: 'Matrix Core', grid: '7×6', pearls: 38, colors: [0, 1, 2, 4, 5] },
+  // Chapter 2: Pop Studio (Theme 2)
+  { id: 16, chapter: 2, theme: 2, name: 'Comic Star', grid: '5×5', pearls: 24, colors: [0, 1, 3, 4] },
+  { id: 17, chapter: 2, theme: 2, name: 'Pop Heart', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 18, chapter: 2, theme: 2, name: 'Halftone Bolt', grid: '6×5', pearls: 28, colors: [0, 1, 3, 5] },
+  { id: 19, chapter: 2, theme: 2, name: 'Warhol Flower', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 20, chapter: 2, theme: 2, name: 'Boom Burst', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4] },
+  { id: 21, chapter: 2, theme: 2, name: 'Retro Sun', grid: '6×6', pearls: 34, colors: [0, 1, 3, 4, 5] },
+  { id: 22, chapter: 2, theme: 2, name: 'Pop Diamond', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 23, chapter: 2, theme: 2, name: 'Studio Crown', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3] },
 
-  // Chapter 3: Pop Studio (Theme 3)
-  { id: 24, chapter: 3, theme: 3, name: 'Comic Star', grid: '5×5', pearls: 24, colors: [0, 1, 3, 4] },
-  { id: 25, chapter: 3, theme: 3, name: 'Pop Heart', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 26, chapter: 3, theme: 3, name: 'Halftone Bolt', grid: '6×5', pearls: 28, colors: [0, 1, 3, 5] },
-  { id: 27, chapter: 3, theme: 3, name: 'Warhol Flower', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 28, chapter: 3, theme: 3, name: 'Boom Burst', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4] },
-  { id: 29, chapter: 3, theme: 3, name: 'Retro Sun', grid: '6×6', pearls: 34, colors: [0, 1, 3, 4, 5] },
-  { id: 30, chapter: 3, theme: 3, name: 'Pop Diamond', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 31, chapter: 3, theme: 3, name: 'Studio Crown', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3] },
-
-  // Chapter 4: Cathedral Glass (Theme 4)
-  { id: 32, chapter: 4, theme: 4, name: 'Prism Lantern', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 33, chapter: 4, theme: 4, name: 'Sapphire Chalice', grid: '6×5', pearls: 30, colors: [0, 1, 3, 4, 5] },
-  { id: 34, chapter: 4, theme: 4, name: 'Gothic Arch', grid: '6×6', pearls: 32, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 35, chapter: 4, theme: 4, name: 'Angel Wings', grid: '6×6', pearls: 34, colors: [1, 3, 4, 5] },
-  { id: 36, chapter: 4, theme: 4, name: 'Cathedral Cross', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 37, chapter: 4, theme: 4, name: 'Aurora Spire', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 38, chapter: 4, theme: 4, name: 'Rose Window', grid: '7×6', pearls: 42, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 39, chapter: 4, theme: 4, name: 'Celestial Vault', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
+  // Chapter 3: Cathedral Glass (Theme 3)
+  { id: 24, chapter: 3, theme: 3, name: 'Prism Lantern', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 25, chapter: 3, theme: 3, name: 'Sapphire Chalice', grid: '6×5', pearls: 30, colors: [0, 1, 3, 4, 5] },
+  { id: 26, chapter: 3, theme: 3, name: 'Gothic Arch', grid: '6×6', pearls: 32, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 27, chapter: 3, theme: 3, name: 'Angel Wings', grid: '6×6', pearls: 34, colors: [1, 3, 4, 5] },
+  { id: 28, chapter: 3, theme: 3, name: 'Cathedral Cross', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 29, chapter: 3, theme: 3, name: 'Aurora Spire', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 30, chapter: 3, theme: 3, name: 'Rose Window', grid: '7×6', pearls: 42, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 31, chapter: 3, theme: 3, name: 'Celestial Vault', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
 ] as const;
 
 export const CURATED_LEVEL_NAMES = CURATED_LEVELS.map((l) => l.name);
@@ -431,6 +403,18 @@ export class WasmSimulation {
 
   sceneView(): Float32Array {
     return new Float32Array(this.exports.memory.buffer, this.scenePtr, this.sceneLen);
+  }
+
+  /** Zero-allocation check for whether any 3D motion or temporary unlock glow is active. */
+  isAnimating(): boolean {
+    const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 6 * 4, 1);
+    return view[0] > 0.5;
+  }
+
+  /** Zero-allocation read of current score for DOM ticker smoothing while GPU idles. */
+  score(): number {
+    const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 7 * 4, 1);
+    return Math.round(view[0]);
   }
 
   readState(aspect: number): SimSnapshot {
