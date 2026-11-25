@@ -127,6 +127,16 @@ func (s *solverState) isActiveColor(c uint8) bool {
 	return false
 }
 
+func (s *solverState) nextQueuedColor() int {
+	for p := s.queuePos; p < s.queueLen; p++ {
+		c := int(s.queue[p])
+		if s.remain[c] > 0 && !s.isActiveColor(uint8(c)) {
+			return c
+		}
+	}
+	return -1
+}
+
 func (s *solverState) drainTray() {
 	for {
 		progressed := false
@@ -197,8 +207,37 @@ func isUnblockedMask(tiles []Tile, mask uint64, idx int, cols, rows int) bool {
 	return true
 }
 
+// scoreTrayCandidate prioritizes tray moves that directly unblock active-color pearls
+// or hold the next-up color so DFS finds winning pinch-escapes rapidly!
+func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) int {
+	score := 0
+	if int(tiles[idx].Color) == st.nextQueuedColor() {
+		score += 6
+	}
+	nextMask := st.aliveMask &^ (uint64(1) << uint(idx))
+	tc := tiles[idx].Col
+	tr := tiles[idx].Row
+	for j := range tiles {
+		if j == idx || (nextMask&(uint64(1)<<uint(j))) == 0 {
+			continue
+		}
+		// Only tiles on the same row or column could possibly be unblocked by removing idx
+		if tiles[j].Col != tc && tiles[j].Row != tr {
+			continue
+		}
+		if !isUnblockedMask(tiles, st.aliveMask, j, cols, rows) && isUnblockedMask(tiles, nextMask, j, cols, rows) {
+			if st.isActiveColor(tiles[j].Color) {
+				score += 14
+			} else {
+				score += 3
+			}
+		}
+	}
+	return score
+}
+
 // fixedMaskSet is a zero-allocation open-addressed hash set for 49-bit aliveMasks.
-const visitedTableSize = 2048 // power of two
+const visitedTableSize = 8192 // power of two
 
 type fixedMaskSet struct {
 	keys [visitedTableSize]uint64
@@ -238,13 +277,15 @@ func (s *fixedMaskSet) add(k uint64) {
 	}
 }
 
-// solveFromState finds a guaranteed winning sequence respecting the 5-slot silk tray rule.
-func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int) {
+// solveFromStateDetailed returns (solved, firstMove, exhausted).
+// When !solved && exhausted, the state is provably a dead-end pinch requiring Undo!
+func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int, bool) {
 	if start.aliveMask == 0 {
-		return start.trayLen == 0, -1
+		return start.trayLen == 0, -1, true
 	}
 
 	nodes := 0
+	hitBudget := false
 	var visited fixedMaskSet
 
 	var dfs func(st solverState) (bool, int)
@@ -253,6 +294,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 			return st.trayLen == 0, -1
 		}
 		if nodes >= nodeBudget {
+			hitBudget = true
 			return false, -1
 		}
 		nodes++
@@ -264,6 +306,7 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 		var directMoves [MaxGridTiles]int
 		directN := 0
 		var trayMoves [MaxGridTiles]int
+		var trayScores [MaxGridTiles]int
 		trayN := 0
 
 		for i := range tiles {
@@ -273,11 +316,13 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 					directN++
 				} else if st.trayLen < TrayCapacity {
 					trayMoves[trayN] = i
+					trayScores[trayN] = scoreTrayCandidate(tiles, &st, i, cols, rows)
 					trayN++
 				}
 			}
 		}
 
+		// Try direct-stitch moves first (preserve tray space & build streak!)
 		for k := 0; k < directN; k++ {
 			mv := directMoves[k]
 			next := st
@@ -286,6 +331,20 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 					return true, mv
 				}
 			}
+		}
+
+		// Sort tray candidates descending by pinch-escape heuristic (unblocks active colors first!)
+		for a := 1; a < trayN; a++ {
+			mv := trayMoves[a]
+			sc := trayScores[a]
+			b := a - 1
+			for b >= 0 && trayScores[b] < sc {
+				trayMoves[b+1] = trayMoves[b]
+				trayScores[b+1] = trayScores[b]
+				b--
+			}
+			trayMoves[b+1] = mv
+			trayScores[b+1] = sc
 		}
 
 		for k := 0; k < trayN; k++ {
@@ -302,7 +361,38 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 		return false, -1
 	}
 
-	return dfs(start)
+	ok, mv := dfs(start)
+	return ok, mv, !hitBudget
+}
+
+// solveFromState finds a guaranteed winning sequence respecting the 5-slot silk tray rule.
+func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int) {
+	ok, mv, _ := solveFromStateDetailed(tiles, cols, rows, start, nodeBudget)
+	return ok, mv
+}
+
+// pickBestHeuristicMove selects the smartest legal unblocked move if a very deep board hits search budget.
+func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
+	for i := range tiles {
+		if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) && st.isActiveColor(tiles[i].Color) {
+			return i
+		}
+	}
+	if st.trayLen >= TrayCapacity {
+		return -1
+	}
+	bestIdx := -1
+	bestScore := -1
+	for i := range tiles {
+		if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) {
+			sc := scoreTrayCandidate(tiles, &st, i, cols, rows)
+			if sc > bestScore {
+				bestScore = sc
+				bestIdx = i
+			}
+		}
+	}
+	return bestIdx
 }
 
 func buildColorOrder(stitches []StitchPoint) ([NumColors]uint8, int, [NumColors]int) {
@@ -321,8 +411,6 @@ func buildColorOrder(stitches []StitchPoint) ([NumColors]uint8, int, [NumColors]
 	return order, n, counts
 }
 
-// distToEdge returns how many grid steps a ray from (c, r) in dir travels before leaving the grid.
-// Preferring longer internal rays during reverse-peeling creates genuinely engaging interlocking Arrow Jam puzzles!
 func distToEdge(c, r, cols, rows int, dir uint8) int {
 	switch dir {
 	case DirUp:
@@ -385,7 +473,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		// Step 1: Forward peel biased toward deeper inward rays so arrows genuinely interlock!
 		alive := (uint64(1) << uint(n)) - 1
 		peelOrder := make([]int, 0, n)
 
@@ -418,9 +505,13 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 					}
 				}
 				if vCount > 0 {
-					// 70% chance to choose the longest internal ray -> creates rich Arrow Jam chains!
 					chosenDir := validDirs[rng.intn(vCount)]
-					if rng.intn(10) < 7 && bestDist > 0 {
+					// Gentler interlock for lower difficulty (e.g. Noir Salon), richer inward interlock for higher!
+					inwardBias := 5 + art.Difficulty
+					if inwardBias > 8 {
+						inwardBias = 8
+					}
+					if rng.intn(10) < inwardBias && bestDist > 0 {
 						chosenDir = bestDir
 					}
 					w := 1 + distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, chosenDir)
@@ -450,7 +541,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			continue
 		}
 
-		// Step 2: Interleave colors along peelOrder so players must think ahead with the 5-slot tray
 		colorSeq := make([]uint8, 0, n)
 		for qi := 0; qi < colorCount; qi++ {
 			c := colorOrder[qi]
@@ -459,7 +549,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		window := 4 + art.Difficulty*2
+		window := 3 + art.Difficulty*2
 		swaps := n * (art.Difficulty + 1)
 		for s := 0; s < swaps; s++ {
 			a := rng.intn(n)
@@ -473,7 +563,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			tiles[tileIdx].Color = colorSeq[stepIdx]
 		}
 
-		// Step 3: Verify exact 5-slot tray solvability
 		st := solverState{
 			aliveMask: (uint64(1) << uint(n)) - 1,
 			remain:    colorCounts,
@@ -484,7 +573,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		}
 		st.refillActive()
 
-		if ok, _ := solveFromState(tiles, art.Cols, art.Rows, st, 4000); ok {
+		if ok, _ := solveFromState(tiles, art.Cols, art.Rows, st, 6000); ok {
 			return tiles, colorOrder, colorCount
 		}
 	}

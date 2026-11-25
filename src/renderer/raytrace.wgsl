@@ -188,6 +188,7 @@ fn shadePearl(
   iridescence: f32,
   sparkle: f32,
   isBlockerFlash: bool,
+  isActiveTarget: bool,
 ) -> vec3<f32> {
   let theme = getTheme();
   let n = normalize(normal);
@@ -245,23 +246,19 @@ fn shadePearl(
   var col = albedo * (hemi + direct + fillDiff + candleTint * candleDiff * 0.65);
 
   if (theme == 0u) {
-    // Jewel Atelier: deep saturated gemstone enamel + bright crisp specular + subtle jewel rim!
     col = mix(col, envRefl, fresnel * 0.28);
     col += albedo * (0.14 + rimGlow * 0.36);
     col += vec3<f32>(1.0, 0.98, 0.94) * spec * 1.35;
     col += candleTint * candleSpec;
   } else if (theme == 1u) {
-    // Cyber Neon: blazing self-luminous neon plasma orbs!
     col = albedo * (0.48 + 0.62 * ndotv) + col * 0.35;
     col += albedo * rimGlow * 1.35;
     col += vec3<f32>(1.0) * spec * 1.45;
   } else if (theme == 2u) {
-    // Noir Monochrome: high-gloss piano black & bright alabaster with crisp chrome highlight
     col = mix(col, envRefl, fresnel * 0.24);
     col += vec3<f32>(0.35) * rimGlow * 0.28;
     col += vec3<f32>(1.0) * spec * 1.45;
   } else if (theme == 3u) {
-    // Pop Art: ultra-saturated Warhol primaries + comic cel shadow + crisp white specular dot + jet-black ink outline!
     let cel = 0.65 + 0.50 * smoothstep(0.08, 0.45, dot(n, sunDir));
     col = albedo * cel + candleTint * candleDiff * 0.22;
     let dotSpec = smoothstep(0.85, 0.91, max(dot(n, hVec), 0.0));
@@ -269,12 +266,18 @@ fn shadePearl(
     let inkRim = smoothstep(0.38, 0.25, ndotv);
     col = mix(col, vec3<f32>(0.004, 0.004, 0.006), inkRim);
   } else {
-    // Stained Glass (Theme 4): glowing translucent cathedral prism jewel!
     let innerCore = pow(ndotv, 1.5) * 0.68 + 0.26;
     col = albedo * innerCore + col * 0.48;
     col = mix(col, envRefl, fresnel * 0.38);
     col += albedo * rimGlow * 0.85;
     col += vec3<f32>(1.0, 0.97, 0.92) * spec * 1.55;
+  }
+
+  // Active-color target glow (applied equally to blocked & unblocked pearls of active colors — zero spoilers!)
+  if (isActiveTarget) {
+    let activePulse = 0.65 + 0.35 * sin(renderU.time * 4.2);
+    let targetTint = select(mix(albedo, vec3<f32>(1.0, 0.95, 0.78), 0.45), vec3<f32>(0.95), theme == 2u);
+    col += targetTint * (0.09 + rimGlow * 0.72) * activePulse;
   }
 
   col += toLinear(vec3<f32>(1.0, 0.92, 0.72)) * (sparkle * 0.65);
@@ -530,16 +533,29 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
         let bloom = hp.props.y;
         let isActive = hp.props.w;
         let pal = getPaletteLinear(hp.props.x).rgb;
-        if (bloom < 0.95 && dDot < 0.115) {
-          let ring = smoothstep(0.088, 0.056, dDot) - smoothstep(0.036, 0.018, dDot);
-          let centerPin = smoothstep(0.026, 0.010, dDot);
-          let pulse = 0.5 + 0.5 * sin(renderU.time * 4.0 + f32(i) * 0.4);
-          let boost = mix(0.75, 1.0, isActive);
-          albedo = mix(albedo, pal, ring * boost);
-          albedo = mix(albedo, vec3<f32>(0.02, 0.02, 0.03), centerPin * 0.92);
+        // Soft grounded contact AO right beneath stitched hoop pearls
+        if (bloom > 0.25 && dDot < hp.posRad.w * 1.55) {
+          let ao = mix(0.56, 1.0, smoothstep(hp.posRad.w * 0.75, hp.posRad.w * 1.55, dDot));
+          albedo *= mix(1.0, ao, bloom);
+        }
+        if (bloom < 0.95 && dDot < 0.18) {
           if (isActive > 0.5) {
-            let glowHalo = smoothstep(0.115, 0.044, dDot) * (0.42 + 0.32 * pulse);
-            emissive += pal * glowHalo;
+            // HIGH-CLARITY ACTIVE STITCH BEACON: unmistakable luminous pulsing target ring on the hoop!
+            let pulse = 0.55 + 0.45 * sin(renderU.time * 4.4 + f32(i) * 0.35);
+            let outerRippleR = 0.092 + 0.042 * (0.5 + 0.5 * sin(renderU.time * 3.8 + f32(i) * 0.2));
+            let outerBeacon = exp(-pow((dDot - outerRippleR) / 0.022, 2.0)) * (0.65 + 0.45 * pulse);
+            let innerRing = smoothstep(0.095, 0.062, dDot) - smoothstep(0.038, 0.020, dDot);
+            let centerDot = smoothstep(0.032, 0.012, dDot);
+            let beaconTint = select(pal, vec3<f32>(0.96), theme == 2u);
+            albedo = mix(albedo, pal, clamp(innerRing * 1.0, 0.0, 1.0));
+            albedo = mix(albedo, vec3<f32>(0.02, 0.02, 0.03), centerDot * 0.85);
+            emissive += beaconTint * (outerBeacon * 1.25 + innerRing * (0.55 + 0.35 * pulse));
+          } else if (dDot < 0.095) {
+            // Calm, quiet guide dot for future (non-active) colors
+            let ring = smoothstep(0.072, 0.048, dDot) - smoothstep(0.030, 0.016, dDot);
+            let centerPin = smoothstep(0.022, 0.008, dDot);
+            albedo = mix(albedo, pal, ring * 0.45);
+            albedo = mix(albedo, vec3<f32>(0.04, 0.04, 0.05), centerPin * 0.52);
           }
         }
         if (theme == 4u && bloom > 0.3 && dDot < 0.24) {
@@ -740,6 +756,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
         let dTile = sdRoundedBox2D(dLocal, vec2<f32>(tileHalf), pitch * 0.13);
         let hinted = (flags & 4u) != 0u;
         let isBlocker = (flags & 8u) != 0u;
+        let isActiveTarget = (flags & 16u) != 0u;
 
         let dTileShad = sdRoundedBox2D(dLocal + sunDir.xz * 0.036, vec2<f32>(tileHalf), pitch * 0.13);
         if (dTile > 0.0 && dTileShad < 0.052) {
@@ -761,42 +778,43 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
 
         if (dTile <= 0.0) {
           let pal = getPaletteLinear(tl.props.x).rgb;
-          let edgeBevel = smoothstep(0.0, -0.042, dTile);
+          let edgeBevel = smoothstep(0.0, -0.048, dTile);
+          // 3D sculpted beveled tile edge normal so tiles catch crisp studio specular highlights!
+          if (dTile > -0.052) {
+            let bevelAmt = smoothstep(-0.052, 0.0, dTile) * 0.36;
+            let edgeDir = normalize(dLocal + vec2<f32>(0.0001));
+            normal = normalize(vec3<f32>(edgeDir.x * bevelAmt, 1.0, edgeDir.y * bevelAmt));
+          }
 
-          // ZERO VISUAL SPOILERS: EVERY alive tile has identical crisp styling!
+          // ZERO VISUAL SPOILERS: blocked & unblocked tiles share identical base styling!
           var tileCol = toLinear(vec3<f32>(0.94, 0.91, 0.85));
           var borderCol = mix(pal, toLinear(vec3<f32>(0.92, 0.78, 0.46)), 0.38);
           var arrowCol = vec3<f32>(0.012, 0.012, 0.018);
           var arrowEmissive = vec3<f32>(0.0);
 
           if (theme == 0u) {
-            // Jewel Atelier: warm bright porcelain ivory tile + subtle jewel border + jet-obsidian arrow!
             let ivory = mix(toLinear(vec3<f32>(0.80, 0.77, 0.72)), toLinear(vec3<f32>(0.96, 0.94, 0.88)), daylight);
             tileCol = mix(ivory, pal, 0.06);
             borderCol = mix(pal, toLinear(vec3<f32>(0.92, 0.76, 0.38)), 0.32);
             arrowCol = vec3<f32>(0.010, 0.010, 0.016);
             roughness = 0.26;
           } else if (theme == 1u) {
-            // Cyber Neon: sleek dark obsidian glass tile + glowing neon rim + bright electric arrow!
             tileCol = vec3<f32>(0.014, 0.020, 0.046);
             borderCol = pal;
             arrowCol = vec3<f32>(0.95, 0.98, 1.0);
             arrowEmissive = mix(toLinear(vec3<f32>(0.25, 0.96, 1.0)), pal, 0.42) * 1.25;
             roughness = 0.18;
           } else if (theme == 2u) {
-            // Noir Monochrome: mid-tone neutral architectural grey so BOTH pure black AND pure white pearls POP!
             tileCol = toLinear(vec3<f32>(0.54, 0.55, 0.58));
             borderCol = toLinear(vec3<f32>(0.92, 0.92, 0.95));
             arrowCol = vec3<f32>(0.005, 0.005, 0.007);
             roughness = 0.28;
           } else if (theme == 3u) {
-            // Pop Art: pure comic white tile + thick jet-black ink outline + chunky ink-black arrow!
             tileCol = toLinear(vec3<f32>(0.98, 0.97, 0.93));
             borderCol = vec3<f32>(0.004, 0.004, 0.006);
             arrowCol = vec3<f32>(0.004, 0.004, 0.006);
             roughness = 0.72;
           } else {
-            // Stained Glass: deep cathedral smoked glass tile + colored caustic pool + glowing gold arrow!
             tileCol = toLinear(vec3<f32>(0.12, 0.13, 0.22));
             borderCol = toLinear(vec3<f32>(0.84, 0.64, 0.32));
             arrowCol = toLinear(vec3<f32>(1.0, 0.88, 0.48));
@@ -808,11 +826,31 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
 
           albedo = mix(tileCol * 0.78, tileCol, edgeBevel);
 
+          // Soft contact ambient occlusion + luminous active-target halo right around the seated pearl!
+          let dir = u32(tl.props.y);
+          let backOff = -dirOffsetXZ(dir) * (pitch * 0.105);
+          let distToPearl = length(dLocal - backOff);
+          let pearlAO = mix(0.62, 1.0, smoothstep(tl.posRad.w * 0.72, tl.posRad.w * 1.48, distToPearl));
+          albedo *= pearlAO;
+
+          if (isActiveTarget) {
+            let aPulse = 0.62 + 0.38 * sin(renderU.time * 4.2);
+            let ringR = tl.posRad.w * 1.24;
+            let haloRing = exp(-pow((distToPearl - ringR) / (pitch * 0.062), 2.0)) * aPulse;
+            let activeTint = select(mix(pal, toLinear(vec3<f32>(1.0, 0.94, 0.70)), 0.28), vec3<f32>(0.95), theme == 2u);
+            emissive += activeTint * haloRing * 1.05;
+          }
+
           let rimWidth = select(-0.022, -0.028, theme == 3u);
           if (dTile > rimWidth) {
             albedo = borderCol;
             if (theme == 1u) {
               emissive += pal * 0.78;
+            }
+            if (isActiveTarget) {
+              let rPulse = 0.60 + 0.40 * sin(renderU.time * 4.2);
+              let rimGlowCol = select(pal, vec3<f32>(0.95), theme == 2u);
+              emissive += rimGlowCol * (0.48 * rPulse);
             }
           }
 
@@ -822,7 +860,6 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>) -> vec3<f32> {
           }
 
           // PERMANENT, RAZOR-SHARP DIRECTIONAL CHEVRON ARROW (NEVER disappears or spoils!)
-          let dir = u32(tl.props.y);
           let rot = rotateForDir(dLocal, dir);
           let arrowCenter = rot - vec2<f32>(0.0, -pitch * 0.285);
           let dArrow = sdChevron(arrowCenter, pitch * 0.145, pitch * 0.040);
@@ -944,6 +981,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var hitIrid: f32 = 0.5;
   var hitSpark: f32 = 0.0;
   var hitBlocker = false;
+  var hitActiveTarget = false;
 
   let hoopC = scene.hoopBounds.xy;
   let hoopR = scene.hoopBounds.z;
@@ -977,6 +1015,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitIrid = pal.w;
         hitSpark = max(hp.props.z, celebrate * (0.5 + 0.5 * sin(renderU.time * 5.5 + f32(i))));
         hitBlocker = false;
+        hitActiveTarget = false;
       }
     }
   }
@@ -1000,11 +1039,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitIrid = pal.w;
         hitSpark = tp.props.z * 0.55;
         hitBlocker = false;
+        hitActiveTarget = false;
       }
     }
   }
 
-  // Zone 3: Untangle Board Pearls (up to 49, zero visual spoilers!)
+  // Zone 3: Untangle Board Pearls (up to 49, zero visual spoilers, active-color target glow!)
   if (abs(pDesk.x - boardC.x) < boardHalf.x + 0.42 && abs(pDesk.z - boardC.y) < boardHalf.y + 0.42) {
     let tCount = min(u32(scene.boardInfo.w), 49u);
     let pitch = scene.boardInfo.z;
@@ -1033,6 +1073,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         let hinted = (flags & 4u) != 0u;
         hitSpark = select(0.0, 0.42 + 0.28 * sin(renderU.time * 5.0), hinted);
         hitBlocker = (flags & 8u) != 0u;
+        hitActiveTarget = (flags & 16u) != 0u;
       }
     }
   }
@@ -1056,6 +1097,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitIrid = pal.w;
         hitSpark = 0.55;
         hitBlocker = false;
+        hitActiveTarget = true;
       }
     }
   }
@@ -1063,7 +1105,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let theme = getTheme();
   var finalCol = vec3<f32>(0.0);
   if (hitPearl) {
-    finalCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitColorIdx, hitIrid, hitSpark, hitBlocker);
+    finalCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitColorIdx, hitIrid, hitSpark, hitBlocker, hitActiveTarget);
   } else if (tDesk < MAX_DIST) {
     finalCol = shadeAtelierDesk(pDesk, rd);
   } else {

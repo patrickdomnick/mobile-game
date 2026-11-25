@@ -1,3 +1,5 @@
+import { CHAPTERS, CURATED_LEVELS } from './wasmBridge';
+
 const GALLERY_STORAGE_KEY = 'pearl-loom-gallery-v2';
 
 export interface CuratedCompletionRecord {
@@ -8,7 +10,6 @@ export interface CuratedCompletionRecord {
 }
 
 export interface UserSettings {
-  themeIndex: number;
   hapticsEnabled: boolean;
   timeMode: 'auto' | 'manual';
   manualHour: number;
@@ -24,7 +25,6 @@ export interface GalleryProgress {
 
 function defaultSettings(): UserSettings {
   return {
-    themeIndex: 0,
     hapticsEnabled: true,
     timeMode: 'auto',
     manualHour: 12.5,
@@ -70,7 +70,6 @@ export class EmbroideryGalleryStore {
         mandalasCompleted: typeof parsed.mandalasCompleted === 'number' ? parsed.mandalasCompleted : 0,
         lastMandalaSeed: typeof parsed.lastMandalaSeed === 'number' ? parsed.lastMandalaSeed : 1,
         settings: {
-          themeIndex: typeof s.themeIndex === 'number' ? Math.max(0, Math.min(4, Math.floor(s.themeIndex))) : 0,
           hapticsEnabled: typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : true,
           timeMode: s.timeMode === 'manual' ? 'manual' : 'auto',
           manualHour: typeof s.manualHour === 'number' ? ((s.manualHour % 24) + 24) % 24 : 12.5,
@@ -113,6 +112,26 @@ export class EmbroideryGalleryStore {
       this.data.mandalasCompleted++;
     }
     this.save();
+  }
+
+  /** Returns the next uncompleted curated pattern across Chapters I-V (or 0 if all 40 mastered). */
+  getNextJourneyLevel(): number {
+    for (let i = 0; i < CURATED_LEVELS.length; i++) {
+      if (!this.data.completedCurated[i]) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  /** Returns how many of the 8 patterns in chapterIdx have been completed. */
+  getChapterCompletion(chapterIdx: number): { done: number; total: number } {
+    const ch = CHAPTERS[chapterIdx] ?? CHAPTERS[0];
+    let done = 0;
+    for (let i = ch.startIndex; i < ch.startIndex + ch.count; i++) {
+      if (this.data.completedCurated[i]) done++;
+    }
+    return { done, total: ch.count };
   }
 
   getSettings(): UserSettings {

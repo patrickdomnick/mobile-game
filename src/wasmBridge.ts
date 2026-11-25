@@ -3,6 +3,8 @@ import { projectWorldToScreen } from './camera';
 export type GameMode = 'curated' | 'mandala' | 'daily';
 export type GamePhase = 'playing' | 'tray_full' | 'complete';
 
+export const HINT_NEEDS_UNDO = -2;
+
 export interface PearlColorInfo {
   name: string;
   hex: string;
@@ -24,7 +26,7 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
     id: 0,
     name: 'Jewel Atelier',
     shortName: 'Jewel',
-    tagline: 'Rich sunlit gemstones on slate-walnut',
+    tagline: 'Sunlit gemstones on slate-walnut',
     swatchGradient: 'linear-gradient(135deg, #f5265c, #fcb80f, #1f75fa)',
     accent: '#f5a623',
     colors: [
@@ -38,7 +40,7 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
   {
     id: 1,
-    name: 'Cyber Neon',
+    name: 'Cyber Arcade',
     shortName: 'Neon',
     tagline: 'Electric synthwave grid & glowing orbs',
     swatchGradient: 'linear-gradient(135deg, #ff1a94, #0aebff, #6bff1f)',
@@ -54,9 +56,9 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
   {
     id: 2,
-    name: 'Noir B&W',
+    name: 'Noir Salon',
     shortName: 'Noir B&W',
-    tagline: 'Art-Deco monochrome with geometric inlays',
+    tagline: 'Calm Art-Deco monochrome inlays',
     swatchGradient: 'linear-gradient(135deg, #ffffff 0%, #8a8d96 50%, #141418 100%)',
     accent: '#e8eaef',
     colors: [
@@ -70,9 +72,9 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
   {
     id: 3,
-    name: 'Pop Art',
+    name: 'Pop Studio',
     shortName: 'Pop Art',
-    tagline: 'Bold halftone comic ink & vibrant primaries',
+    tagline: 'Bold halftone comic ink & primaries',
     swatchGradient: 'linear-gradient(135deg, #fa2429, #ffd60a, #1a61fa)',
     accent: '#ffd60a',
     colors: [
@@ -86,9 +88,9 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
   {
     id: 4,
-    name: 'Stained Glass',
+    name: 'Cathedral Glass',
     shortName: 'Prism',
-    tagline: 'Cathedral twilight jewels & glowing caustics',
+    tagline: 'Glowing stained-glass prisms & caustics',
     swatchGradient: 'linear-gradient(135deg, #f02461, #b347fa, #2485fa)',
     accent: '#d99bff',
     colors: [
@@ -102,19 +104,98 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   },
 ] as const;
 
+export interface ChapterDef {
+  id: number;
+  roman: string;
+  name: string;
+  shortName: string;
+  themeId: number;
+  subtitle: string;
+  startIndex: number;
+  count: number;
+}
+
+export const CHAPTERS: readonly ChapterDef[] = [
+  { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 8 },
+  { id: 1, roman: 'II', name: 'Noir Salon', shortName: 'Noir', themeId: 2, subtitle: 'Calm Art-Deco monochrome silhouettes', startIndex: 8, count: 8 },
+  { id: 2, roman: 'III', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 16, count: 8 },
+  { id: 3, roman: 'IV', name: 'Pop Studio', shortName: 'Pop', themeId: 3, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 24, count: 8 },
+  { id: 4, roman: 'V', name: 'Cathedral Glass', shortName: 'Prism', themeId: 4, subtitle: 'Grand rose windows & glowing caustics', startIndex: 32, count: 8 },
+] as const;
+
 export function getThemePalette(themeIndex: number): readonly PearlColorInfo[] {
   return (VISUAL_THEMES[themeIndex] ?? VISUAL_THEMES[0]).colors;
 }
 
-export const CURATED_LEVELS = [
-  { name: 'Jewel Heart', grid: '5×5', pearls: 21, colors: [0, 3, 4, 5] },
-  { name: 'Sakura Mandala', grid: '5×5', pearls: 25, colors: [0, 2, 3, 4] },
-  { name: 'Lunar Eclipse', grid: '6×5', pearls: 28, colors: [0, 1, 3, 4, 5] },
-  { name: 'Monarch Wing', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4, 5] },
-  { name: 'Royal Lotus', grid: '6×6', pearls: 34, colors: [0, 2, 3, 4, 5] },
-  { name: 'Nautilus Prism', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { name: 'Emerald Clover', grid: '7×6', pearls: 40, colors: [0, 1, 2, 3, 4, 5] },
-  { name: 'Grand Starlight', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
+/** Matches sim.ThemeForDaily(dateKey) deterministically for UI badges. */
+export function getDailyThemeForDateKey(dateKey: number): VisualThemeDef {
+  let h = ((dateKey >>> 0) ^ 0x5a17c3d1) >>> 0;
+  h = (h ^ (h >>> 15)) >>> 0;
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  return VISUAL_THEMES[h % VISUAL_THEMES.length] ?? VISUAL_THEMES[0];
+}
+
+export interface CuratedLevelDef {
+  id: number;
+  chapter: number;
+  theme: number;
+  name: string;
+  grid: string;
+  pearls: number;
+  colors: readonly number[];
+}
+
+export const CURATED_LEVELS: readonly CuratedLevelDef[] = [
+  // Chapter 0: Jewel Atelier (Theme 0)
+  { id: 0, chapter: 0, theme: 0, name: 'Jewel Heart', grid: '5×5', pearls: 21, colors: [0, 3, 4, 5] },
+  { id: 1, chapter: 0, theme: 0, name: 'Sakura Mandala', grid: '5×5', pearls: 25, colors: [0, 2, 3, 4] },
+  { id: 2, chapter: 0, theme: 0, name: 'Royal Crown', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4] },
+  { id: 3, chapter: 0, theme: 0, name: 'Emerald Clover', grid: '6×5', pearls: 29, colors: [1, 2, 3, 5] },
+  { id: 4, chapter: 0, theme: 0, name: 'Royal Lotus', grid: '6×6', pearls: 33, colors: [0, 2, 3, 4, 5] },
+  { id: 5, chapter: 0, theme: 0, name: 'Monarch Wing', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4, 5] },
+  { id: 6, chapter: 0, theme: 0, name: 'Nautilus Prism', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 7, chapter: 0, theme: 0, name: 'Grand Starlight', grid: '7×6', pearls: 41, colors: [0, 1, 2, 3, 4, 5] },
+
+  // Chapter 1: Noir Salon (Theme 2 — gentler 3-4 monochrome geometric inlays!)
+  { id: 8, chapter: 1, theme: 2, name: 'Domino Diamond', grid: '4×4', pearls: 16, colors: [0, 1, 2] },
+  { id: 9, chapter: 1, theme: 2, name: 'Tuxedo Bowtie', grid: '5×4', pearls: 18, colors: [0, 1, 2] },
+  { id: 10, chapter: 1, theme: 2, name: 'Art-Deco Cross', grid: '5×4', pearls: 19, colors: [0, 1, 2] },
+  { id: 11, chapter: 1, theme: 2, name: 'Noir Crescent', grid: '5×5', pearls: 20, colors: [0, 1, 2, 3] },
+  { id: 12, chapter: 1, theme: 2, name: 'Deco Fan', grid: '5×5', pearls: 21, colors: [0, 1, 2, 3] },
+  { id: 13, chapter: 1, theme: 2, name: 'Obsidian Hourglass', grid: '5×5', pearls: 23, colors: [0, 1, 2, 3] },
+  { id: 14, chapter: 1, theme: 2, name: 'Checker Medallion', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3] },
+  { id: 15, chapter: 1, theme: 2, name: 'Monochrome Rose', grid: '5×5', pearls: 25, colors: [0, 1, 2, 3] },
+
+  // Chapter 2: Cyber Arcade (Theme 1)
+  { id: 16, chapter: 2, theme: 1, name: 'Neon Pulse', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3, 4] },
+  { id: 17, chapter: 2, theme: 1, name: 'Pixel Invader', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3] },
+  { id: 18, chapter: 2, theme: 1, name: 'Synth Horizon', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 19, chapter: 2, theme: 1, name: 'Laser Grid', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4] },
+  { id: 20, chapter: 2, theme: 1, name: 'Cyber Circuit', grid: '6×6', pearls: 32, colors: [0, 1, 2, 4, 5] },
+  { id: 21, chapter: 2, theme: 1, name: 'Hyper Portal', grid: '6×6', pearls: 34, colors: [0, 1, 2, 3, 4] },
+  { id: 22, chapter: 2, theme: 1, name: 'Plasma Bolt', grid: '6×6', pearls: 36, colors: [0, 1, 3] },
+  { id: 23, chapter: 2, theme: 1, name: 'Matrix Core', grid: '7×6', pearls: 38, colors: [0, 1, 2, 4, 5] },
+
+  // Chapter 3: Pop Studio (Theme 3)
+  { id: 24, chapter: 3, theme: 3, name: 'Comic Star', grid: '5×5', pearls: 24, colors: [0, 1, 3, 4] },
+  { id: 25, chapter: 3, theme: 3, name: 'Pop Heart', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 26, chapter: 3, theme: 3, name: 'Halftone Bolt', grid: '6×5', pearls: 28, colors: [0, 1, 3, 5] },
+  { id: 27, chapter: 3, theme: 3, name: 'Warhol Flower', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 28, chapter: 3, theme: 3, name: 'Boom Burst', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4] },
+  { id: 29, chapter: 3, theme: 3, name: 'Retro Sun', grid: '6×6', pearls: 34, colors: [0, 1, 3, 4, 5] },
+  { id: 30, chapter: 3, theme: 3, name: 'Pop Diamond', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 31, chapter: 3, theme: 3, name: 'Studio Crown', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3] },
+
+  // Chapter 4: Cathedral Glass (Theme 4)
+  { id: 32, chapter: 4, theme: 4, name: 'Prism Lantern', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 33, chapter: 4, theme: 4, name: 'Sapphire Chalice', grid: '6×5', pearls: 30, colors: [0, 1, 3, 4, 5] },
+  { id: 34, chapter: 4, theme: 4, name: 'Gothic Arch', grid: '6×6', pearls: 32, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 35, chapter: 4, theme: 4, name: 'Angel Wings', grid: '6×6', pearls: 34, colors: [1, 3, 4, 5] },
+  { id: 36, chapter: 4, theme: 4, name: 'Cathedral Cross', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 37, chapter: 4, theme: 4, name: 'Aurora Spire', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 38, chapter: 4, theme: 4, name: 'Rose Window', grid: '7×6', pearls: 42, colors: [0, 1, 2, 3, 4, 5] },
+  { id: 39, chapter: 4, theme: 4, name: 'Celestial Vault', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
 ] as const;
 
 export const CURATED_LEVEL_NAMES = CURATED_LEVELS.map((l) => l.name);
@@ -139,6 +220,7 @@ export interface AudioEventCounters {
   trayEvents: number;
   blockedEvents: number;
   undoEvents: number;
+  hintEvents: number;
   colorClearEvents: number;
   layerClearEvents: number;
   completeEvents: number;
@@ -148,6 +230,7 @@ export interface SimSnapshot {
   frameCount: number;
   elapsedSec: number;
   levelIndex: number;
+  chapterIndex: number;
   levelName: string;
   mode: GameMode;
   phase: GamePhase;
@@ -161,10 +244,12 @@ export interface SimSnapshot {
   directCount: number;
   trayUses: number;
   undoUsed: number;
+  hintsUsed: number;
   stars: number;
   layersComplete: number;
   totalLayers: number;
   lastScoreDelta: number;
+  lastPenaltyDelta: number;
   lastBlockerIdx: number;
   lastEventWorldX: number;
   lastEventWorldZ: number;
@@ -178,6 +263,7 @@ export interface SimSnapshot {
   trayColors: number[];
   trayCapacity: number;
   hintTileIndex: number;
+  hintNeedsUndo: boolean;
   gridCols: number;
   gridRows: number;
   daylightFactor: number;
@@ -355,6 +441,9 @@ export class WasmSimulation {
     const levelIndex = Math.round(s[2]);
     const modeIdx = Math.round(s[3]);
     const phaseIdx = Math.round(s[4]);
+    const themeIndex = Math.round(s[32]);
+    const chapterIndex = s.length > 51 ? Math.round(s[51]) : 0;
+
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
     const c0 = Math.round(s[11]);
@@ -399,22 +488,26 @@ export class WasmSimulation {
     }
 
     const mode = MODE_MAP[modeIdx] ?? 'curated';
+    const themeShort = (VISUAL_THEMES[themeIndex] ?? VISUAL_THEMES[0]).shortName;
     const levelName =
       mode === 'curated'
         ? (CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
         : mode === 'daily'
-          ? 'Daily Stitch'
-          : `Mandala #${levelIndex + 1}`;
+          ? `Daily · ${themeShort}`
+          : `${themeShort} #${levelIndex + 1}`;
+
+    const hintTileIndex = Math.round(s[21]);
 
     return {
       frameCount: Math.round(s[0]),
       elapsedSec: s[1],
       levelIndex,
+      chapterIndex,
       levelName,
       mode,
       phase: PHASE_MAP[phaseIdx] ?? 'playing',
       timeOfDayHours: s[5],
-      themeIndex: Math.round(s[32]),
+      themeIndex,
       isAnimating: s[6] > 0.5,
       score: Math.round(s[7]),
       streak: Math.round(s[33]),
@@ -423,10 +516,12 @@ export class WasmSimulation {
       directCount: Math.round(s[36]),
       trayUses: Math.round(s[37]),
       undoUsed: Math.round(s[38]),
+      hintsUsed: s.length > 48 ? Math.round(s[48]) : 0,
       stars: Math.round(s[39]),
       layersComplete: Math.round(s[40]),
       totalLayers: Math.round(s[41]),
       lastScoreDelta: Math.round(s[44]),
+      lastPenaltyDelta: s.length > 50 ? Math.round(s[50]) : 0,
       lastBlockerIdx: Math.round(s[45]),
       lastEventWorldX: s[46],
       lastEventWorldZ: s[47],
@@ -439,7 +534,8 @@ export class WasmSimulation {
       activeRemain,
       trayColors,
       trayCapacity: 5,
-      hintTileIndex: Math.round(s[21]),
+      hintTileIndex,
+      hintNeedsUndo: hintTileIndex === HINT_NEEDS_UNDO,
       gridCols: Math.round(s[22]),
       gridRows: Math.round(s[23]),
       daylightFactor: s[31],
@@ -451,6 +547,7 @@ export class WasmSimulation {
         trayEvents: Math.round(s[27]),
         blockedEvents: Math.round(s[28]),
         undoEvents: Math.round(s[29]),
+        hintEvents: s.length > 49 ? Math.round(s[49]) : 0,
         colorClearEvents: Math.round(s[42]),
         layerClearEvents: Math.round(s[43]),
         completeEvents: Math.round(s[30]),

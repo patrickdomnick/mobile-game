@@ -24,7 +24,7 @@ const (
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
 	// Telemetry / state buffer layout for JS & E2E bridge
-	StateFloats = 48
+	StateFloats = 52
 
 	// Per-tile telemetry layout (49 * 8 = 392 floats):
 	// [col, row, color, dir, alive, unblocked, worldX, worldZ]
@@ -34,6 +34,10 @@ const (
 	PhasePlaying  = 0
 	PhaseTrayFull = 1
 	PhaseComplete = 2
+
+	HintScorePenalty = uint32(250)
+	UndoScorePenalty = uint32(150)
+	HintNeedsUndo    = -2
 
 	// World-space atelier geometry (portrait iPhone 16 layout on y=0 desk)
 	CamPosX    = float32(0.0)
@@ -114,18 +118,22 @@ type Engine struct {
 	TimeOfDayHours float32
 	ThemeIndex     int
 
-	LevelIndex int
-	Mode       int // 0=curated, 1=mandala, 2=daily
-	Phase      int
+	LevelIndex   int
+	ChapterIndex int
+	Mode         int // 0=curated, 1=mandala, 2=daily
+	Phase        int
+	LastSeed     uint32
 
 	// Meaningful Balatro-style mastery & scoring state
-	Score       uint32
-	Streak      uint32
-	MaxStreak   uint32
-	DirectCount int
-	TrayUses    int
-	UndoUsed    int
-	Stars       int
+	Score            uint32
+	Streak           uint32
+	MaxStreak        uint32
+	DirectCount      int
+	TrayUses         int
+	UndoUsed         int
+	HintsUsed        int
+	Stars            int
+	LastPenaltyDelta uint32
 
 	// Last scoring callout payload for JS floating popups
 	LastScoreDelta  uint32
@@ -177,6 +185,7 @@ type Engine struct {
 	TrayEvents       uint32
 	BlockedEvents    uint32
 	UndoEvents       uint32
+	HintEvents       uint32
 	ColorClearEvents uint32
 	LastColorCleared uint32
 	LayerClearEvents uint32
@@ -189,13 +198,18 @@ type Engine struct {
 	TileTelemetry [TileTelemetryFloats]float32
 }
 
-// Reset reloads the current level (defaulting to curated level 0 if uninitialized).
+// Reset reloads the current level/mode cleanly (replaying the same Daily/Mandala seed if active).
 func (e *Engine) Reset() {
 	if e.TimeOfDayHours <= 0 {
 		e.TimeOfDayHours = 12.5
 	}
-	if e.ThemeIndex < 0 || e.ThemeIndex >= NumThemes {
-		e.ThemeIndex = ThemeJewelAtelier
+	if e.Mode == 1 && e.LastSeed > 0 {
+		e.LoadMandala(e.LastSeed)
+		return
+	}
+	if e.Mode == 2 && e.LastSeed > 0 {
+		e.LoadDaily(e.LastSeed)
+		return
 	}
 	if e.LevelIndex < 0 || e.LevelIndex >= len(CuratedArtworks) {
 		e.LevelIndex = 0
@@ -203,7 +217,7 @@ func (e *Engine) Reset() {
 	e.LoadCuratedLevel(e.LevelIndex)
 }
 
-// SetTheme switches the active visual theme (0..4) immediately.
+// SetTheme switches the active visual theme (0..4) immediately (retained for diagnostics/tests).
 func (e *Engine) SetTheme(idx int) {
 	if idx < 0 {
 		idx = 0
@@ -212,7 +226,7 @@ func (e *Engine) SetTheme(idx int) {
 	e.syncBuffers()
 }
 
-// LoadCuratedLevel initializes one of the 8 handcrafted multi-layer embroidery artworks.
+// LoadCuratedLevel initializes one of the 40 handcrafted theme-matched patterns across 5 Chapters.
 func (e *Engine) LoadCuratedLevel(idx int) {
 	if len(CuratedArtworks) == 0 {
 		return
@@ -223,39 +237,48 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 	idx = idx % len(CuratedArtworks)
 	e.LevelIndex = idx
 	e.Mode = 0
+	e.LastSeed = 0
 	e.loadArtwork(CuratedArtworks[idx])
 }
 
-// LoadMandala generates and loads an endless procedural 3-layer symmetrical pearl mandala.
+// LoadMandala generates and loads an endless procedural 3-layer mandala with a native rotated theme.
 func (e *Engine) LoadMandala(seed uint32) {
 	if seed == 0 {
 		seed = 1
 	}
 	e.LevelIndex = int(seed & 0x7FFF)
 	e.Mode = 1
-	e.loadArtwork(GenerateMandalaArtwork(seed))
+	e.LastSeed = seed
+	theme := ThemeForMandala(seed)
+	e.loadArtwork(GenerateMandalaArtwork(seed, theme))
 }
 
-// LoadDaily loads the deterministic calendar-seeded Daily Stitch mandala for YYYYMMDD.
+// LoadDaily loads the deterministic calendar-seeded Daily Stitch mandala with a rotating daily theme.
 func (e *Engine) LoadDaily(dateKey uint32) {
 	if dateKey == 0 {
 		dateKey = 20261124
 	}
 	e.LevelIndex = int(dateKey % 100000)
 	e.Mode = 2
-	e.loadArtwork(GenerateMandalaArtwork(dateKey ^ 0x517CC1B7))
+	e.LastSeed = dateKey
+	theme := ThemeForDaily(dateKey)
+	e.loadArtwork(GenerateMandalaArtwork(dateKey^0x517CC1B7, theme))
 }
 
 func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.Phase = PhasePlaying
+	e.ThemeIndex = art.Theme % NumThemes
+	e.ChapterIndex = art.Chapter
 	e.Score = 0
 	e.Streak = 0
 	e.MaxStreak = 0
 	e.DirectCount = 0
 	e.TrayUses = 0
 	e.UndoUsed = 0
+	e.HintsUsed = 0
 	e.Stars = 0
 	e.LastScoreDelta = 0
+	e.LastPenaltyDelta = 0
 	e.ShakeAmt = 0
 	e.ColorBurstPulse = 0
 	e.ColorBurstColor = 0
@@ -629,12 +652,12 @@ func (e *Engine) updatePhase() {
 				e.Score += 1500
 				e.LastScoreDelta += 1500
 			}
-			if e.UndoUsed == 0 {
+			if e.UndoUsed == 0 && e.HintsUsed == 0 {
 				e.Score += 750
 				e.LastScoreDelta += 750
 			}
 			// Meaningful 1-3 Star mastery rating
-			if e.UndoUsed == 0 && e.TrayUses <= e.HoopCount/6 {
+			if e.UndoUsed == 0 && e.HintsUsed == 0 && e.TrayUses <= e.HoopCount/6 {
 				e.Stars = 3
 			} else if e.TrayUses <= e.HoopCount/3 {
 				e.Stars = 2
@@ -802,7 +825,7 @@ func (e *Engine) TapTile(idx int) bool {
 	return true
 }
 
-// Undo cleanly reverts the previous move (unlimited, tracks UndoUsed for Pure Craft mastery).
+// Undo cleanly reverts the previous move (limitless, deducts 150 Luster Score and resets active streak).
 func (e *Engine) Undo() bool {
 	if len(e.undoStack) == 0 {
 		return false
@@ -834,13 +857,19 @@ func (e *Engine) Undo() bool {
 	e.Remain = snap.remain
 	e.Active = snap.active
 	e.QueuePos = snap.queuePos
-	e.Score = snap.score
-	e.Streak = snap.streak
+	// Limitless Undo deducts UndoScorePenalty (150) clamped at 0 and resets active streak
+	if snap.score > UndoScorePenalty {
+		e.Score = snap.score - UndoScorePenalty
+	} else {
+		e.Score = 0
+	}
+	e.Streak = 0
 	e.DirectCount = snap.directCount
 	e.TrayUses = snap.trayUses
 	e.LayerDone = snap.layerDone
 	e.Phase = snap.phase
 	e.UndoUsed++
+	e.LastPenaltyDelta = UndoScorePenalty
 	e.LayersComplete = 0
 	for l := 0; l < MaxLayers; l++ {
 		if e.LayerDone[l] {
@@ -859,7 +888,9 @@ func (e *Engine) Undo() bool {
 	return true
 }
 
-// ComputeHint finds a guaranteed safe next tile from the live state.
+// ComputeHint finds a guaranteed safe next tile from the live state using priority-guided search.
+// Limitless in use: deducts HintScorePenalty (250) on each new highlighted hint.
+// Returns HintNeedsUndo (-2) if the current board is in a dead-end pinch requiring Undo!
 func (e *Engine) ComputeHint() int {
 	if e.Phase == PhaseComplete {
 		return -1
@@ -883,22 +914,65 @@ func (e *Engine) ComputeHint() int {
 		queuePos:  e.QueuePos,
 	}
 
-	ok, bestMove := solveFromState(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, 5000)
-	if !ok || bestMove < 0 {
-		for i := 0; i < e.TileCount; i++ {
-			if e.Tiles[i].Alive && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) && e.isActiveColor(e.Tiles[i].Color) {
-				bestMove = i
-				break
+	ok, bestMove, exhausted := solveFromStateDetailed(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, 16000)
+
+	if ok && bestMove >= 0 {
+		if bestMove != e.HintTileIdx {
+			if e.Score > HintScorePenalty {
+				e.Score -= HintScorePenalty
+			} else {
+				e.Score = 0
 			}
+			e.HintsUsed++
+			e.LastPenaltyDelta = HintScorePenalty
+		} else {
+			e.LastPenaltyDelta = 0
 		}
+		e.HintTileIdx = bestMove
+		e.HintPulse = 1.0
+		e.HintEvents++
+		e.syncBuffers()
+		return bestMove
 	}
 
-	e.HintTileIdx = bestMove
-	if bestMove >= 0 {
+	// If the search space was exhausted (provable dead end!) or the tray is full with no direct stitch,
+	// signal HintNeedsUndo (-2) so the UI highlights Undo to rescue the player out of the pinch!
+	if exhausted || e.TrayLen >= TrayCapacity {
+		e.HintTileIdx = HintNeedsUndo
 		e.HintPulse = 1.0
+		e.LastPenaltyDelta = 0
+		e.HintEvents++
+		e.syncBuffers()
+		return HintNeedsUndo
 	}
+
+	// Rare very deep board hit budget: pick the highest-value legal unblocked move so Hint never silently fails!
+	fallback := pickBestHeuristicMove(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st)
+	if fallback >= 0 {
+		if fallback != e.HintTileIdx {
+			if e.Score > HintScorePenalty {
+				e.Score -= HintScorePenalty
+			} else {
+				e.Score = 0
+			}
+			e.HintsUsed++
+			e.LastPenaltyDelta = HintScorePenalty
+		} else {
+			e.LastPenaltyDelta = 0
+		}
+		e.HintTileIdx = fallback
+		e.HintPulse = 1.0
+		e.HintEvents++
+		e.syncBuffers()
+		return fallback
+	}
+
+	e.HintTileIdx = HintNeedsUndo
+	e.HintPulse = 1.0
+	e.LastPenaltyDelta = 0
+	e.HintEvents++
 	e.syncBuffers()
-	return bestMove
+	return HintNeedsUndo
 }
 
 // IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, or tension pulse needs 60 FPS.
@@ -1216,11 +1290,15 @@ func (e *Engine) syncBuffers() {
 			}
 		}
 
-		// IMPORTANT: Zero-spoiler flags! Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash.
+		// IMPORTANT: Zero-spoiler flags!
+		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash, Bit 16 = active target color (ALL tiles of that color, blocked OR free!).
 		// We intentionally DO NOT expose unblocked to visual styling in raytrace.wgsl!
 		flags := uint32(0)
 		if t.Alive {
 			flags |= 1
+			if e.isActiveColor(t.Color) {
+				flags |= 16
+			}
 		}
 		if i == e.HintTileIdx {
 			flags |= 4
@@ -1406,4 +1484,8 @@ func (e *Engine) syncBuffers() {
 	e.State[45] = float32(e.LastBlockerIdx)
 	e.State[46] = e.LastEventWorldX
 	e.State[47] = e.LastEventWorldZ
+	e.State[48] = float32(e.HintsUsed)
+	e.State[49] = float32(e.HintEvents)
+	e.State[50] = float32(e.LastPenaltyDelta)
+	e.State[51] = float32(e.ChapterIndex)
 }

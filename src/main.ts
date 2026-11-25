@@ -5,10 +5,11 @@ import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
 import { setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import {
+  CHAPTERS,
   CURATED_LEVELS,
-  CURATED_LEVEL_NAMES,
   VISUAL_THEMES,
   WasmSimulation,
+  getDailyThemeForDateKey,
   getThemePalette,
   type SimSnapshot,
 } from './wasmBridge';
@@ -57,8 +58,8 @@ declare global {
 }
 
 const FIXED_DT = 1 / 60;
-const CALM_FRAME_INTERVAL_MS = 250; // ~4 FPS right after settling
-const DEEP_IDLE_INTERVAL_MS = 1000; // 1 FPS deep-idle solar tick (>95% GPU power savings while thinking)
+const CALM_FRAME_INTERVAL_MS = 250;
+const DEEP_IDLE_INTERVAL_MS = 1000;
 const DEEP_IDLE_AFTER_MS = 3000;
 const SCENE_BUFFER_BYTES = 1008 * 4;
 
@@ -107,12 +108,15 @@ async function bootstrap(): Promise<void> {
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
   const menuOpenSettingsBtn = document.getElementById('btn-menu-open-settings');
   const menuGalleryBtn = document.getElementById('btn-menu-gallery');
+  const menuChapterLabel = document.getElementById('menu-chapter-label');
+  const menuJourneyBadge = document.getElementById('menu-journey-badge');
+  const menuJourneyMain = document.getElementById('menu-journey-main');
+  const menuDailyBadge = document.getElementById('menu-daily-badge');
+  const menuDailyMeta = document.getElementById('menu-daily-meta');
+  const menuEndlessMeta = document.getElementById('menu-endless-meta');
   const modeJourneyBtn = document.getElementById('btn-mode-journey');
   const modeDailyBtn = document.getElementById('btn-mode-daily');
   const modeEndlessBtn = document.getElementById('btn-mode-endless');
-  const menuDailyMeta = document.getElementById('menu-daily-meta');
-  const menuEndlessMeta = document.getElementById('menu-endless-meta');
-  const menuThemeStrip = document.getElementById('menu-theme-strip');
 
   // Gameplay HUD elements
   const hudTopEl = document.getElementById('hud-top');
@@ -141,17 +145,21 @@ async function bootstrap(): Promise<void> {
   const solarReadoutEl = document.getElementById('settings-solar-readout');
   const solarAutoBtn = document.getElementById('btn-solar-auto');
   const solarSlider = document.getElementById('input-solar-hour') as HTMLInputElement | null;
-  const settingsThemeGrid = document.getElementById('settings-theme-grid');
   const settingsSoundBtn = document.getElementById('btn-settings-sound');
   const settingsHapticsBtn = document.getElementById('btn-settings-haptics');
 
-  // Gallery drawer elements
+  // Chapter Gallery drawer elements
   const gallerySheet = document.getElementById('overlay-gallery');
   const closeGalleryBtn = document.getElementById('btn-close-gallery');
   const dailyBtn = document.getElementById('btn-daily-stitch');
+  const galleryDailyTag = document.getElementById('gallery-daily-tag');
   const dailyStatusEl = document.getElementById('daily-status');
   const endlessBtn = document.getElementById('btn-endless-mandala');
   const mandalaStatusEl = document.getElementById('mandala-status');
+  const chapterTabsEl = document.getElementById('chapter-tabs');
+  const chapterBannerTitle = document.getElementById('chapter-banner-title');
+  const chapterBannerSub = document.getElementById('chapter-banner-sub');
+  const chapterBannerProgress = document.getElementById('chapter-banner-progress');
   const galleryGridEl = document.getElementById('gallery-grid');
 
   // Modals
@@ -160,6 +168,7 @@ async function bootstrap(): Promise<void> {
   const trayRestartBtn = document.getElementById('btn-tray-restart');
 
   const completeModal = document.getElementById('overlay-complete');
+  const completeEyebrowEl = document.getElementById('complete-eyebrow');
   const completeStarsEl = document.getElementById('complete-stars');
   const completeTitleEl = document.getElementById('complete-title');
   const completeScoreEl = document.getElementById('complete-score');
@@ -184,7 +193,6 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    // Boot TinyGo WASM streaming compilation and WebGPU device creation in parallel!
     const [sim, renderer] = await Promise.all([
       WasmSimulation.load('./game.wasm'),
       WebGPURaytracer.create(canvas, SCENE_BUFFER_BYTES),
@@ -195,24 +203,28 @@ async function bootstrap(): Promise<void> {
 
     let isReady = false;
     let screenMode: ScreenMode = 'menu';
+    let activeGalleryChapter = 0;
     let lastSwatchKey = '';
     let lastLightingTheme = '';
+    let lastDomTheme = '';
     let lastRenderAt = 0;
     let lastActiveMotionAt = performance.now();
     let needsImmediateRender = true;
     let frameInFlight = false;
     let recordedCompleteKey = '';
 
-    // Rolling Balatro score counter & event trackers for floating callouts
     let displayedScore = 0;
     let prevStitchEvents = 0;
     let prevColorClearEvents = 0;
     let prevLayerClearEvents = 0;
     let prevBlockedEvents = 0;
+    let prevHintEvents = 0;
+    let prevUndoEvents = 0;
 
-    // Apply persisted visual theme immediately before first frame
-    sim.setTheme(settings.themeIndex);
-    if (appEl) appEl.dataset.theme = String(settings.themeIndex);
+    // Load next uncompleted Journey level onto the live 3D canvas behind the Start Menu
+    const initialJourneyIdx = gallery.getNextJourneyLevel();
+    sim.loadLevel(initialJourneyIdx);
+    activeGalleryChapter = (CURATED_LEVELS[initialJourneyIdx] ?? CURATED_LEVELS[0]).chapter;
 
     const getAspect = (): number => {
       const rect = canvas.getBoundingClientRect();
@@ -238,7 +250,7 @@ async function bootstrap(): Promise<void> {
 
     const spawnCallout = (
       text: string,
-      variant: 'score' | 'streak' | 'milestone' | 'blocked',
+      variant: 'score' | 'streak' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
       screenX: number,
       screenY: number,
     ): void => {
@@ -247,9 +259,9 @@ async function bootstrap(): Promise<void> {
       el.className = `fx-callout fx-callout-${variant}`;
       el.textContent = text;
       el.style.left = `${Math.max(14, Math.min(86, screenX * 100))}%`;
-      el.style.top = `${Math.max(16, Math.min(82, screenY * 100))}%`;
+      el.style.top = `${Math.max(16, Math.min(84, screenY * 100))}%`;
       fxLayer.append(el);
-      window.setTimeout(() => el.remove(), variant === 'milestone' ? 1400 : 960);
+      window.setTimeout(() => el.remove(), variant === 'rescue' || variant === 'milestone' ? 1650 : 1020);
     };
 
     const updateSolarUi = (hours: number): void => {
@@ -258,9 +270,7 @@ async function bootstrap(): Promise<void> {
       const modeTag = settings.timeMode === 'auto' ? 'Auto' : 'Manual';
       if (menuSolarIcon) menuSolarIcon.textContent = phase.icon;
       if (menuSolarLabel) menuSolarLabel.textContent = `${modeTag} · ${clock}`;
-      if (solarReadoutEl) {
-        solarReadoutEl.textContent = `${modeTag} · ${clock} (${phase.name})`;
-      }
+      if (solarReadoutEl) solarReadoutEl.textContent = `${modeTag} · ${clock} (${phase.name})`;
       if (solarAutoBtn) {
         const isAuto = settings.timeMode === 'auto';
         solarAutoBtn.classList.toggle('is-on', isAuto);
@@ -292,6 +302,37 @@ async function bootstrap(): Promise<void> {
       }
     };
 
+    const refreshStartMenuCopy = (): void => {
+      const nextIdx = gallery.getNextJourneyLevel();
+      const nextLvl = CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0];
+      const ch = CHAPTERS[nextLvl.chapter] ?? CHAPTERS[0];
+      const chProg = gallery.getChapterCompletion(ch.id);
+      const today = getTodayDateKey();
+      const dailyTheme = getDailyThemeForDateKey(today.keyNum);
+      const prog = gallery.getSnapshot();
+      const dailyDone = prog.completedDailyDates.includes(today.label);
+
+      if (menuChapterLabel) {
+        menuChapterLabel.textContent = `CHAPTER ${ch.roman} · ${ch.name.toUpperCase()} · ${chProg.done}/${chProg.total}`;
+      }
+      if (menuJourneyBadge) {
+        menuJourneyBadge.textContent = `CHAPTER ${ch.roman} · ${ch.name.toUpperCase()}`;
+      }
+      if (menuJourneyMain) {
+        menuJourneyMain.textContent = `Play ${nextLvl.name}`;
+      }
+      if (menuDailyBadge) {
+        menuDailyBadge.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()} EDITION`;
+      }
+      if (menuDailyMeta) {
+        menuDailyMeta.textContent = dailyDone ? `✦ Completed (${today.label})` : today.label;
+      }
+      if (menuEndlessMeta) {
+        menuEndlessMeta.textContent =
+          prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} stitched · Random theme` : 'Random theme · Infinite';
+      }
+    };
+
     const setScreen = (next: ScreenMode): void => {
       screenMode = next;
       if (appEl) appEl.dataset.screen = next;
@@ -301,78 +342,9 @@ async function bootstrap(): Promise<void> {
       if (next === 'menu') {
         trayFullModal?.classList.add('hidden');
         completeModal?.classList.add('hidden');
+        refreshStartMenuCopy();
       }
       wakeRenderer();
-    };
-
-    const applyTheme = (themeIndex: number): void => {
-      const clamped = Math.max(0, Math.min(VISUAL_THEMES.length - 1, Math.floor(themeIndex)));
-      settings = gallery.updateSettings({ themeIndex: clamped });
-      sim.setTheme(clamped);
-      if (appEl) appEl.dataset.theme = String(clamped);
-      lastSwatchKey = '';
-      renderThemeSelectors();
-      renderGalleryUi();
-      updateHud(sim.readState(getAspect()));
-      wakeRenderer();
-    };
-
-    const renderThemeSelectors = (): void => {
-      if (menuThemeStrip) {
-        menuThemeStrip.innerHTML = '';
-        VISUAL_THEMES.forEach((t) => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `theme-chip${settings.themeIndex === t.id ? ' is-active' : ''}`;
-          btn.dataset.themeId = String(t.id);
-          btn.setAttribute('role', 'radio');
-          btn.setAttribute('aria-checked', settings.themeIndex === t.id ? 'true' : 'false');
-
-          const orb = document.createElement('span');
-          orb.className = 'theme-swatch-orb';
-          orb.style.background = t.swatchGradient;
-
-          const lbl = document.createElement('span');
-          lbl.textContent = t.shortName;
-
-          btn.append(orb, lbl);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            applyTheme(t.id);
-          });
-          menuThemeStrip.append(btn);
-        });
-      }
-
-      if (settingsThemeGrid) {
-        settingsThemeGrid.innerHTML = '';
-        VISUAL_THEMES.forEach((t) => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `settings-theme-card${settings.themeIndex === t.id ? ' is-active' : ''}`;
-          btn.dataset.themeId = String(t.id);
-
-          const orb = document.createElement('span');
-          orb.className = 'theme-swatch-orb';
-          orb.style.background = t.swatchGradient;
-
-          const textWrap = document.createElement('div');
-          const title = document.createElement('strong');
-          title.textContent = t.name;
-          const desc = document.createElement('span');
-          desc.textContent = t.shortName === 'Noir B&W' ? 'Geometric B&W' : t.tagline.split(' ')[0] + ' style';
-          textWrap.append(title, desc);
-
-          btn.append(orb, textWrap);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            applyTheme(t.id);
-          });
-          settingsThemeGrid.append(btn);
-        });
-      }
     };
 
     const closeGallery = (): void => {
@@ -387,7 +359,6 @@ async function bootstrap(): Promise<void> {
 
     const openSettings = (): void => {
       soundscape.unlock();
-      renderThemeSelectors();
       updateSolarUi(getEffectiveHours());
       updateAudioUi();
       gallerySheet?.classList.add('hidden');
@@ -398,30 +369,70 @@ async function bootstrap(): Promise<void> {
       const prog = gallery.getSnapshot();
       const today = getTodayDateKey();
       const dailyDone = prog.completedDailyDates.includes(today.label);
-      const pal = getThemePalette(settings.themeIndex);
+      const dailyTheme = getDailyThemeForDateKey(today.keyNum);
 
+      if (galleryDailyTag) {
+        galleryDailyTag.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
+      }
       if (dailyStatusEl) {
         dailyStatusEl.textContent = dailyDone ? `★★★ Stitched (${today.label})` : today.label;
-      }
-      if (menuDailyMeta) {
-        menuDailyMeta.textContent = dailyDone ? `✦ Done today` : today.label;
       }
       if (mandalaStatusEl) {
         mandalaStatusEl.textContent = `${prog.mandalasCompleted} stitched`;
       }
-      if (menuEndlessMeta) {
-        menuEndlessMeta.textContent =
-          prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} stitched` : 'Infinite 3-ring';
+
+      // Render 5 Chapter Tabs
+      if (chapterTabsEl) {
+        chapterTabsEl.innerHTML = '';
+        CHAPTERS.forEach((ch) => {
+          const theme = VISUAL_THEMES[ch.themeId] ?? VISUAL_THEMES[0];
+          const chProg = gallery.getChapterCompletion(ch.id);
+          const tab = document.createElement('button');
+          tab.type = 'button';
+          tab.className = `chapter-tab${activeGalleryChapter === ch.id ? ' is-active' : ''}`;
+          tab.dataset.chapterId = String(ch.id);
+          tab.setAttribute('role', 'tab');
+          tab.setAttribute('aria-selected', activeGalleryChapter === ch.id ? 'true' : 'false');
+
+          const orb = document.createElement('span');
+          orb.className = 'chapter-tab-orb';
+          orb.style.background = theme.swatchGradient;
+
+          const lbl = document.createElement('span');
+          lbl.textContent = `${ch.roman}·${ch.shortName}`;
+
+          const cnt = document.createElement('span');
+          cnt.className = 'gallery-meta';
+          cnt.textContent = `${chProg.done}/${chProg.total}`;
+
+          tab.append(orb, lbl, cnt);
+          tab.addEventListener('click', () => {
+            soundscape.unlock();
+            soundscape.playUiTap(settings.hapticsEnabled);
+            activeGalleryChapter = ch.id;
+            renderGalleryUi();
+          });
+          chapterTabsEl.append(tab);
+        });
       }
+
+      const activeCh = CHAPTERS[activeGalleryChapter] ?? CHAPTERS[0];
+      const chProg = gallery.getChapterCompletion(activeCh.id);
+      if (chapterBannerTitle) chapterBannerTitle.textContent = `Chapter ${activeCh.roman} · ${activeCh.name}`;
+      if (chapterBannerSub) chapterBannerSub.textContent = activeCh.subtitle;
+      if (chapterBannerProgress) chapterBannerProgress.textContent = `${chProg.done}/${chProg.total}`;
+
       if (!galleryGridEl) return;
       galleryGridEl.innerHTML = '';
 
-      CURATED_LEVELS.forEach((lvl, idx) => {
-        const done = prog.completedCurated[idx];
+      const pal = getThemePalette(activeCh.themeId);
+      const chapterLevels = CURATED_LEVELS.slice(activeCh.startIndex, activeCh.startIndex + activeCh.count);
+      chapterLevels.forEach((lvl) => {
+        const done = prog.completedCurated[lvl.id];
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = `gallery-item${done ? ' is-completed' : ''}`;
-        btn.dataset.levelIndex = String(idx);
+        btn.dataset.levelIndex = String(lvl.id);
 
         const top = document.createElement('div');
         top.className = 'gallery-item-top';
@@ -457,7 +468,7 @@ async function bootstrap(): Promise<void> {
           soundscape.playUiTap(settings.hapticsEnabled);
           recordedCompleteKey = '';
           displayedScore = 0;
-          sim.loadLevel(idx);
+          sim.loadLevel(lvl.id);
           closeGallery();
           setScreen('playing');
           updateHud(sim.readState(getAspect()));
@@ -472,6 +483,8 @@ async function bootstrap(): Promise<void> {
       prevColorClearEvents = snap.events.colorClearEvents;
       prevLayerClearEvents = snap.events.layerClearEvents;
       prevBlockedEvents = snap.events.blockedEvents;
+      prevHintEvents = snap.events.hintEvents;
+      prevUndoEvents = snap.events.undoEvents;
     };
 
     const updateHud = (snap: SimSnapshot): void => {
@@ -481,7 +494,15 @@ async function bootstrap(): Promise<void> {
         hapticsEnabled: settings.hapticsEnabled,
       });
 
-      // Spawn Balatro / Vampire Survivors floating callouts on simulation events!
+      // Automatically sync CSS theme palette with the active Chapter / Daily / Endless world!
+      const domTheme = String(snap.themeIndex);
+      if (appEl && domTheme !== lastDomTheme) {
+        appEl.dataset.theme = domTheme;
+        lastDomTheme = domTheme;
+        lastSwatchKey = '';
+      }
+
+      // Floating callouts for rewards, milestones, blocker impacts, and Hint/Undo penalties & pinch rescue!
       if (snap.events.layerClearEvents > prevLayerClearEvents) {
         spawnCallout(`★ RING ${snap.layersComplete}/${snap.totalLayers} +750!`, 'milestone', 0.5, 0.28);
       } else if (snap.events.colorClearEvents > prevColorClearEvents) {
@@ -496,6 +517,7 @@ async function bootstrap(): Promise<void> {
           proj.screenY - 0.04,
         );
       }
+
       if (snap.events.blockedEvents > prevBlockedEvents) {
         const proj =
           snap.lastBlockerIdx >= 0 && snap.tiles[snap.lastBlockerIdx]
@@ -503,6 +525,19 @@ async function bootstrap(): Promise<void> {
             : { screenX: 0.5, screenY: 0.65 };
         spawnCallout('Blocked!', 'blocked', proj.screenX, proj.screenY - 0.03);
       }
+
+      if (snap.events.hintEvents > prevHintEvents) {
+        if (snap.hintNeedsUndo) {
+          spawnCallout('Pinch! Tap Undo ↶ to backtrack', 'rescue', 0.5, 0.78);
+        } else if (snap.lastPenaltyDelta > 0) {
+          spawnCallout(`-${snap.lastPenaltyDelta} Hint`, 'penalty', 0.5, 0.80);
+        }
+      }
+
+      if (snap.events.undoEvents > prevUndoEvents) {
+        spawnCallout(`-${snap.lastPenaltyDelta || 150} Undo`, 'penalty', 0.26, 0.82);
+      }
+
       syncEventCountersBaseline(snap);
 
       // Persist completion into Gallery exactly once per solve
@@ -511,6 +546,7 @@ async function bootstrap(): Promise<void> {
         if (key !== recordedCompleteKey) {
           recordedCompleteKey = key;
           gallery.recordCompletion(snap.mode, snap.levelIndex, snap.score, snap.stars, snap.maxStreak);
+          refreshStartMenuCopy();
           renderGalleryUi();
         }
       }
@@ -524,7 +560,10 @@ async function bootstrap(): Promise<void> {
       if (patternNameEl) patternNameEl.textContent = snap.levelName;
       if (progressEl) progressEl.textContent = `${snap.stitchedCount}/${snap.totalPearls}`;
       if (layersEl) layersEl.textContent = `${snap.layersComplete}/${snap.totalLayers}`;
-      if (undoBtn) undoBtn.disabled = snap.undoDepth === 0;
+      if (undoBtn) {
+        undoBtn.disabled = snap.undoDepth === 0;
+        undoBtn.classList.toggle('is-rescue', snap.hintNeedsUndo && snap.undoDepth > 0);
+      }
 
       // Smooth Balatro rolling score ticker
       if (displayedScore !== snap.score) {
@@ -563,7 +602,7 @@ async function bootstrap(): Promise<void> {
             item.title = `${info.name} (${remain} left)`;
 
             const dot = document.createElement('span');
-            dot.className = 'swatch-dot';
+            dot.className = 'swatch-dot swatch-dot-active';
             dot.style.backgroundColor = info.hex;
             applyPatternClass(dot, info.pattern);
 
@@ -606,12 +645,34 @@ async function bootstrap(): Promise<void> {
           const directPct =
             snap.totalPearls > 0 ? Math.min(100, Math.round((snap.directCount / snap.totalPearls) * 100)) : 100;
           if (completeCleanEl) completeCleanEl.textContent = `${directPct}%`;
+
+          // Celebrate Chapter clearance when finishing the 8th pattern of a Chapter!
+          const isEndOfChapter =
+            snap.mode === 'curated' &&
+            (snap.levelIndex + 1) % 8 === 0 &&
+            snap.levelIndex + 1 < CURATED_LEVELS.length;
+          const nextChapter = isEndOfChapter
+            ? CHAPTERS[Math.floor((snap.levelIndex + 1) / 8)]
+            : null;
+
+          if (completeEyebrowEl) {
+            completeEyebrowEl.textContent = nextChapter
+              ? `CHAPTER ${CHAPTERS[snap.chapterIndex]?.roman ?? 'I'} COMPLETE!`
+              : 'MASTERPIECE COMPLETE';
+          }
+          if (nextLevelBtn) {
+            nextLevelBtn.textContent = nextChapter
+              ? `Enter ${nextChapter.name} →`
+              : snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVELS.length
+                ? 'Next Pattern'
+                : 'New Mandala';
+          }
           if (completeBonusLine) {
             const badges: string[] = [];
             if (snap.trayUses === 0) badges.push('Pure No-Tray +1,500');
-            if (snap.undoUsed === 0) badges.push('Flawless +750');
+            if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('Flawless +750');
             completeBonusLine.textContent =
-              badges.length > 0 ? `${badges.join(' · ')} · Saved to Gallery.` : 'Saved to Atelier Gallery.';
+              badges.length > 0 ? `${badges.join(' · ')} · Saved to Chapters.` : 'Saved to Chapters Gallery.';
           }
         }
       }
@@ -633,7 +694,7 @@ async function bootstrap(): Promise<void> {
       });
     };
 
-    renderThemeSelectors();
+    refreshStartMenuCopy();
     renderGalleryUi();
     updateAudioUi();
     updateSolarUi(getEffectiveHours());
@@ -661,6 +722,10 @@ async function bootstrap(): Promise<void> {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
       recordedCompleteKey = '';
+      displayedScore = 0;
+      const nextIdx = gallery.getNextJourneyLevel();
+      sim.loadLevel(nextIdx);
+      activeGalleryChapter = (CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0]).chapter;
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
     });
@@ -701,7 +766,6 @@ async function bootstrap(): Promise<void> {
     homeBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      renderThemeSelectors();
       renderGalleryUi();
       setScreen('menu');
     });
@@ -776,8 +840,10 @@ async function bootstrap(): Promise<void> {
       recordedCompleteKey = '';
       displayedScore = 0;
       const snap = sim.readState(getAspect());
-      if (snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVEL_NAMES.length) {
-        sim.loadLevel(snap.levelIndex + 1);
+      if (snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVELS.length) {
+        const nextIdx = snap.levelIndex + 1;
+        sim.loadLevel(nextIdx);
+        activeGalleryChapter = (CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0]).chapter;
       } else {
         sim.loadMandala(gallery.nextMandalaSeed());
       }
@@ -787,6 +853,8 @@ async function bootstrap(): Promise<void> {
 
     patternBtn?.addEventListener('click', () => {
       soundscape.unlock();
+      const cur = sim.readState(getAspect());
+      if (cur.mode === 'curated') activeGalleryChapter = cur.chapterIndex;
       renderGalleryUi();
       gallerySheet?.classList.toggle('hidden');
     });
@@ -940,7 +1008,9 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       setTheme: (themeIndex: number) => {
-        applyTheme(themeIndex);
+        sim.setTheme(themeIndex);
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
       },
       enterGame: () => {
         setScreen('playing');
@@ -987,7 +1057,10 @@ async function bootstrap(): Promise<void> {
       // Smoothly roll DOM score counter without waking the GPU!
       if (displayedScore !== preSnap.score) {
         const diff = preSnap.score - displayedScore;
-        displayedScore = Math.abs(diff) <= 35 || preSnap.score < displayedScore ? preSnap.score : displayedScore + Math.ceil(diff * 0.35);
+        displayedScore =
+          Math.abs(diff) <= 35 || preSnap.score < displayedScore
+            ? preSnap.score
+            : displayedScore + Math.ceil(diff * 0.35);
         if (scoreEl) scoreEl.textContent = displayedScore.toLocaleString();
       }
       const activeMotion = preSnap.isAnimating || needsImmediateRender;

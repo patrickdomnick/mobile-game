@@ -17,6 +17,9 @@ const (
 	ThemePopArt       = 3
 	ThemeStainedGlass = 4
 	NumThemes         = 5
+
+	NumChapters       = 5
+	LevelsPerChapter  = 8
 )
 
 // ThemePalettes defines high-pop, unmistakable 6-color jewel/neon/monochrome/pop/glass palettes.
@@ -44,10 +47,10 @@ var ThemePalettes = [NumThemes][NumColors][4]float32{
 	{
 		{0.97, 0.97, 0.99, 0.30}, // 0: Alabaster Solid White
 		{0.09, 0.09, 0.11, 0.45}, // 1: Piano Obsidian Black
-		{0.82, 0.83, 0.86, 0.55}, // 2: Chrome + Black Ring
+		{0.82, 0.83, 0.86, 0.55}, // 2: Chrome + Black Band
 		{0.22, 0.23, 0.26, 0.45}, // 3: Charcoal + White Ring
-		{0.88, 0.88, 0.90, 0.40}, // 4: Ivory + Diagonal Noir Band
-		{0.16, 0.16, 0.19, 0.50}, // 5: Onyx + Bright Diamond
+		{0.88, 0.88, 0.90, 0.40}, // 4: Ivory + Diagonal Noir Sash
+		{0.16, 0.16, 0.19, 0.50}, // 5: Onyx + Bright Cross Star
 	},
 	// 3: Pop Art (Bold Warhol / Lichtenstein primaries)
 	{
@@ -78,13 +81,15 @@ type StitchPoint struct {
 	Layer uint8
 }
 
-// ArtworkDef defines a substantial multi-layer embroidery pattern and paired untangle board.
+// ArtworkDef defines a theme-matched, multi-layer embroidery pattern and paired untangle board.
 type ArtworkDef struct {
 	ID         int
+	Chapter    int // 0..4
+	Theme      int // Visual theme natively bound to this chapter/pattern
 	Name       string
 	Cols       int
 	Rows       int
-	Difficulty int // 1..4
+	Difficulty int // 1..4 (Noir Salon uses gentler 1..2!)
 	Seed       uint32
 	Stitches   []StitchPoint
 }
@@ -107,143 +112,406 @@ func ringPoints(count int, radius float64, offsetRad float64, cEven, cOdd uint8,
 	return pts
 }
 
-func buildCuratedArtworks() []ArtworkDef {
-	// 0: Jewel Heart (5x5, 21 pearls, 4 vivid colors, 3 layers)
-	heart := []StitchPoint{
-		// Layer 0: Core
-		{0.00, -0.14, ColorGold, 0},
-		{0.00, 0.14, ColorGold, 0},
-		{-0.22, -0.02, ColorTurquoise, 0},
-		{0.22, -0.02, ColorTurquoise, 0},
-		// Layer 1: Inner Heart
-		{-0.28, -0.34, ColorRuby, 1},
-		{0.28, -0.34, ColorRuby, 1},
-		{-0.46, -0.08, ColorRuby, 1},
-		{0.46, -0.08, ColorRuby, 1},
-		{-0.30, 0.24, ColorAmethyst, 1},
-		{0.30, 0.24, ColorAmethyst, 1},
-		{0.00, 0.44, ColorRuby, 1},
-		// Layer 2: Outer Radiant Frame
-		{-0.44, -0.58, ColorRuby, 2},
-		{0.44, -0.58, ColorRuby, 2},
-		{0.00, -0.42, ColorGold, 2},
-		{-0.72, -0.26, ColorAmethyst, 2},
-		{0.72, -0.26, ColorAmethyst, 2},
-		{-0.68, 0.14, ColorTurquoise, 2},
-		{0.68, 0.14, ColorTurquoise, 2},
-		{-0.42, 0.50, ColorGold, 2},
-		{0.42, 0.50, ColorGold, 2},
-		{0.00, 0.74, ColorRuby, 2},
-	}
-
-	// 1: Sakura Mandala (5x5, 25 pearls, 4 colors, 3 layers)
-	sakura := []StitchPoint{{0.0, 0.0, ColorGold, 0}}
-	sakura = append(sakura, ringPoints(5, 0.26, -math.Pi/2, ColorRuby, ColorRuby, 0)...)
-	sakura = append(sakura, ringPoints(5, 0.50, -math.Pi/2+math.Pi/5, ColorAmethyst, ColorAmethyst, 1)...)
-	sakura = append(sakura, ringPoints(5, 0.56, -math.Pi/2, ColorRuby, ColorRuby, 1)...)
-	sakura = append(sakura, ringPoints(9, 0.78, -math.Pi/2, ColorEmerald, ColorGold, 2)...)
-
-	// 2: Lunar Eclipse (6x5, 28 pearls, 5 colors, 3 layers)
-	lunar := []StitchPoint{
-		// Layer 0: Inner moon glow
-		{-0.16, -0.22, ColorGold, 0},
-		{-0.26, 0.00, ColorGold, 0},
-		{-0.16, 0.22, ColorGold, 0},
-		{0.24, 0.00, ColorTurquoise, 0},
-		{0.44, -0.18, ColorAmethyst, 0},
-		{0.44, 0.18, ColorAmethyst, 0},
-		// Layer 1: Crescent body
-		{0.10, -0.52, ColorGold, 1},
-		{-0.22, -0.48, ColorTurquoise, 1},
-		{-0.46, -0.28, ColorCobalt, 1},
-		{-0.54, 0.00, ColorCobalt, 1},
-		{-0.46, 0.28, ColorCobalt, 1},
-		{-0.22, 0.48, ColorTurquoise, 1},
-		{0.10, 0.52, ColorGold, 1},
-		{0.34, -0.42, ColorRuby, 1},
-		{0.34, 0.42, ColorRuby, 1},
-		{0.62, 0.00, ColorGold, 1},
-	}
-	lunar = append(lunar, ringPoints(12, 0.78, 0.0, ColorCobalt, ColorAmethyst, 2)...)
-
-	// 3: Monarch Butterfly (6x6, 32 pearls, 5 colors, 3 layers)
-	butterfly := []StitchPoint{
-		// Layer 0: Body + core
-		{0.0, -0.46, ColorGold, 0},
-		{0.0, -0.22, ColorGold, 0},
-		{0.0, 0.02, ColorGold, 0},
-		{0.0, 0.26, ColorGold, 0},
-		{0.0, 0.50, ColorTurquoise, 0},
-		{-0.14, -0.66, ColorAmethyst, 0},
-		{0.14, -0.66, ColorAmethyst, 0},
-		// Layer 1: Inner wings
-		{-0.28, -0.40, ColorRuby, 1}, {0.28, -0.40, ColorRuby, 1},
-		{-0.48, -0.26, ColorRuby, 1}, {0.48, -0.26, ColorRuby, 1},
-		{-0.30, -0.10, ColorGold, 1}, {0.30, -0.10, ColorGold, 1},
-		{-0.28, 0.16, ColorCobalt, 1}, {0.28, 0.16, ColorCobalt, 1},
-		{-0.46, 0.28, ColorCobalt, 1}, {0.46, 0.28, ColorCobalt, 1},
-		{-0.26, 0.46, ColorTurquoise, 1}, {0.26, 0.46, ColorTurquoise, 1},
-		// Layer 2: Outer scalloped wingtips
-		{-0.52, -0.56, ColorAmethyst, 2}, {0.52, -0.56, ColorAmethyst, 2},
-		{-0.74, -0.34, ColorRuby, 2}, {0.74, -0.34, ColorRuby, 2},
-		{-0.78, -0.06, ColorAmethyst, 2}, {0.78, -0.06, ColorAmethyst, 2},
-		{-0.62, -0.02, ColorTurquoise, 2}, {0.62, -0.02, ColorTurquoise, 2},
-		{-0.70, 0.26, ColorCobalt, 2}, {0.70, 0.26, ColorCobalt, 2},
-		{-0.54, 0.54, ColorRuby, 2}, {0.54, 0.54, ColorRuby, 2},
-		{0.0, 0.74, ColorGold, 2},
-	}
-
-	// 4: Royal Lotus (6x6, 34 pearls, 5 colors, 3 layers)
-	lotus := []StitchPoint{{0.0, 0.0, ColorGold, 0}}
-	lotus = append(lotus, ringPoints(6, 0.26, -math.Pi/2, ColorRuby, ColorAmethyst, 0)...)
-	lotus = append(lotus, ringPoints(12, 0.52, -math.Pi/2, ColorRuby, ColorGold, 1)...)
-	lotus = append(lotus, ringPoints(15, 0.78, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-
-	// 5: Nautilus Prism (6x6, 36 pearls, 6 colors, 3 layers)
-	nautilus := make([]StitchPoint, 0, 36)
-	for i := 0; i < 36; i++ {
-		t := float64(i) / 35.0
-		ang := t * 4.2 * math.Pi
-		rad := 0.10 + t*0.72
-		layer := uint8(0)
-		if i >= 24 {
-			layer = 2
-		} else if i >= 12 {
-			layer = 1
+func starPoints(points int, outerR, innerR float64, cOuter, cInner uint8, layer uint8) []StitchPoint {
+	pts := make([]StitchPoint, 0, points*2)
+	for i := 0; i < points*2; i++ {
+		ang := -math.Pi/2 + float64(i)*(math.Pi/float64(points))
+		r := outerR
+		c := cOuter
+		if i%2 == 1 {
+			r = innerR
+			c = cInner
 		}
-		nautilus = append(nautilus, StitchPoint{
-			X:     float32(math.Cos(ang) * rad),
-			Z:     float32(math.Sin(ang) * rad),
-			Color: uint8(i % NumColors),
+		pts = append(pts, StitchPoint{
+			X:     float32(math.Cos(ang) * r),
+			Z:     float32(math.Sin(ang) * r),
+			Color: c,
 			Layer: layer,
 		})
 	}
+	return pts
+}
 
-	// 6: Emerald Clover (7x6, 40 pearls, 6 colors, 3 layers)
-	clover := []StitchPoint{{0.0, 0.0, ColorGold, 0}}
-	clover = append(clover, ringPoints(4, 0.24, math.Pi/4, ColorGold, ColorGold, 0)...)
-	clover = append(clover, ringPoints(8, 0.42, 0.0, ColorEmerald, ColorTurquoise, 1)...)
-	clover = append(clover, ringPoints(12, 0.62, math.Pi/12, ColorEmerald, ColorCobalt, 1)...)
-	clover = append(clover, ringPoints(15, 0.80, 0.0, ColorRuby, ColorAmethyst, 2)...)
-
-	// 7: Grand Starlight (7x7, 45 pearls, all 6 jewel colors, 3 rich layers!)
-	starlight := []StitchPoint{{0.0, 0.0, ColorGold, 0}}
-	starlight = append(starlight, ringPoints(6, 0.24, -math.Pi/2, ColorRuby, ColorTurquoise, 0)...)
-	starlight = append(starlight, ringPoints(12, 0.48, -math.Pi/2, ColorGold, ColorAmethyst, 1)...)
-	starlight = append(starlight, ringPoints(12, 0.66, -math.Pi/2+math.Pi/12, ColorCobalt, ColorEmerald, 2)...)
-	starlight = append(starlight, ringPoints(14, 0.82, -math.Pi/2, ColorRuby, ColorGold, 2)...)
-
-	return []ArtworkDef{
-		{ID: 0, Name: "Jewel Heart", Cols: 5, Rows: 5, Difficulty: 2, Seed: 1101, Stitches: heart},
-		{ID: 1, Name: "Sakura Mandala", Cols: 5, Rows: 5, Difficulty: 2, Seed: 2202, Stitches: sakura},
-		{ID: 2, Name: "Lunar Eclipse", Cols: 6, Rows: 5, Difficulty: 3, Seed: 3303, Stitches: lunar},
-		{ID: 3, Name: "Monarch Wing", Cols: 6, Rows: 6, Difficulty: 3, Seed: 4404, Stitches: butterfly},
-		{ID: 4, Name: "Royal Lotus", Cols: 6, Rows: 6, Difficulty: 3, Seed: 5505, Stitches: lotus},
-		{ID: 5, Name: "Nautilus Prism", Cols: 6, Rows: 6, Difficulty: 4, Seed: 6606, Stitches: nautilus},
-		{ID: 6, Name: "Emerald Clover", Cols: 7, Rows: 6, Difficulty: 4, Seed: 7707, Stitches: clover},
-		{ID: 7, Name: "Grand Starlight", Cols: 7, Rows: 7, Difficulty: 4, Seed: 8808, Stitches: starlight},
+func diamondRing(radius float64, cAxis, cDiag uint8, layer uint8) []StitchPoint {
+	return []StitchPoint{
+		{0, float32(-radius), cAxis, layer},
+		{float32(radius), 0, cAxis, layer},
+		{0, float32(radius), cAxis, layer},
+		{float32(-radius), 0, cAxis, layer},
+		{float32(radius * 0.55), float32(-radius * 0.55), cDiag, layer},
+		{float32(radius * 0.55), float32(radius * 0.55), cDiag, layer},
+		{float32(-radius * 0.55), float32(radius * 0.55), cDiag, layer},
+		{float32(-radius * 0.55), float32(-radius * 0.55), cDiag, layer},
 	}
 }
 
-// CuratedArtworks holds the 8 substantial, multi-layered embroidery patterns (21 to 45 pearls).
+func buildHeartStitches(cCore, cAccent, cMain, cTrim uint8) []StitchPoint {
+	return []StitchPoint{
+		// Layer 0: Core
+		{0.00, -0.14, cCore, 0}, {0.00, 0.14, cCore, 0},
+		{-0.22, -0.02, cAccent, 0}, {0.22, -0.02, cAccent, 0},
+		// Layer 1: Inner Heart
+		{-0.28, -0.34, cMain, 1}, {0.28, -0.34, cMain, 1},
+		{-0.46, -0.08, cMain, 1}, {0.46, -0.08, cMain, 1},
+		{-0.30, 0.24, cTrim, 1}, {0.30, 0.24, cTrim, 1},
+		{0.00, 0.44, cMain, 1},
+		// Layer 2: Outer Radiant Frame
+		{-0.44, -0.58, cMain, 2}, {0.44, -0.58, cMain, 2},
+		{0.00, -0.42, cCore, 2},
+		{-0.72, -0.26, cTrim, 2}, {0.72, -0.26, cTrim, 2},
+		{-0.68, 0.14, cAccent, 2}, {0.68, 0.14, cAccent, 2},
+		{-0.42, 0.50, cCore, 2}, {0.42, 0.50, cCore, 2},
+		{0.00, 0.74, cMain, 2},
+	}
+}
+
+func buildSpiralStitches(count int, turns float64, colors []uint8) []StitchPoint {
+	pts := make([]StitchPoint, 0, count)
+	for i := 0; i < count; i++ {
+		t := float64(i) / float64(count-1)
+		ang := t * turns * 2.0 * math.Pi
+		rad := 0.10 + t*0.72
+		layer := uint8(0)
+		if i >= (count*2)/3 {
+			layer = 2
+		} else if i >= count/3 {
+			layer = 1
+		}
+		pts = append(pts, StitchPoint{
+			X:     float32(math.Cos(ang) * rad),
+			Z:     float32(math.Sin(ang) * rad),
+			Color: colors[i%len(colors)],
+			Layer: layer,
+		})
+	}
+	return pts
+}
+
+func buildSymmetricGridMotif(pairs [][2]float32, center []StitchPoint, c0, c1, c2 uint8) []StitchPoint {
+	pts := make([]StitchPoint, 0, len(center)+len(pairs)*2)
+	pts = append(pts, center...)
+	for i, pr := range pairs {
+		layer := uint8(1)
+		col := c1
+		if i >= len(pairs)/2 {
+			layer = 2
+			col = c2
+		} else if i < len(pairs)/4 {
+			layer = 0
+			col = c0
+		}
+		pts = append(pts,
+			StitchPoint{X: -pr[0], Z: pr[1], Color: col, Layer: layer},
+			StitchPoint{X: pr[0], Z: pr[1], Color: col, Layer: layer},
+		)
+	}
+	return pts
+}
+
+// buildCuratedArtworks constructs 5 native Thematic Chapters x 8 patterns = 40 handcrafted levels!
+// Each Chapter binds its own signature raytraced world & theme-appropriate designs.
+// Chapter 1 (Noir Salon) intentionally uses gentler 3-4 monochrome geometric inlays and calmer board sizes.
+func buildCuratedArtworks() []ArtworkDef {
+	arts := make([]ArtworkDef, 0, NumChapters*LevelsPerChapter)
+	add := func(chapter, theme int, name string, cols, rows, diff int, seed uint32, st []StitchPoint) {
+		arts = append(arts, ArtworkDef{
+			ID:         len(arts),
+			Chapter:    chapter,
+			Theme:      theme,
+			Name:       name,
+			Cols:       cols,
+			Rows:       rows,
+			Difficulty: diff,
+			Seed:       seed,
+			Stitches:   st,
+		})
+	}
+
+	// =========================================================================
+	// CHAPTER 0: JEWEL ATELIER (Theme 0 — Rich Sunlit Gemstones, 8 patterns)
+	// =========================================================================
+	add(0, ThemeJewelAtelier, "Jewel Heart", 5, 5, 2, 1101,
+		buildHeartStitches(ColorGold, ColorTurquoise, ColorRuby, ColorAmethyst))
+
+	sakura := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(5, 0.26, -math.Pi/2, ColorRuby, ColorRuby, 0)...)
+	sakura = append(sakura, ringPoints(5, 0.50, -math.Pi/2+math.Pi/5, ColorAmethyst, ColorAmethyst, 1)...)
+	sakura = append(sakura, ringPoints(5, 0.56, -math.Pi/2, ColorRuby, ColorRuby, 1)...)
+	sakura = append(sakura, ringPoints(9, 0.78, -math.Pi/2, ColorEmerald, ColorGold, 2)...)
+	add(0, ThemeJewelAtelier, "Sakura Mandala", 5, 5, 2, 2202, sakura)
+
+	crown := []StitchPoint{
+		{0, 0.36, ColorGold, 0}, {-0.26, 0.36, ColorGold, 0}, {0.26, 0.36, ColorGold, 0},
+		{-0.52, 0.36, ColorGold, 0}, {0.52, 0.36, ColorGold, 0},
+		{0, 0.10, ColorRuby, 1}, {-0.28, 0.12, ColorCobalt, 1}, {0.28, 0.12, ColorCobalt, 1},
+		{-0.56, 0.12, ColorEmerald, 1}, {0.56, 0.12, ColorEmerald, 1},
+		{0, -0.18, ColorGold, 1}, {-0.32, -0.14, ColorRuby, 1}, {0.32, -0.14, ColorRuby, 1},
+		{-0.60, -0.16, ColorGold, 1}, {0.60, -0.16, ColorGold, 1},
+		{0, -0.52, ColorRuby, 2}, {-0.38, -0.44, ColorCobalt, 2}, {0.38, -0.44, ColorCobalt, 2},
+		{-0.68, -0.42, ColorGold, 2}, {0.68, -0.42, ColorGold, 2},
+		{0, -0.74, ColorGold, 2}, {-0.44, -0.68, ColorAmethyst, 2}, {0.44, -0.68, ColorAmethyst, 2},
+		{-0.40, 0.58, ColorCobalt, 2}, {0.40, 0.58, ColorCobalt, 2}, {0, 0.60, ColorRuby, 2},
+		{-0.70, 0.34, ColorAmethyst, 2}, {0.70, 0.34, ColorAmethyst, 2},
+	}
+	add(0, ThemeJewelAtelier, "Royal Crown", 6, 5, 3, 3303, crown)
+
+	clover := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(4, 0.24, math.Pi/4, ColorGold, ColorTurquoise, 0)...)
+	clover = append(clover, ringPoints(8, 0.46, 0, ColorEmerald, ColorTurquoise, 1)...)
+	clover = append(clover, ringPoints(16, 0.74, math.Pi/16, ColorEmerald, ColorCobalt, 2)...)
+	add(0, ThemeJewelAtelier, "Emerald Clover", 6, 5, 3, 4404, clover)
+
+	lotus := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.25, -math.Pi/2, ColorRuby, ColorAmethyst, 0)...)
+	lotus = append(lotus, ringPoints(12, 0.52, -math.Pi/2, ColorRuby, ColorGold, 1)...)
+	lotus = append(lotus, ringPoints(14, 0.78, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
+	add(0, ThemeJewelAtelier, "Royal Lotus", 6, 6, 3, 5505, lotus)
+
+	butterfly := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.26, -0.36}, {0.48, -0.24}, {0.30, -0.06}, {0.26, 0.18}, {0.44, 0.30}, {0.26, 0.46},
+			{0.54, -0.54}, {0.74, -0.32}, {0.76, -0.04}, {0.62, 0.08}, {0.68, 0.28}, {0.52, 0.54}, {0.16, -0.64},
+		},
+		[]StitchPoint{
+			{0, -0.44, ColorGold, 0}, {0, -0.20, ColorGold, 0}, {0, 0.04, ColorGold, 0},
+			{0, 0.28, ColorGold, 0}, {0, 0.52, ColorTurquoise, 0}, {0, 0.74, ColorGold, 2},
+		},
+		ColorRuby, ColorCobalt, ColorAmethyst,
+	)
+	add(0, ThemeJewelAtelier, "Monarch Wing", 6, 6, 3, 6606, butterfly)
+
+	add(0, ThemeJewelAtelier, "Nautilus Prism", 6, 6, 4, 7707,
+		buildSpiralStitches(36, 2.1, []uint8{ColorRuby, ColorCobalt, ColorEmerald, ColorGold, ColorAmethyst, ColorTurquoise}))
+
+	starlight := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.24, -math.Pi/2, ColorRuby, ColorTurquoise, 0)...)
+	starlight = append(starlight, ringPoints(12, 0.48, -math.Pi/2, ColorGold, ColorAmethyst, 1)...)
+	starlight = append(starlight, ringPoints(10, 0.66, -math.Pi/2+math.Pi/10, ColorCobalt, ColorEmerald, 2)...)
+	starlight = append(starlight, ringPoints(12, 0.81, -math.Pi/2, ColorRuby, ColorGold, 2)...)
+	add(0, ThemeJewelAtelier, "Grand Starlight", 7, 6, 4, 8808, starlight)
+
+	// =========================================================================
+	// CHAPTER 1: NOIR SALON (Theme 2 — Pure Art-Deco B&W, 8 gentler patterns!)
+	// Strictly 3-4 distinct geometric B&W pearl types (0=White, 1=Black, 2=Band, 3=Ring)
+	// =========================================================================
+	nDiamond := append([]StitchPoint{{0, 0, 0, 0}}, ringPoints(4, 0.30, 0, 1, 1, 0)...)
+	nDiamond = append(nDiamond, ringPoints(4, 0.54, math.Pi/4, 2, 2, 1)...)
+	nDiamond = append(nDiamond, ringPoints(7, 0.76, -math.Pi/2, 0, 1, 2)...)
+	add(1, ThemeNoirBW, "Domino Diamond", 4, 4, 1, 9101, nDiamond)
+
+	bowtie := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.24, 0.0}, {0.42, -0.18}, {0.42, 0.18}, {0.64, -0.34},
+			{0.64, 0.0}, {0.64, 0.34}, {0.78, -0.22}, {0.78, 0.22},
+		},
+		[]StitchPoint{{0, -0.12, 1, 0}, {0, 0.12, 1, 0}},
+		0, 2, 1,
+	)
+	add(1, ThemeNoirBW, "Tuxedo Bowtie", 5, 4, 1, 9202, bowtie)
+
+	decoCross := []StitchPoint{
+		{0, 0, 0, 0},
+		{0, -0.26, 1, 0}, {0.26, 0, 1, 0}, {0, 0.26, 1, 0}, {-0.26, 0, 1, 0},
+		{0, -0.52, 2, 1}, {0.52, 0, 2, 1}, {0, 0.52, 2, 1}, {-0.52, 0, 2, 1},
+		{0.34, -0.34, 0, 1}, {0.34, 0.34, 0, 1}, {-0.34, 0.34, 0, 1}, {-0.34, -0.34, 0, 1},
+		{0, -0.76, 1, 2}, {0.76, 0, 1, 2}, {0, 0.76, 1, 2}, {-0.76, 0, 1, 2},
+		{0.58, -0.58, 2, 2}, {-0.58, 0.58, 2, 2},
+	}
+	add(1, ThemeNoirBW, "Art-Deco Cross", 5, 4, 1, 9303, decoCross)
+
+	crescent := []StitchPoint{
+		{-0.18, -0.20, 0, 0}, {-0.28, 0, 0, 0}, {-0.18, 0.20, 0, 0}, {0.34, 0, 3, 0},
+		{0.08, -0.48, 0, 1}, {-0.24, -0.46, 2, 1}, {-0.50, -0.24, 1, 1}, {-0.58, 0, 1, 1},
+		{-0.50, 0.24, 1, 1}, {-0.24, 0.46, 2, 1}, {0.08, 0.48, 0, 1}, {0.42, -0.34, 3, 1},
+		{0.42, 0.34, 3, 1}, {-0.72, -0.34, 0, 2}, {-0.78, 0, 2, 2}, {-0.72, 0.34, 0, 2},
+		{-0.36, -0.68, 1, 2}, {-0.36, 0.68, 1, 2}, {0.26, -0.66, 2, 2}, {0.26, 0.66, 2, 2},
+	}
+	add(1, ThemeNoirBW, "Noir Crescent", 5, 5, 2, 9404, crescent)
+
+	decoFan := []StitchPoint{
+		{0, 0.54, 1, 0}, {-0.24, 0.44, 0, 0}, {0.24, 0.44, 0, 0}, {0, 0.28, 2, 0},
+		{-0.46, 0.26, 1, 1}, {0.46, 0.26, 1, 1}, {-0.26, 0.08, 3, 1}, {0.26, 0.08, 3, 1}, {0, -0.02, 0, 1},
+		{-0.66, 0.02, 0, 1}, {0.66, 0.02, 0, 1},
+		{-0.72, -0.24, 2, 2}, {0.72, -0.24, 2, 2}, {-0.52, -0.48, 1, 2}, {0.52, -0.48, 1, 2},
+		{-0.26, -0.64, 0, 2}, {0.26, -0.64, 0, 2}, {0, -0.72, 3, 2},
+		{-0.46, -0.22, 0, 2}, {0.46, -0.22, 0, 2}, {0, -0.36, 1, 2},
+	}
+	add(1, ThemeNoirBW, "Deco Fan", 5, 5, 2, 9505, decoFan)
+
+	hourglass := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.20, -0.22}, {0.20, 0.22}, {0.42, -0.46}, {0.42, 0.46},
+			{0.64, -0.64}, {0.64, 0.64}, {0.32, -0.66}, {0.32, 0.66}, {0.54, -0.26}, {0.54, 0.26},
+		},
+		[]StitchPoint{{0, 0, 1, 0}, {0, -0.66, 0, 2}, {0, 0.66, 0, 2}},
+		0, 2, 3,
+	)
+	add(1, ThemeNoirBW, "Obsidian Hourglass", 5, 5, 2, 9606, hourglass)
+
+	checker := append(diamondRing(0.32, 0, 1, 0), diamondRing(0.58, 2, 3, 1)...)
+	checker = append(checker, diamondRing(0.80, 1, 0, 2)...)
+	add(1, ThemeNoirBW, "Checker Medallion", 5, 5, 2, 9707, checker)
+
+	nRose := append([]StitchPoint{{0, 0, 1, 0}}, ringPoints(6, 0.28, 0, 0, 2, 0)...)
+	nRose = append(nRose, ringPoints(8, 0.54, math.Pi/8, 1, 3, 1)...)
+	nRose = append(nRose, ringPoints(10, 0.78, 0, 0, 2, 2)...)
+	add(1, ThemeNoirBW, "Monochrome Rose", 5, 5, 2, 9808, nRose)
+
+	// =========================================================================
+	// CHAPTER 2: CYBER ARCADE (Theme 1 — Electric Synthwave Neon, 8 patterns)
+	// =========================================================================
+	neonPulse := append(diamondRing(0.28, ColorCobalt, ColorRuby, 0), diamondRing(0.54, ColorEmerald, ColorGold, 1)...)
+	neonPulse = append(neonPulse, diamondRing(0.78, ColorAmethyst, ColorCobalt, 2)...)
+	add(2, ThemeCyberNeon, "Neon Pulse", 5, 5, 2, 10101, neonPulse)
+
+	invader := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.20, -0.18}, {0.42, -0.18}, {0.20, 0.04}, {0.44, 0.04}, {0.66, 0.04},
+			{0.24, -0.44}, {0.44, -0.64}, {0.66, 0.28}, {0.44, 0.28}, {0.22, 0.48}, {0.52, 0.54},
+		},
+		[]StitchPoint{{0, -0.18, ColorCobalt, 0}, {0, 0.04, ColorRuby, 0}, {0, 0.26, ColorEmerald, 1}, {0, -0.44, ColorGold, 1}},
+		ColorCobalt, ColorRuby, ColorEmerald,
+	)
+	add(2, ThemeCyberNeon, "Pixel Invader", 6, 5, 3, 10202, invader)
+
+	synthSun := append([]StitchPoint{{0, -0.18, ColorGold, 0}}, ringPoints(6, 0.28, 0, ColorGold, ColorTurquoise, 0)...)
+	synthSun = append(synthSun, ringPoints(9, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
+	synthSun = append(synthSun,
+		StitchPoint{-0.70, 0.36, ColorCobalt, 2}, StitchPoint{-0.35, 0.36, ColorCobalt, 2},
+		StitchPoint{0.0, 0.36, ColorCobalt, 2}, StitchPoint{0.35, 0.36, ColorCobalt, 2},
+		StitchPoint{0.70, 0.36, ColorCobalt, 2},
+		StitchPoint{-0.56, 0.58, ColorRuby, 2}, StitchPoint{-0.18, 0.58, ColorRuby, 2},
+		StitchPoint{0.18, 0.58, ColorRuby, 2}, StitchPoint{0.56, 0.58, ColorRuby, 2},
+		StitchPoint{-0.36, 0.76, ColorEmerald, 2}, StitchPoint{0.0, 0.76, ColorEmerald, 2},
+		StitchPoint{0.36, 0.76, ColorEmerald, 2},
+	)
+	add(2, ThemeCyberNeon, "Synth Horizon", 6, 5, 3, 10303, synthSun)
+
+	laserGrid := append(ringPoints(6, 0.24, 0, ColorCobalt, ColorRuby, 0), ringPoints(10, 0.50, math.Pi/10, ColorEmerald, ColorAmethyst, 1)...)
+	laserGrid = append(laserGrid, ringPoints(14, 0.78, 0, ColorCobalt, ColorGold, 2)...)
+	add(2, ThemeCyberNeon, "Laser Grid", 6, 5, 3, 10404, laserGrid)
+
+	circuit := append(diamondRing(0.28, ColorEmerald, ColorCobalt, 0), ringPoints(12, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
+	circuit = append(circuit, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorTurquoise, 2)...)
+	add(2, ThemeCyberNeon, "Cyber Circuit", 6, 6, 3, 10505, circuit)
+
+	add(2, ThemeCyberNeon, "Hyper Portal", 6, 6, 3, 10606,
+		buildSpiralStitches(34, 2.2, []uint8{ColorCobalt, ColorRuby, ColorAmethyst, ColorEmerald, ColorGold}))
+
+	bolt := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.18, -0.56}, {0.36, -0.34}, {0.22, -0.14}, {0.48, -0.10}, {0.68, -0.10},
+			{0.24, 0.14}, {0.50, 0.14}, {0.36, 0.36}, {0.18, 0.58},
+			{0.62, -0.44}, {0.62, 0.44}, {0.76, -0.22}, {0.76, 0.22}, {0.44, -0.64}, {0.44, 0.64},
+		},
+		[]StitchPoint{
+			{0, -0.76, ColorGold, 0}, {0, -0.38, ColorGold, 0}, {0, 0, ColorCobalt, 0},
+			{0, 0.38, ColorGold, 1}, {0, 0.76, ColorGold, 2}, {0, -0.18, ColorRuby, 1},
+		},
+		ColorGold, ColorCobalt, ColorRuby,
+	)
+	add(2, ThemeCyberNeon, "Plasma Bolt", 6, 6, 4, 10707, bolt)
+
+	matrix := append([]StitchPoint{{0, 0, ColorEmerald, 0}}, ringPoints(7, 0.25, 0, ColorEmerald, ColorCobalt, 0)...)
+	matrix = append(matrix, ringPoints(14, 0.52, 0, ColorRuby, ColorAmethyst, 1)...)
+	matrix = append(matrix, ringPoints(16, 0.79, math.Pi/16, ColorCobalt, ColorTurquoise, 2)...)
+	add(2, ThemeCyberNeon, "Matrix Core", 7, 6, 4, 10808, matrix)
+
+	// =========================================================================
+	// CHAPTER 3: POP STUDIO (Theme 3 — Bold Comic & Warhol Primaries, 8 patterns)
+	// =========================================================================
+	cStar := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(5, 0.44, 0.22, ColorRuby, ColorGold, 0)...)
+	cStar = append(cStar, ringPoints(13, 0.76, -math.Pi/2, ColorCobalt, ColorAmethyst, 2)...)
+	add(3, ThemePopArt, "Comic Star", 5, 5, 2, 11101, cStar)
+
+	popHeart := append(buildHeartStitches(ColorGold, ColorCobalt, ColorRuby, ColorAmethyst),
+		StitchPoint{-0.76, -0.54, ColorGold, 2}, StitchPoint{0.76, -0.54, ColorGold, 2},
+		StitchPoint{-0.70, 0.48, ColorEmerald, 2}, StitchPoint{0.70, 0.48, ColorEmerald, 2},
+		StitchPoint{0, -0.72, ColorTurquoise, 2},
+	)
+	add(3, ThemePopArt, "Pop Heart", 6, 5, 3, 11202, popHeart)
+
+	pBolt := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(6, 0.46, 0.24, ColorGold, ColorRuby, 0)...)
+	pBolt = append(pBolt, ringPoints(15, 0.77, 0, ColorCobalt, ColorTurquoise, 2)...)
+	add(3, ThemePopArt, "Halftone Bolt", 6, 5, 3, 11303, pBolt)
+
+	warhol := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.24, 0, ColorGold, ColorTurquoise, 0)...)
+	warhol = append(warhol, ringPoints(11, 0.50, 0, ColorAmethyst, ColorRuby, 1)...)
+	warhol = append(warhol, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorEmerald, 2)...)
+	add(3, ThemePopArt, "Warhol Flower", 6, 5, 3, 11404, warhol)
+
+	boom := append(starPoints(7, 0.44, 0.24, ColorRuby, ColorGold, 0), starPoints(9, 0.80, 0.56, ColorCobalt, ColorAmethyst, 2)...)
+	add(3, ThemePopArt, "Boom Burst", 6, 6, 3, 11505, boom)
+
+	retroSun := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.25, 0, ColorGold, ColorTurquoise, 0)...)
+	retroSun = append(retroSun, ringPoints(12, 0.52, 0, ColorRuby, ColorGold, 1)...)
+	retroSun = append(retroSun, ringPoints(14, 0.79, 0, ColorCobalt, ColorAmethyst, 2)...)
+	add(3, ThemePopArt, "Retro Sun", 6, 6, 3, 11606, retroSun)
+
+	popDia := append(diamondRing(0.24, ColorGold, ColorRuby, 0), diamondRing(0.50, ColorCobalt, ColorAmethyst, 1)...)
+	popDia = append(popDia, ringPoints(20, 0.78, 0, ColorEmerald, ColorTurquoise, 2)...)
+	add(3, ThemePopArt, "Pop Diamond", 6, 6, 4, 11707, popDia)
+
+	sCrown := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(8, 0.44, 0.24, ColorRuby, ColorGold, 0)...)
+	sCrown = append(sCrown, ringPoints(21, 0.79, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
+	add(3, ThemePopArt, "Studio Crown", 7, 6, 4, 11808, sCrown)
+
+	// =========================================================================
+	// CHAPTER 4: CATHEDRAL GLASS (Theme 4 — Glowing Stained Glass, 8 patterns)
+	// =========================================================================
+	lantern := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorGold, ColorTurquoise, 0)...)
+	lantern = append(lantern, ringPoints(8, 0.52, math.Pi/8, ColorRuby, ColorAmethyst, 1)...)
+	lantern = append(lantern, ringPoints(11, 0.78, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
+	add(4, ThemeStainedGlass, "Prism Lantern", 6, 5, 3, 12101, lantern)
+
+	chalice := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.20, -0.50}, {0.42, -0.44}, {0.58, -0.28}, {0.46, -0.06}, {0.26, 0.08},
+			{0.18, 0.30}, {0.36, 0.56}, {0.58, 0.64}, {0.68, -0.54}, {0.28, -0.70},
+			{0.72, -0.02}, {0.64, 0.32},
+		},
+		[]StitchPoint{
+			{0, -0.58, ColorGold, 0}, {0, -0.32, ColorTurquoise, 0}, {0, -0.06, ColorCobalt, 0},
+			{0, 0.22, ColorGold, 1}, {0, 0.48, ColorGold, 1}, {0, 0.68, ColorRuby, 2},
+		},
+		ColorGold, ColorCobalt, ColorAmethyst,
+	)
+	add(4, ThemeStainedGlass, "Sapphire Chalice", 6, 5, 3, 12202, chalice)
+
+	arch := append(ringPoints(8, 0.26, -math.Pi/2, ColorGold, ColorTurquoise, 0), ringPoints(10, 0.52, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
+	arch = append(arch, ringPoints(14, 0.78, -math.Pi/2, ColorRuby, ColorEmerald, 2)...)
+	add(4, ThemeStainedGlass, "Gothic Arch", 6, 6, 3, 12303, arch)
+
+	wings := buildSymmetricGridMotif(
+		[][2]float32{
+			{0.22, -0.30}, {0.42, -0.42}, {0.62, -0.48}, {0.76, -0.30}, {0.78, -0.04},
+			{0.58, -0.14}, {0.38, -0.04}, {0.68, 0.22}, {0.48, 0.22}, {0.26, 0.22},
+			{0.56, 0.46}, {0.34, 0.50}, {0.18, 0.68}, {0.24, -0.66},
+		},
+		[]StitchPoint{
+			{0, -0.50, ColorTurquoise, 0}, {0, -0.22, ColorGold, 0}, {0, 0.06, ColorGold, 0},
+			{0, 0.34, ColorTurquoise, 1}, {0, 0.62, ColorCobalt, 1}, {0, -0.76, ColorGold, 2},
+		},
+		ColorTurquoise, ColorCobalt, ColorAmethyst,
+	)
+	add(4, ThemeStainedGlass, "Angel Wings", 6, 6, 3, 12404, wings)
+
+	catCross := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorRuby, ColorGold, 0)...)
+	catCross = append(catCross, ringPoints(12, 0.54, 0, ColorCobalt, ColorAmethyst, 1)...)
+	catCross = append(catCross, ringPoints(15, 0.80, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
+	add(4, ThemeStainedGlass, "Cathedral Cross", 6, 6, 4, 12505, catCross)
+
+	add(4, ThemeStainedGlass, "Aurora Spire", 7, 6, 4, 12606,
+		buildSpiralStitches(38, 2.3, []uint8{ColorEmerald, ColorCobalt, ColorAmethyst, ColorRuby, ColorGold, ColorTurquoise}))
+
+	roseWin := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.24, -math.Pi/2, ColorRuby, ColorGold, 0)...)
+	roseWin = append(roseWin, ringPoints(14, 0.50, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
+	roseWin = append(roseWin, ringPoints(20, 0.79, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
+	add(4, ThemeStainedGlass, "Rose Window", 7, 6, 4, 12707, roseWin)
+
+	vault := append([]StitchPoint{{0, 0, ColorTurquoise, 0}}, ringPoints(8, 0.24, 0, ColorGold, ColorRuby, 0)...)
+	vault = append(vault, ringPoints(16, 0.52, math.Pi/16, ColorCobalt, ColorAmethyst, 1)...)
+	vault = append(vault, ringPoints(20, 0.80, 0, ColorEmerald, ColorGold, 2)...)
+	add(4, ThemeStainedGlass, "Celestial Vault", 7, 7, 4, 12808, vault)
+
+	return arts
+}
+
+// CuratedArtworks holds all 40 handcrafted, theme-matched patterns across 5 native Chapters (Ateliers).
 var CuratedArtworks = buildCuratedArtworks()
