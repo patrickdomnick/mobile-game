@@ -37,7 +37,14 @@ We develop **spec-first, iteratively**:
 
 ---
 
-## 3. Mandatory Verification Gate (Definition of Done)
+## 3. Always-Ready Hot-Reload Local Playable Server & Verification Gate
+
+### 3.1 Always-Ready Playable Local Dev Server (Port `5173`)
+- **Rule**: Keep a live, playable, hot-reloading version running on **`http://localhost:5173`** (`pnpm dev`) throughout active development so the title can be playtested at any moment while work is progressing.
+- **Full-Stack Hot Reload (`vite.config.ts`)**: `pnpm dev` runs on strict port **`5173`** (`host: true`) with a custom Vite watcher (`watchSimWasmPlugin`) that automatically recompiles `sim/**/*.go` → `public/game.wasm` and triggers a live browser reload alongside Vite HMR for TypeScript, CSS, and WGSL shaders.
+- **Zero Port Collision**: Live interactive playtesting uses port **`5173`** (`pnpm dev`), while automated Playwright E2E verification uses isolated port **`4173`** (`pnpm preview`), so the playable dev server never has to be stopped during `pnpm verify`.
+
+### 3.2 Mandatory Verification Gate (Definition of Done)
 
 Never claim a change works without running the full verification command:
 
@@ -45,14 +52,25 @@ Never claim a change works without running the full verification command:
 pnpm verify
 ```
 
-`pnpm verify` MUST pass all of the following:
-1. **Go simulation unit tests**: `cd sim && go test ./...`
-2. **TinyGo WASM build**: `pnpm build:wasm` (compiles `public/game.wasm` and checks binary size budget)
-3. **TypeScript typecheck & Vite production build**: `pnpm typecheck && pnpm build`
-4. **Autonomous Headless Browser E2E & WebGPU Playtest**: `pnpm test:e2e`
-   - Runs against the built production app on `http://localhost` in headless Chromium with SwiftShader WebGPU enabled and iPhone 16 viewport/touch emulation.
-   - Asserts zero console errors, zero uncaught page errors, zero WebGPU validation/uncaptured errors, non-black raytraced canvas output, PWA manifest & Safari meta tags, and autonomous play interaction that mutates simulation state.
-   - Captures verification screenshots under `test-results/` for visual inspection.
+`pnpm verify` MUST pass all of the following in fail-fast order:
+1. **Fail-Fast Contract & Pitfall Guard (`< 100ms`)**: `pnpm check:contracts` (`scripts/check-contracts.mjs`)
+   - Enforces exact float-count ABI parity across `sim/engine.go`, `src/main.ts` (`SCENE_BUFFER_BYTES`), and `src/renderer/raytrace.wgsl` (`SceneData`).
+   - Blocks WGSL reserved keywords (`meta`, `ref`, `self`, `type`, etc.), double-gamma shader regressions (requires `toLinear`), accidental GPU tile visual spoilers (`flags |= 2`), and non-relative PWA paths.
+2. **Go simulation unit tests**: `cd sim && go test ./...`
+3. **TinyGo WASM build**: `pnpm build:wasm` (compiles `public/game.wasm` and checks binary size budget)
+4. **TypeScript typecheck & Vite production build**: `pnpm typecheck && pnpm build`
+5. **Autonomous Headless Browser E2E & WebGPU Playtest**: `pnpm test:e2e`
+   - Runs against the built production app on `http://localhost:4173` in headless Chromium with SwiftShader WebGPU enabled and iPhone 16 viewport/touch emulation.
+   - Asserts zero console/page/HTTP/WebGPU validation errors, automated canvas **luminance contrast & chromatic saturation pixel audits** (catching washed-out double-gamma or monochrome color bleed automatically), PWA manifest & Safari meta tags, zero-spoiler causal blocker feedback, and full autonomous gameplay completion.
+   - Captures verification screenshots under `test-results/` — **always inspect captured screenshots visually** before declaring a visual change done.
+
+### 3.3 Learned Pitfalls & Early-Catch Engineering Rules
+Record and enforce hard-won lessons so they never regress:
+- **Linear-Space PBR Color (No Double-Gamma Washout)**: Always convert sRGB palette/theme colors to linear space (`x * x` via `toLinear`) before raytracing lighting and encode once on output (`sqrt`). Avoid per-pixel `pow(c, 2.2)` inside entity loops to protect iPhone 16 GPU battery and SwiftShader speed.
+- **No WGSL Reserved Identifiers**: Never name WGSL struct fields or variables `meta`, `ref`, `self`, `type`, `using`, etc. (`pnpm check:contracts` catches this before building).
+- **Decouple DOM Animations from GPU Wakes**: Pure HUD animations (like rolling score tickers) must update DOM text without waking the WebGPU render loop; serialize `stepTicks` and `rAF` with `frameInFlight` so GPU queues never stack.
+- **No Visual Spoilers on Puzzle Tiles**: Never encode solvability/unblocked hints into resting tile GPU flags; show causal feedback only on tap (recoil + blocker impact beam) or explicit Hint.
+- **Always Bump Service Worker Cache on Releases**: Increment `CACHE_NAME` in `public/sw.js` (`pearl-loom-vN`) before pushing a milestone release to `origin/main` so installed iPhone 16 standalone PWAs flush stale WASM/bundles immediately.
 
 ---
 

@@ -189,6 +189,60 @@ test.describe('Pearl Loom v2.0 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       }
     }
 
+    // Automated Visual Pop & Contrast Regression Guard (catches double-gamma washout / mushy pastels early!)
+    const analyzeCanvasPng = async (png: Buffer) => {
+      const b64 = png.toString('base64');
+      return page.evaluate(async (dataUrl) => {
+        const img = new Image();
+        img.src = dataUrl;
+        await img.decode();
+        const w = 96;
+        const h = 208;
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        // Sample the middle playfield (rows 15%..85% — excludes top/bottom HUD chrome)
+        const y0 = Math.floor(h * 0.15);
+        const y1 = Math.floor(h * 0.85);
+        const data = ctx.getImageData(0, y0, w, y1 - y0).data;
+        const lums: number[] = [];
+        const sats: number[] = [];
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i] / 255;
+          const g = data[i + 1] / 255;
+          const b = data[i + 2] / 255;
+          const maxC = Math.max(r, g, b);
+          const minC = Math.min(r, g, b);
+          lums.push(0.299 * r + 0.587 * g + 0.114 * b);
+          sats.push(maxC > 0.05 ? (maxC - minC) / maxC : 0);
+        }
+        lums.sort((a, b) => a - b);
+        sats.sort((a, b) => a - b);
+        const pct = (arr: number[], p: number) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+        return {
+          p10Lum: pct(lums, 0.1),
+          p95Lum: pct(lums, 0.95),
+          p95Sat: pct(sats, 0.95),
+        };
+      }, `data:image/png;base64,${b64}`);
+    };
+
+    const jewelMetrics = await analyzeCanvasPng(themeCaptures[0]);
+    const neonMetrics = await analyzeCanvasPng(themeCaptures[1]);
+    const noirMetrics = await analyzeCanvasPng(themeCaptures[2]);
+    const popMetrics = await analyzeCanvasPng(themeCaptures[3]);
+
+    // Strong figure-ground dynamic range & vivid gemstone/neon/pop saturation (catches washed-out shaders!)
+    expect(jewelMetrics.p95Lum - jewelMetrics.p10Lum, 'Jewel Atelier contrast too flat').toBeGreaterThan(0.35);
+    expect(jewelMetrics.p95Sat, 'Jewel Atelier colors too washed-out').toBeGreaterThan(0.55);
+    expect(neonMetrics.p10Lum, 'Cyber Neon dark floor washed out').toBeLessThan(0.38);
+    expect(neonMetrics.p95Sat, 'Cyber Neon colors too dull').toBeGreaterThan(0.60);
+    expect(noirMetrics.p95Sat, 'Noir B&W has color bleed').toBeLessThan(0.12);
+    expect(noirMetrics.p95Lum - noirMetrics.p10Lum, 'Noir B&W contrast too flat').toBeGreaterThan(0.35);
+    expect(popMetrics.p95Sat, 'Pop Art colors too dull').toBeGreaterThan(0.65);
+
     // 7. Verify 24h Solar Lighting contrast on Jewel Atelier (Noon vs Golden Hour vs Night)
     await page.evaluate(async () => {
       window.__GAME_TEST__!.setTheme(0);
