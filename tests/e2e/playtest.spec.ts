@@ -113,9 +113,33 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(bootState.renderer.validationErrors).toEqual([]);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'start-menu.png') });
 
-    // 4. Verify Streamlined Settings Drawer + Real-World 24h Solar Auto & Manual Override
+    // 4. Verify Streamlined Settings Drawer, Direct-Tap iOS Haptic Switch, Install Guide & 24h Solar Override
+    const hapticSwitchAudit = await page.evaluate(() => {
+      const sw = document.querySelector('#ios-haptic-switch') as HTMLInputElement | null;
+      const layer = document.querySelector('#canvas-haptic-layer') as HTMLLabelElement | null;
+      const swStyle = sw ? getComputedStyle(sw) : null;
+      return {
+        hasSwitch: Boolean(sw && sw.type === 'checkbox' && sw.hasAttribute('switch')),
+        notDisplayNone: Boolean(swStyle && swStyle.display !== 'none' && swStyle.visibility !== 'hidden'),
+        hasCanvasLabel: Boolean(layer && layer.htmlFor === 'ios-haptic-switch'),
+      };
+    });
+    expect(hapticSwitchAudit.hasSwitch).toBe(true);
+    expect(hapticSwitchAudit.notDisplayNone).toBe(true);
+    expect(hapticSwitchAudit.hasCanvasLabel).toBe(true);
+
+    // Start Menu Install pill opens the iOS 26 Safari 3-step Add to Home Screen guide cleanly
+    await expect(page.locator('#btn-menu-install')).toBeVisible();
+    await page.locator('#btn-menu-install').click();
+    await expect(page.locator('#overlay-install')).toBeVisible();
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'install-guide.png') });
+    await page.locator('#btn-close-install').click();
+    await expect(page.locator('#overlay-install')).toBeHidden();
+
     await page.locator('#btn-menu-settings').click();
     await expect(page.locator('#overlay-settings')).toBeVisible();
+    await expect(page.locator('#btn-test-haptic')).toBeVisible();
+    await expect(page.locator('#settings-install-card')).toBeVisible();
     await page.screenshot({ path: path.join(RESULTS_DIR, 'settings-drawer.png') });
 
     await page.locator('[data-solar-preset="18.25"]').click();

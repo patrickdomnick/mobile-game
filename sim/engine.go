@@ -369,7 +369,7 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	for i := 0; i < ActiveSlots; i++ {
 		e.Active[i] = -1
 	}
-	e.refillActiveColors()
+	e.refillActiveColorsWithDelay(0.70)
 	e.syncBuffers()
 }
 
@@ -424,17 +424,24 @@ func (e *Engine) nextQueuedColor() int {
 	return -1
 }
 
-// triggerColorJiggle wiggles ONLY alive board pearls of color c (never non-active colors!).
-func (e *Engine) triggerColorJiggle(color uint8) {
+// triggerColorJiggle queues a calm, playful wiggle on ONLY alive board pearls of color c (never non-active colors!).
+// When delay > 0, pearls stay still first so the board & celebrations breathe before gently drawing the eye.
+func (e *Engine) triggerColorJiggle(color uint8, delay float32) {
 	for i := 0; i < e.TileCount; i++ {
 		if e.Tiles[i].Alive && e.Tiles[i].Color == color {
-			e.Tiles[i].JiggleT = 1.0
+			if delay > 0 {
+				e.Tiles[i].JiggleDelay = delay
+				e.Tiles[i].JiggleT = 0
+			} else {
+				e.Tiles[i].JiggleDelay = 0
+				e.Tiles[i].JiggleT = 1.0
+			}
 		}
 	}
 }
 
 // TriggerRandomActiveWiggle picks 1 random alive pearl matching ANY currently active stitch color
-// (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a playful wiggle.
+// (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a gentle wiggle.
 func (e *Engine) TriggerRandomActiveWiggle() int {
 	if e.Phase != PhasePlaying {
 		return -1
@@ -463,15 +470,21 @@ func (e *Engine) TriggerRandomActiveWiggle() int {
 		}
 	}
 	e.lastWiggleIdx = pick
+	e.Tiles[pick].JiggleDelay = 0
 	e.Tiles[pick].JiggleT = 1.0
 	e.syncBuffers()
 	return pick
 }
 
-// refillActiveColors fills up to 2 active stitch slots, EXCEPT the very last color in the queue
-// is held back until the penultimate color is 100% completed (so the final two colors unlock separately!).
-// Newly unlocked colors receive a 3.5s interior jewel glow AND a playful pearl wiggle on all pearls of that color.
+// refillActiveColors fills up to 2 active stitch slots during gameplay with a calm +0.85s wiggle delay
+// so flying pearls and Color Clear celebrations settle before drawing attention to newly unlocked pearls.
 func (e *Engine) refillActiveColors() {
+	e.refillActiveColorsWithDelay(0.85)
+}
+
+// refillActiveColorsWithDelay fills up to 2 active stitch slots, EXCEPT the very last color in the queue
+// is held back until the penultimate color is 100% completed (so the final two colors unlock separately!).
+func (e *Engine) refillActiveColorsWithDelay(jiggleDelay float32) {
 	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
 		if e.Active[i] >= 0 && e.Remain[e.Active[i]] > 0 {
@@ -498,7 +511,7 @@ func (e *Engine) refillActiveColors() {
 			e.QueuePos++
 			e.Active[i] = c
 			e.ColorGlowT[c] = 1.0
-			e.triggerColorJiggle(uint8(c))
+			e.triggerColorJiggle(uint8(c), jiggleDelay)
 			activeAlive++
 			break
 		}
@@ -847,6 +860,8 @@ func (e *Engine) TapTile(idx int) bool {
 
 	e.Tiles[idx].Alive = false
 	e.Tiles[idx].WobbleT = 0
+	e.Tiles[idx].JiggleT = 0
+	e.Tiles[idx].JiggleDelay = 0
 	e.HintTileIdx = -1
 	e.HintPulse = 0
 
@@ -909,6 +924,7 @@ func (e *Engine) Undo() bool {
 		e.Tiles[i].Alive = (snap.aliveMask & (uint64(1) << uint(i))) != 0
 		e.Tiles[i].WobbleT = 0
 		e.Tiles[i].JiggleT = 0
+		e.Tiles[i].JiggleDelay = 0
 	}
 	for i := 0; i < e.HoopCount; i++ {
 		claimed := (snap.claimedMask & (uint64(1) << uint(i))) != 0
@@ -1060,7 +1076,7 @@ func (e *Engine) IsAnimating() bool {
 		}
 	}
 	for i := 0; i < e.TileCount; i++ {
-		if e.Tiles[i].WobbleT > 0.005 || e.Tiles[i].JiggleT > 0.005 {
+		if e.Tiles[i].WobbleT > 0.005 || e.Tiles[i].JiggleT > 0.005 || e.Tiles[i].JiggleDelay > 0.005 {
 			return true
 		}
 	}
@@ -1137,8 +1153,14 @@ func (e *Engine) Step(dt float32) {
 				e.Tiles[i].WobbleT = 0
 			}
 		}
-		if e.Tiles[i].JiggleT > 0 {
-			e.Tiles[i].JiggleT -= dt * 2.1
+		if e.Tiles[i].JiggleDelay > 0 {
+			e.Tiles[i].JiggleDelay -= dt
+			if e.Tiles[i].JiggleDelay <= 0 {
+				e.Tiles[i].JiggleDelay = 0
+				e.Tiles[i].JiggleT = 1.0
+			}
+		} else if e.Tiles[i].JiggleT > 0 {
+			e.Tiles[i].JiggleT -= dt * 1.85
 			if e.Tiles[i].JiggleT < 0 {
 				e.Tiles[i].JiggleT = 0
 			}

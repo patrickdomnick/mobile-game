@@ -5,6 +5,29 @@ const MUTE_STORAGE_KEY = 'pearl-loom-muted-v1';
 // Pentatonic / Lydian degrees in semitones above root — always consonant, climbs dramatically with streak!
 const SOLAR_SCALE_SEMITONES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26];
 
+// Tiny 1-sample silent PCM WAV data URI used to wake iOS CoreAudio playback route on user gestures
+const SILENT_WAV_DATA_URI =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+interface NavigatorWithAudioSession extends Navigator {
+  audioSession?: {
+    type: 'auto' | 'playback' | 'transient' | 'transient-solo' | 'ambient' | 'play-and-record';
+  };
+}
+
+function configureIosAudioSession(): void {
+  try {
+    const nav = navigator as NavigatorWithAudioSession;
+    if (nav.audioSession && nav.audioSession.type !== 'playback') {
+      // Safari 17+ / iOS 17-26 Audio Session API: ensures game chimes play reliably
+      // even when the iPhone hardware Silent switch / Action Button is on!
+      nav.audioSession.type = 'playback';
+    }
+  } catch {
+    // Non-fatal on browsers without navigator.audioSession
+  }
+}
+
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
@@ -26,6 +49,7 @@ export interface AudioDiagnostics {
   initialized: boolean;
   muted: boolean;
   notesScheduled: number;
+  state?: string;
 }
 
 export interface SyncAudioContext {
@@ -34,59 +58,28 @@ export interface SyncAudioContext {
   hapticsEnabled: boolean;
 }
 
-let iosHapticLabel: HTMLLabelElement | null = null;
-
-function triggerIosSwitchHaptic(): void {
-  if (typeof document === 'undefined' || !document.body) return;
-  try {
-    if (!iosHapticLabel) {
-      const id = 'pearl-loom-ios-haptic-switch';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.id = id;
-      input.setAttribute('switch', '');
-      input.tabIndex = -1;
-      input.setAttribute('aria-hidden', 'true');
-      input.style.cssText =
-        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;padding:0;';
-
-      const label = document.createElement('label');
-      label.htmlFor = id;
-      label.setAttribute('aria-hidden', 'true');
-      label.style.cssText =
-        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-
-      document.body.append(input, label);
-      iosHapticLabel = label;
-    }
-    iosHapticLabel.click();
-  } catch {
-    // Non-fatal fallback
-  }
-}
-
+/**
+ * Triggers Android Chrome/Edge hardware vibration patterns.
+ * On iOS 26.5+ Safari, native Taptic Engine clicks are delivered by direct-tap
+ * transparent `<label for="ios-haptic-switch">` overlays on the board and buttons.
+ */
 function vibratePattern(enabled: boolean, pattern: number | number[]): void {
   if (!enabled) return;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      if (navigator.vibrate(pattern)) {
-        return;
-      }
+      navigator.vibrate(pattern);
     }
   } catch {
-    // Fall through to iOS Safari switch haptic
+    // Non-fatal on browsers without Vibration API
   }
-  // iOS Safari 17.4+/18+/26+ does not implement navigator.vibrate,
-  // but toggling a hidden native <input type="checkbox" switch> synchronously
-  // inside a user gesture triggers a real iPhone Taptic Engine click!
-  triggerIosSwitchHaptic();
 }
 
 /**
  * Zero-asset procedural Web Audio soundscape & Balatro/Vampire-Survivors tactile foley engine.
- * - Continuously morphs harmonic warmth & pitch across the 24-hour real-world solar cycle.
- * - Escalates pitch & crystalline overtones on consecutive Direct-Stitch streaks!
- * - Plays celebratory swells on Color Clear, Layer/Ring Complete, and Pattern Completion.
+ * - Uses `navigator.audioSession.type = 'playback'` so audio works reliably on iPhone even in Silent Mode.
+ * - Handles BOTH `'suspended'` and WebKit's `'interrupted'` AudioContext states across app switches.
+ * - Includes a frozen-`currentTime` watchdog (WebKit Bug #263627) + CoreAudio silent-WAV route kick
+ *   so audio self-heals automatically on tap without ever requiring reloads or volume-button nudges.
  */
 export class ProceduralSoundscape {
   private ctx: AudioContext | null = null;
@@ -95,6 +88,7 @@ export class ProceduralSoundscape {
   private padOscA: OscillatorNode | null = null;
   private padOscB: OscillatorNode | null = null;
   private padGain: GainNode | null = null;
+  private silentEl: HTMLAudioElement | null = null;
 
   private muted = false;
   private timeOfDayHours = 12.0;
@@ -103,12 +97,19 @@ export class ProceduralSoundscape {
   private lastEvents: AudioEventCounters | null = null;
   private melodyStep = 0;
 
+  // Watchdog state to detect iOS WebKit frozen AudioContext.currentTime (Bug #263627)
+  private lastObservedAudioTime = -1;
+  private lastObservedWallMs = 0;
+  private needsRouteKick = true;
+  private recovering = false;
+
   constructor() {
     try {
       this.muted = localStorage.getItem(MUTE_STORAGE_KEY) === '1';
     } catch {
       this.muted = false;
     }
+    configureIosAudioSession();
   }
 
   isMuted(): boolean {
@@ -120,41 +121,201 @@ export class ProceduralSoundscape {
       initialized: this.ctx !== null,
       muted: this.muted,
       notesScheduled: this.notesScheduled,
+      state: this.ctx ? this.ctx.state : 'uninitialized',
     };
   }
 
-  /** Must be called from a user gesture (pointerdown / click) to unlock iOS Safari Web Audio. */
-  unlock(): void {
+  private createAudioGraph(): boolean {
     const AudioCtx =
       window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
+    if (!AudioCtx) return false;
 
-    if (!this.ctx) {
+    try {
+      configureIosAudioSession();
+      const ctx = new AudioCtx();
+      this.ctx = ctx;
+
+      this.masterGain = ctx.createGain();
+      this.masterGain.gain.value = this.muted ? 0 : 0.44;
+
+      this.filter = ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.frequency.value = 1800;
+      this.filter.Q.value = 0.7;
+
+      this.filter.connect(this.masterGain);
+      this.masterGain.connect(ctx.destination);
+
+      this.setupWarmPad();
+      this.applySolarAtmosphere(this.timeOfDayHours);
+
+      ctx.onstatechange = () => {
+        if (!this.ctx || this.ctx !== ctx) return;
+        const st = ctx.state as string;
+        if (st === 'interrupted' || st === 'suspended') {
+          this.needsRouteKick = true;
+          if (!this.muted && document.visibilityState === 'visible') {
+            ctx.resume().catch(() => {});
+          }
+        }
+      };
+
+      this.lastObservedAudioTime = ctx.currentTime;
+      this.lastObservedWallMs = performance.now();
+      this.scheduleNextAmbientDroplet();
+      return true;
+    } catch {
+      this.ctx = null;
+      return false;
+    }
+  }
+
+  private tearDownAudioGraph(): void {
+    try {
+      this.padOscA?.stop();
+    } catch {
+      // ignore
+    }
+    try {
+      this.padOscB?.stop();
+    } catch {
+      // ignore
+    }
+    try {
+      this.ctx?.close().catch(() => {});
+    } catch {
+      // ignore
+    }
+    this.padOscA = null;
+    this.padOscB = null;
+    this.padGain = null;
+    this.filter = null;
+    this.masterGain = null;
+    this.ctx = null;
+  }
+
+  private kickCoreAudioRoute(): void {
+    // 1. Play 1-sample silent buffer directly inside user gesture to wake Web Audio render thread
+    if (this.ctx) {
       try {
-        this.ctx = new AudioCtx();
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.muted ? 0 : 0.44;
-
-        this.filter = this.ctx.createBiquadFilter();
-        this.filter.type = 'lowpass';
-        this.filter.frequency.value = 1800;
-        this.filter.Q.value = 0.7;
-
-        this.filter.connect(this.masterGain);
-        this.masterGain.connect(this.ctx.destination);
-
-        this.setupWarmPad();
-        this.applySolarAtmosphere(this.timeOfDayHours);
-        this.scheduleNextAmbientDroplet();
+        const buf = this.ctx.createBuffer(1, 1, Math.max(22050, this.ctx.sampleRate || 44100));
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.ctx.destination);
+        src.start(0);
       } catch {
-        this.ctx = null;
-        return;
+        // non-fatal
       }
     }
 
-    if (this.ctx.state === 'suspended' && !this.muted) {
+    // 2. Tiny silent HTMLAudioElement kick reliably attaches iOS CoreAudio playback route
+    try {
+      if (!this.silentEl && typeof Audio !== 'undefined') {
+        const el = new Audio(SILENT_WAV_DATA_URI);
+        el.setAttribute('playsinline', '');
+        el.preload = 'auto';
+        el.volume = 0.01;
+        this.silentEl = el;
+      }
+      if (this.silentEl) {
+        this.silentEl.currentTime = 0;
+        const p = this.silentEl.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+      }
+    } catch {
+      // non-fatal
+    }
+    this.needsRouteKick = false;
+  }
+
+  /**
+   * Must be called synchronously from a user gesture (pointerdown / touchend / click).
+   * Unlocks, resumes `'suspended'` OR `'interrupted'` contexts, and self-heals frozen iOS audio clocks.
+   */
+  unlock(): void {
+    configureIosAudioSession();
+
+    if (!this.ctx) {
+      if (!this.createAudioGraph()) return;
+    }
+    if (!this.ctx) return;
+
+    const st = this.ctx.state as string;
+    if (st === 'closed') {
+      this.tearDownAudioGraph();
+      if (!this.createAudioGraph()) return;
+    }
+
+    if (!this.muted) {
+      const stateNow = this.ctx.state as string;
+      if (stateNow !== 'running') {
+        // Handles BOTH 'suspended' AND WebKit's 'interrupted' state!
+        this.ctx.resume().catch(() => {});
+        this.kickCoreAudioRoute();
+      } else {
+        // Watchdog for WebKit Bug #263627: state says 'running' while currentTime is frozen
+        const nowMs = performance.now();
+        const curAudioT = this.ctx.currentTime;
+        if (
+          this.lastObservedAudioTime >= 0 &&
+          nowMs - this.lastObservedWallMs > 450 &&
+          curAudioT - this.lastObservedAudioTime < 0.005
+        ) {
+          this.recoverFrozenContext();
+        } else {
+          this.lastObservedAudioTime = curAudioT;
+          this.lastObservedWallMs = nowMs;
+          if (this.needsRouteKick) {
+            this.kickCoreAudioRoute();
+          }
+        }
+      }
+    }
+  }
+
+  private recoverFrozenContext(): void {
+    if (this.recovering || !this.ctx) return;
+    this.recovering = true;
+    const oldCtx = this.ctx;
+    const frozenTime = oldCtx.currentTime;
+
+    this.kickCoreAudioRoute();
+    oldCtx
+      .suspend()
+      .catch(() => {})
+      .then(() => oldCtx.resume().catch(() => {}))
+      .finally(() => {
+        window.setTimeout(() => {
+          this.recovering = false;
+          if (!this.ctx || this.ctx !== oldCtx || this.muted) return;
+          if (this.ctx.currentTime - frozenTime < 0.005) {
+            // Hard rebuild if WebKit audio render thread stayed wedged
+            this.tearDownAudioGraph();
+            if (this.createAudioGraph() && this.ctx) {
+              this.ctx.resume().catch(() => {});
+              this.kickCoreAudioRoute();
+            }
+          } else {
+            this.lastObservedAudioTime = this.ctx.currentTime;
+            this.lastObservedWallMs = performance.now();
+          }
+        }, 180);
+      });
+  }
+
+  /** Called on pageshow / focus / foreground visibility return to immediately heal iOS audio. */
+  handleForegroundResume(): void {
+    this.needsRouteKick = true;
+    configureIosAudioSession();
+    if (!this.ctx || this.muted) return;
+    const st = this.ctx.state as string;
+    if (st !== 'running') {
       this.ctx.resume().catch(() => {});
     }
+    this.lastObservedAudioTime = this.ctx.currentTime;
+    this.lastObservedWallMs = performance.now();
   }
 
   private setupWarmPad(): void {
@@ -178,24 +339,39 @@ export class ProceduralSoundscape {
   }
 
   setMuted(muted: boolean): void {
+    const wasMuted = this.muted;
     this.muted = muted;
     try {
       localStorage.setItem(MUTE_STORAGE_KEY, muted ? '1' : '0');
     } catch {
       // ignore storage errors
     }
+
+    if (!muted) {
+      this.needsRouteKick = true;
+      this.unlock();
+    }
+
     if (this.ctx && this.masterGain) {
       const now = this.ctx.currentTime;
       this.masterGain.gain.cancelScheduledValues(now);
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.44, now, 0.06);
-      if (!muted && this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.44, now, 0.04);
+      if (!muted) {
+        if ((this.ctx.state as string) !== 'running') {
+          this.ctx.resume().catch(() => {});
+        }
+        this.kickCoreAudioRoute();
+        if (wasMuted) {
+          // Gentle confirmation chime so user immediately hears sound is alive after unmuting!
+          const { rootMidi } = this.computeSolarParams(this.timeOfDayHours);
+          this.playTone(midiToHz(rootMidi + 7), 0.24, 0.09, 'sine', 0.02, 0.006);
+          this.playTone(midiToHz(rootMidi + 12), 0.32, 0.08, 'sine', 0.08, 0.006);
+        }
       }
     }
   }
 
   toggleMute(): boolean {
-    this.unlock();
     this.setMuted(!this.muted);
     return this.muted;
   }
@@ -203,11 +379,12 @@ export class ProceduralSoundscape {
   setVisibilityHidden(hidden: boolean): void {
     if (!this.ctx) return;
     if (hidden) {
+      this.needsRouteKick = true;
       if (this.ctx.state === 'running') {
         this.ctx.suspend().catch(() => {});
       }
-    } else if (!this.muted && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
+    } else {
+      this.handleForegroundResume();
     }
   }
 
@@ -248,6 +425,9 @@ export class ProceduralSoundscape {
     attackSec = 0.012,
   ): void {
     if (!this.ctx || !this.filter) return;
+    if ((this.ctx.state as string) !== 'running' && !this.muted) {
+      this.ctx.resume().catch(() => {});
+    }
     const start = this.ctx.currentTime + delaySec;
     const osc = this.ctx.createOscillator();
     const env = this.ctx.createGain();
@@ -293,7 +473,7 @@ export class ProceduralSoundscape {
     }, intervalMs + jitter);
   }
 
-  /** Consumes WASM simulation event counters and plays Balatro/VS escalating foley & haptics. */
+  /** Consumes WASM simulation event counters and plays Balatro/VS escalating foley & Android haptics. */
   syncEvents(events: AudioEventCounters, info: SyncAudioContext): void {
     if (!this.lastEvents) {
       this.lastEvents = { ...events };
@@ -318,7 +498,6 @@ export class ProceduralSoundscape {
     }
 
     if (events.layerClearEvents > prev.layerClearEvents) {
-      // Vampire Survivors / Nintendo triumphant golden ring milestone arpeggio!
       vibratePattern(info.hapticsEnabled, [18, 28, 36]);
       if (this.ctx && !this.muted) {
         [0, 7, 12, 16, 19].forEach((semi, idx) => {
@@ -328,7 +507,6 @@ export class ProceduralSoundscape {
     }
 
     if (events.colorClearEvents > prev.colorClearEvents) {
-      // Balatro Color Clear punchy harmonic burst!
       vibratePattern(info.hapticsEnabled, [14, 22, 24]);
       if (this.ctx && !this.muted) {
         [4, 7, 11, 16].forEach((semi, idx) => {
@@ -338,59 +516,47 @@ export class ProceduralSoundscape {
     }
 
     if (events.stitchEvents > prev.stitchEvents) {
-      // Balatro-style RISING PITCH with Clean Direct-Stitch Streak!
       const streakStep = Math.min(Math.max(0, info.streak - 1), SOLAR_SCALE_SEMITONES.length - 1);
       const semi = SOLAR_SCALE_SEMITONES[streakStep];
       vibratePattern(info.hapticsEnabled, Math.min(22, 9 + streakStep));
       if (this.ctx && !this.muted) {
         const baseHz = midiToHz(rootMidi + semi);
         this.playTone(baseHz, 0.72, 0.145, 'sine', 0, 0.006);
-        this.playTone(baseHz * 2.0, 0.36, lerp(0.032, 0.075, clamp01(daylight * 0.6 + streakStep * 0.06)), 'triangle', 0.005, 0.005);
+        this.playTone(
+          baseHz * 2.0,
+          0.36,
+          lerp(0.032, 0.075, clamp01(daylight * 0.6 + streakStep * 0.06)),
+          'triangle',
+          0.005,
+          0.005,
+        );
         if (info.streak >= 5) {
-          // Sparkling fifth harmonic shimmer on high streaks!
-          this.playTone(baseHz * 1.5, 0.45, 0.048, 'sine', 0.025, 0.008);
+          this.playTone(baseHz * 1.5, 0.45, 0.055, 'sine', 0.025, 0.006);
         }
       }
     }
 
     if (events.trayEvents > prev.trayEvents) {
-      vibratePattern(info.hapticsEnabled, info.trayTension >= 0.7 ? [14, 24, 14] : 10);
+      vibratePattern(info.hapticsEnabled, info.trayTension >= 0.75 ? [14, 24, 18] : 10);
       if (this.ctx && !this.muted) {
-        // Subtle tension undertone as tray approaches full (4/5 or 5/5)
-        const base = midiToHz(rootMidi - 5);
-        this.playTone(base, 0.24, 0.095, 'triangle', 0, 0.006);
-        if (info.trayTension >= 0.65) {
-          this.playTone(midiToHz(rootMidi - 12), 0.38, 0.085, 'sine', 0.02, 0.01);
-        }
+        const tensionPitch = info.trayTension >= 0.75 ? -5 : -2;
+        this.playTone(midiToHz(rootMidi + tensionPitch), 0.24, 0.09, 'triangle', 0, 0.006);
       }
     }
 
     if (events.blockedEvents > prev.blockedEvents) {
-      // Crisp causal collision double-knock (clearly communicates "blocked by another tile!")
-      vibratePattern(info.hapticsEnabled, [14, 26, 10]);
-      if (this.ctx && this.filter && !this.muted) {
-        const now = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const env = this.ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(220, now);
-        osc.frequency.exponentialRampToValueAtTime(118, now + 0.075);
-        env.gain.setValueAtTime(0.001, now);
-        env.gain.linearRampToValueAtTime(0.11, now + 0.004);
-        env.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-        osc.connect(env);
-        env.connect(this.filter);
-        osc.start(now);
-        osc.stop(now + 0.1);
-        this.notesScheduled++;
+      vibratePattern(info.hapticsEnabled, [16, 26, 16]);
+      if (this.ctx && !this.muted) {
+        this.playTone(170, 0.13, 0.09, 'triangle', 0, 0.004);
+        this.playTone(128, 0.14, 0.07, 'sine', 0.035, 0.004);
       }
     }
 
     if (events.undoEvents > prev.undoEvents) {
-      vibratePattern(info.hapticsEnabled, 8);
+      vibratePattern(info.hapticsEnabled, 10);
       if (this.ctx && !this.muted) {
-        this.playTone(midiToHz(rootMidi + 4), 0.2, 0.075, 'sine', 0, 0.008);
-        this.playTone(midiToHz(rootMidi), 0.26, 0.065, 'sine', 0.06, 0.008);
+        this.playTone(midiToHz(rootMidi + 7), 0.18, 0.075, 'sine', 0, 0.008);
+        this.playTone(midiToHz(rootMidi + 2), 0.24, 0.07, 'sine', 0.065, 0.008);
       }
     }
   }

@@ -18,8 +18,24 @@
     <title>Pearl Loom — Raytraced Pearl Embroidery</title>
   </head>
   <body>
-    <main id="app" data-theme="0" data-lighting="day" data-screen="menu">
+    <main id="app" data-theme="0" data-lighting="day" data-screen="menu" data-haptics="on">
       <canvas id="gpu-canvas" aria-label="Pearl Loom Raytraced Atelier"></canvas>
+
+      <!-- iOS 26.5+ Direct-Tap Native Taptic Engine Switch (rendered in-viewport so WebKit never culls it!) -->
+      <input
+        id="ios-haptic-switch"
+        class="ios-haptic-switch"
+        type="checkbox"
+        switch
+        aria-hidden="true"
+        tabindex="-1"
+      />
+      <label
+        id="canvas-haptic-layer"
+        class="canvas-haptic-layer"
+        for="ios-haptic-switch"
+        aria-hidden="true"
+      ></label>
 
       <!-- Balatro / Vampire Survivors floating score, milestone & rescue callouts -->
       <div id="fx-callout-layer" class="fx-callout-layer" aria-hidden="true"></div>
@@ -33,9 +49,15 @@
             <span id="menu-solar-icon" aria-hidden="true">☀</span>
             <span id="menu-solar-label">Auto · 12:30</span>
           </button>
-          <button id="btn-menu-settings" class="tactile-icon-btn" type="button" aria-label="Open Settings">
-            <span aria-hidden="true">⚙</span>
-          </button>
+          <div class="start-top-actions">
+            <button id="btn-menu-install" class="install-chip hidden" type="button" aria-label="Install Pearl Loom on Home Screen">
+              <span aria-hidden="true">＋</span>
+              <span>Install</span>
+            </button>
+            <button id="btn-menu-settings" class="tactile-icon-btn" type="button" aria-label="Open Settings">
+              <span aria-hidden="true">⚙</span>
+            </button>
+          </div>
         </div>
 
         <div class="start-hero">
@@ -207,10 +229,25 @@
           <div class="settings-toggle-row">
             <div>
               <h3 class="settings-heading">Haptics &amp; Tactile Feedback</h3>
-              <p class="settings-sub">Subtle vibration pulses on stitches &amp; milestones</p>
+              <p class="settings-sub">Direct-tap iPhone Taptic click (needs System Haptics On)</p>
             </div>
-            <button id="btn-settings-haptics" class="toggle-chip is-on" type="button" aria-pressed="true">
-              On
+            <div class="haptic-controls-inline">
+              <label id="btn-test-haptic" class="haptic-test-btn" for="ios-haptic-switch">Test</label>
+              <button id="btn-settings-haptics" class="toggle-chip is-on" type="button" aria-pressed="true">
+                On
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-install-card" class="settings-card">
+          <div class="settings-toggle-row">
+            <div>
+              <h3 class="settings-heading">Install on Home Screen</h3>
+              <p id="settings-install-status" class="settings-sub">Play full-screen like a native iPhone app</p>
+            </div>
+            <button id="btn-settings-install" class="toggle-chip is-on" type="button">
+              How
             </button>
           </div>
         </div>
@@ -316,6 +353,31 @@
         <div class="modal-actions">
           <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
           <button id="btn-replay-level" class="modal-btn" type="button">Replay</button>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- iOS 26 SAFARI PWA INSTALL GUIDE MODAL                           -->
+      <!-- =============================================================== -->
+      <section id="overlay-install" class="modal-card hidden" role="dialog" aria-label="Install Pearl Loom">
+        <p class="modal-eyebrow">PLAY FULL-SCREEN ON IPHONE</p>
+        <h2 class="modal-title">Add to Home Screen</h2>
+        <ol class="install-steps">
+          <li class="install-step">
+            <span class="install-step-num">1</span>
+            <span>Open Pearl Loom in <strong>Safari</strong> (if opened inside another app, tap <em>Open in Safari</em> first).</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step-num">2</span>
+            <span>Tap <span class="install-kbd">•••</span> next to the address bar → <strong>Share</strong> <em>(or tap Share ↑ directly on iOS 18)</em>.</span>
+          </li>
+          <li class="install-step">
+            <span class="install-step-num">3</span>
+            <span>Scroll down → <strong>Add to Home Screen</strong> → keep <strong>Open as Web App</strong> ON → tap <strong>Add</strong>.</span>
+          </li>
+        </ol>
+        <div class="modal-actions">
+          <button id="btn-close-install" class="modal-btn modal-btn-primary" type="button">Got It</button>
         </div>
       </section>
 

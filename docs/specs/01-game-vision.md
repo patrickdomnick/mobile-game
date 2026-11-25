@@ -128,7 +128,26 @@ Informed by real-device playtesting of v2.4:
 
 ---
 
-## 7. Iteration Log
+## 7. Pearl Loom v2.6 Design Delta (`Status: Locked`)
+
+Informed by real-device iPhone 16 Safari playtesting of v2.5:
+
+1. **iOS 26.5+ Direct-Tap Native Taptic Engine Haptics**:
+   - Apple WebKit in iOS 26.5 patched programmatic `label.click()` calls on hidden `<input type="checkbox" switch>` elements.
+   - Render a viewport-resident transparent `<input id="ios-haptic-switch" type="checkbox" switch>` (`opacity: 0.001`, native appearance intact) paired with a transparent `<label id="canvas-haptic-layer" for="ios-haptic-switch">` over the gameplay canvas and clipped transparent `<label>` overlays on primary interactive buttons, plus a 1-tap **Test Haptic** label in Settings — so real trusted finger taps directly toggle the native iOS switch and fire a crisp Taptic Engine click. Keep `navigator.vibrate()` for Android Chrome/Edge.
+2. **Bulletproof iOS Safari Web Audio (`audioSession: 'playback'` + Self-Healing Watchdog)**:
+   - Configure `navigator.audioSession.type = 'playback'` so in-game chimes play reliably even when the iPhone hardware Silent switch / Action Button is enabled (controlled cleanly by the in-game `♪` mute toggle).
+   - Handle BOTH `'suspended'` and WebKit's `'interrupted'` states across gestures, app switching, `visibilitychange`, `pageshow`, and `focus`.
+   - Add a frozen-`currentTime` watchdog (WebKit Bug #263627) + silent 1-sample `AudioBufferSourceNode` & silent WAV `<audio>` kick on unlock so audio self-heals automatically on tap without ever requiring page reloads or hardware volume presses.
+3. **Calm, Delayed Pearl Wiggle Choreography**:
+   - Delay active-color pearl wiggles by **`+0.70s`** on level load and **`+0.85s`** on mid-game color unlock (`Tile.JiggleDelay`) so the fresh board, flying pearls, and Color Clear celebrations breathe first before gently drawing the eye to the active/newly unlocked pearls.
+   - Soften wiggle motion to 2 smooth playful bounces (`~0.54s`) and relax the periodic ambient single-pearl wiggle to every **`3.0s`** with a **`2.5s` quiet-hand cooldown** after any player tap (100% zero-spoiler, 0 FPS between wiggles).
+4. **In-App iOS 26 Safari PWA Install Guide**:
+   - Detect standalone mode (`display-mode: standalone` / `navigator.standalone`); when running in a browser, display a sleek **"Install on Home Screen"** card in Settings and compact Start Menu pill opening a 3-step visual guide for **iOS 26 Safari (`•••` → Share → Add to Home Screen → Open as Web App)** (plus native `beforeinstallprompt` on Android/Desktop Chromium). Auto-hides once installed.
+
+---
+
+## 8. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -138,5 +157,6 @@ Informed by real-device playtesting of v2.4:
 | 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Playtested** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary pearl glow; solo finale unlock; analytic 1-spp AA at 2.0x DPR; true 0-FPS idle. Playtest revealed: initial glow too short/subtle vs always-bright pearls, Neon pearls still looked flat/out-of-place, Pop Art pearls had white center dots, some puzzles lacked verified 3-star paths, and Endless/Daily needed richer procedural seed variety + custom seed input. |
 | 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Playtested** | Sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input. Playtest revealed: darkening non-target pearls felt reversed/off, completion result screen lagged ~2s waiting for `CelebrateT`, and `navigator.vibrate` is ignored on iOS Safari. |
 | 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Playtested** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks. Playtest requested: playful pearl-only wiggles on load/unlock + periodic ~1.2s random active-color pearl wiggle, plus closer 1-to-1 color matching between top-left HUD swatches and 3D board pearls. |
-| 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Verified** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). |
+| 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Playtested** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). Playtest revealed: iOS 26.5 blocked programmatic switch `.click()` haptics, Safari audio needed `audioSession='playback'` + `'interrupted'`/frozen-clock self-healing, wiggles fired too immediately/frequently, and iOS 26 Safari hides *Add to Home Screen* behind `•••` → Share. |
+| 2026-11-25 | **Pearl Loom v2.6 — iOS 26.5 Direct-Tap Haptics, Bulletproof Audio, Delayed Wiggles & Install Guide** | **Shipped & Verified** | Direct-tap transparent switch/label overlay haptics + Settings Test Haptic; `audioSession='playback'` + interrupted/frozen-clock self-healing audio; `+0.70s`/`+0.85s` delayed calm wiggles + `3.0s` quiet-hand ambient cadence; in-app iOS 26 Safari PWA Install Guide (`pearl-loom-v10`). |
 

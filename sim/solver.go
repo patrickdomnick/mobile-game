@@ -15,13 +15,14 @@ const (
 
 // Tile represents one directional pearl tile on the untangle grid.
 type Tile struct {
-	Col     int
-	Row     int
-	Color   uint8
-	Dir     uint8
-	Alive   bool
-	WobbleT float32
-	JiggleT float32
+	Col         int
+	Row         int
+	Color       uint8
+	Dir         uint8
+	Alive       bool
+	WobbleT     float32
+	JiggleT     float32
+	JiggleDelay float32
 }
 
 type prng struct {

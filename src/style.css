@@ -1290,3 +1290,159 @@ body {
   line-height: 1.5;
   color: rgba(247, 239, 227, 0.78);
 }
+
+/* ========================================================================= */
+/* iOS 26.5+ DIRECT-TAP NATIVE TAPTIC ENGINE HAPTICS                         */
+/* ========================================================================= */
+.ios-haptic-switch {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 44px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  opacity: 0.001;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.canvas-haptic-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: block;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  pointer-events: none;
+}
+
+#app[data-screen='playing'][data-haptics='on'] .canvas-haptic-layer {
+  pointer-events: auto;
+}
+
+.has-haptic-overlay {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-haptic-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  cursor: pointer;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app[data-haptics='off'] .btn-haptic-overlay {
+  pointer-events: none;
+}
+
+.haptic-controls-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.haptic-test-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.haptic-test-btn:active {
+  transform: scale(0.95);
+}
+
+/* ========================================================================= */
+/* iOS 26 SAFARI PWA INSTALL GUIDE & CHIPS                                   */
+/* ========================================================================= */
+.start-top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.install-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--hud-bg-elevated);
+  border: 1.5px solid var(--accent);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 4px 12px var(--hud-shadow);
+}
+
+.install-chip:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+.install-steps {
+  margin: 12px 0 16px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.install-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.install-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary-grad);
+  color: var(--primary-ink);
+  font-size: 11.5px;
+  font-weight: 900;
+}
+
+.install-kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--hud-border);
+  font-weight: 800;
+  font-size: 12px;
+}

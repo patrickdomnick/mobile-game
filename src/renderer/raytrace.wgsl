@@ -326,8 +326,8 @@ fn boardPearlCenter(tl: PearlNode, pitch: f32) -> vec3<f32> {
   if (jT <= 0.002) {
     return vec3<f32>(tl.posRad.x + backOff.x, 0.22, tl.posRad.z + backOff.y);
   }
-  let wig = sin(jT * 21.991) * jT * (pitch * 0.095);
-  let hop = sin(jT * 3.14159) * 0.095;
+  let wig = sin(jT * 12.566) * jT * (pitch * 0.085);
+  let hop = sin(jT * 3.14159) * 0.085;
   return vec3<f32>(tl.posRad.x + backOff.x + wig, 0.22 + hop, tl.posRad.z + backOff.y);
 }
 

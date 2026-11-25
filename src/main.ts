@@ -2,7 +2,7 @@ import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
 import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
-import { setupSafariPwaShell } from './pwa';
+import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import {
   CHAPTERS,
@@ -26,6 +26,7 @@ export interface GameTestState extends SimSnapshot {
     initialized: boolean;
     muted: boolean;
     notesScheduled: number;
+    state?: string;
   };
   gallery: {
     completedCuratedIds: number[];
@@ -90,6 +91,7 @@ async function bootstrap(): Promise<void> {
   setupSafariPwaShell();
 
   const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement | null;
+  const canvasHapticLayer = document.getElementById('canvas-haptic-layer');
   const appEl = document.getElementById('app');
   const fxLayer = document.getElementById('fx-callout-layer');
 
@@ -98,6 +100,7 @@ async function bootstrap(): Promise<void> {
   const menuSolarBtn = document.getElementById('btn-menu-solar');
   const menuSolarIcon = document.getElementById('menu-solar-icon');
   const menuSolarLabel = document.getElementById('menu-solar-label');
+  const menuInstallBtn = document.getElementById('btn-menu-install');
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
   const menuOpenSettingsBtn = document.getElementById('btn-menu-open-settings');
   const menuGalleryBtn = document.getElementById('btn-menu-gallery');
@@ -140,6 +143,8 @@ async function bootstrap(): Promise<void> {
   const solarSlider = document.getElementById('input-solar-hour') as HTMLInputElement | null;
   const settingsSoundBtn = document.getElementById('btn-settings-sound');
   const settingsHapticsBtn = document.getElementById('btn-settings-haptics');
+  const settingsInstallStatus = document.getElementById('settings-install-status');
+  const settingsInstallBtn = document.getElementById('btn-settings-install') as HTMLButtonElement | null;
 
   // Chapter Gallery drawer elements
   const gallerySheet = document.getElementById('overlay-gallery');
@@ -173,6 +178,9 @@ async function bootstrap(): Promise<void> {
   const nextLevelBtn = document.getElementById('btn-next-level');
   const replayLevelBtn = document.getElementById('btn-replay-level');
 
+  const installModal = document.getElementById('overlay-install');
+  const closeInstallBtn = document.getElementById('btn-close-install');
+
   const fallbackBanner = document.getElementById('fallback-banner');
   const fallbackMessage = document.getElementById('fallback-message');
 
@@ -203,6 +211,8 @@ async function bootstrap(): Promise<void> {
     let lastLightingTheme = '';
     let lastDomTheme = '';
     let lastSolarSyncAt = 0;
+    let lastUserTapAt = performance.now();
+    let lastBoardTapTs = 0;
     let needsImmediateRender = true;
     let frameInFlight = false;
     let recordedCompleteKey = '';
@@ -278,6 +288,9 @@ async function bootstrap(): Promise<void> {
 
     const updateAudioUi = (): void => {
       const muted = soundscape.isMuted();
+      if (appEl) {
+        appEl.dataset.haptics = settings.hapticsEnabled ? 'on' : 'off';
+      }
       if (audioBtn) {
         audioBtn.classList.toggle('is-muted', muted);
         audioBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
@@ -294,6 +307,50 @@ async function bootstrap(): Promise<void> {
         settingsHapticsBtn.setAttribute('aria-pressed', settings.hapticsEnabled ? 'true' : 'false');
         settingsHapticsBtn.textContent = settings.hapticsEnabled ? 'On' : 'Off';
       }
+    };
+
+    const installCtrl = setupInstallPrompt(() => updateInstallUi());
+
+    const updateInstallUi = (): void => {
+      const standalone = isStandalonePwa();
+      if (menuInstallBtn) {
+        menuInstallBtn.classList.toggle('hidden', standalone);
+      }
+      if (settingsInstallStatus) {
+        settingsInstallStatus.textContent = standalone
+          ? 'Running as installed full-screen app ✦'
+          : isIosDevice()
+            ? 'In Safari: tap ••• → Share → Add to Home Screen'
+            : 'Play full-screen like a native mobile app';
+      }
+      if (settingsInstallBtn) {
+        if (standalone) {
+          settingsInstallBtn.textContent = 'Installed';
+          settingsInstallBtn.disabled = true;
+          settingsInstallBtn.classList.add('is-on');
+        } else {
+          settingsInstallBtn.disabled = false;
+          settingsInstallBtn.textContent = installCtrl.canTriggerNativeInstall() ? 'Install' : 'How';
+          settingsInstallBtn.classList.add('is-on');
+        }
+      }
+    };
+
+    const openInstallGuide = async (): Promise<void> => {
+      soundscape.unlock();
+      soundscape.playUiTap(settings.hapticsEnabled);
+      if (installCtrl.canTriggerNativeInstall()) {
+        await installCtrl.triggerNativeInstall();
+        return;
+      }
+      settingsSheet?.classList.add('hidden');
+      gallerySheet?.classList.add('hidden');
+      installModal?.classList.remove('hidden');
+    };
+
+    const closeInstallGuide = (): void => {
+      installModal?.classList.add('hidden');
+      wakeRenderer();
     };
 
     const refreshStartMenuCopy = (): void => {
@@ -693,17 +750,52 @@ async function bootstrap(): Promise<void> {
       });
     };
 
+    // Attach clipped transparent native <label for="ios-haptic-switch"> overlays onto primary buttons on touch/iOS
+    // so real trusted finger taps trigger iOS 26.5+ Taptic Engine clicks!
+    if (isTouchDevice()) {
+      const hapticButtons = [
+        modeJourneyBtn,
+        modeDailyBtn,
+        modeEndlessBtn,
+        undoBtn,
+        hintBtn,
+        resetBtn,
+        nextLevelBtn,
+        replayLevelBtn,
+        trayUndoBtn,
+        trayRestartBtn,
+        dailyBtn,
+        endlessBtn,
+      ];
+      for (const btn of hapticButtons) {
+        if (!btn) continue;
+        btn.classList.add('has-haptic-overlay');
+        const overlay = document.createElement('label');
+        overlay.className = 'btn-haptic-overlay';
+        overlay.htmlFor = 'ios-haptic-switch';
+        overlay.setAttribute('aria-hidden', 'true');
+        btn.append(overlay);
+      }
+    }
+
     refreshStartMenuCopy();
     renderGalleryUi();
     updateAudioUi();
+    updateInstallUi();
     updateSolarUi(getEffectiveHours());
 
-    // Real touch / pointer interaction mapped analytically onto the untangle board
-    canvas.addEventListener('pointerdown', (e) => {
+    // Direct-tap board handler: runs on BOTH #canvas-haptic-layer (transparent native switch <label> for iOS 26.5+
+    // Taptic Engine clicks!) and #gpu-canvas (when haptics are off). Never calls preventDefault() so Safari still
+    // delivers the trusted label->switch toggle; CSS touch-action:none blocks scrolling & zoom!
+    const handleBoardPointerDown = (e: PointerEvent): void => {
       if (screenMode !== 'playing') return;
       if (gallerySheet && !gallerySheet.classList.contains('hidden')) return;
       if (settingsSheet && !settingsSheet.classList.contains('hidden')) return;
-      e.preventDefault();
+      if (installModal && !installModal.classList.contains('hidden')) return;
+      const now = performance.now();
+      if (now - lastBoardTapTs < 35) return;
+      lastBoardTapTs = now;
+      lastUserTapAt = now;
       soundscape.unlock();
       const rect = canvas.getBoundingClientRect();
       const u = (e.clientX - rect.left) / Math.max(1, rect.width);
@@ -714,12 +806,27 @@ async function bootstrap(): Promise<void> {
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       }
+    };
+    canvasHapticLayer?.addEventListener('pointerdown', handleBoardPointerDown);
+    canvas.addEventListener('pointerdown', handleBoardPointerDown);
+
+    // Start Menu & Install Guide button wiring
+    menuInstallBtn?.addEventListener('click', () => {
+      void openInstallGuide();
+    });
+    settingsInstallBtn?.addEventListener('click', () => {
+      void openInstallGuide();
+    });
+    closeInstallBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      soundscape.playUiTap(settings.hapticsEnabled);
+      closeInstallGuide();
     });
 
-    // Start Menu button wiring
     modeJourneyBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
+      lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
       const nextIdx = gallery.getNextJourneyLevel();
@@ -732,6 +839,7 @@ async function bootstrap(): Promise<void> {
     modeDailyBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
+      lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
       sim.loadDaily(getTodayDateKey().keyNum);
@@ -742,6 +850,7 @@ async function bootstrap(): Promise<void> {
     modeEndlessBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
+      lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
       sim.loadMandala(gallery.nextMandalaSeed());
@@ -814,12 +923,14 @@ async function bootstrap(): Promise<void> {
     // Gameplay controls
     const handleUndo = () => {
       soundscape.unlock();
+      lastUserTapAt = performance.now();
       sim.undo();
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     };
     const handleReset = () => {
       soundscape.unlock();
+      lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
       sim.reset();
@@ -828,6 +939,7 @@ async function bootstrap(): Promise<void> {
     };
     const handleHint = () => {
       soundscape.unlock();
+      lastUserTapAt = performance.now();
       soundscape.playUiTap(settings.hapticsEnabled);
       sim.hint();
       updateHud(sim.readState(getAspect()));
@@ -835,6 +947,7 @@ async function bootstrap(): Promise<void> {
     };
     const handleNextPattern = () => {
       soundscape.unlock();
+      lastUserTapAt = performance.now();
       soundscape.playUiTap(settings.hapticsEnabled);
       recordedCompleteKey = '';
       displayedScore = 0;
@@ -908,9 +1021,18 @@ async function bootstrap(): Promise<void> {
     hintBtn?.addEventListener('click', handleHint);
     nextLevelBtn?.addEventListener('click', handleNextPattern);
 
+    // Global capture-phase gesture unlock so ANY tap heals suspended/interrupted/frozen iOS Web Audio!
+    const handleGlobalAudioUnlock = (): void => {
+      soundscape.unlock();
+    };
+    window.addEventListener('pointerdown', handleGlobalAudioUnlock, { capture: true, passive: true });
+    window.addEventListener('touchend', handleGlobalAudioUnlock, { capture: true, passive: true });
+
     document.addEventListener('visibilitychange', () => {
       soundscape.setVisibilityHidden(document.visibilityState === 'hidden');
     });
+    window.addEventListener('pageshow', () => soundscape.handleForegroundResume());
+    window.addEventListener('focus', () => soundscape.handleForegroundResume());
 
     window.addEventListener('resize', () => {
       renderer.resize();
@@ -966,18 +1088,21 @@ async function bootstrap(): Promise<void> {
         }
       },
       tapTile: (tileIndex: number) => {
+        lastUserTapAt = performance.now();
         const ok = sim.tapTile(tileIndex);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
         return ok;
       },
       undo: () => {
+        lastUserTapAt = performance.now();
         const ok = sim.undo();
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
         return ok;
       },
       hint: () => {
+        lastUserTapAt = performance.now();
         const idx = sim.hint();
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
@@ -989,6 +1114,7 @@ async function bootstrap(): Promise<void> {
         return idx;
       },
       reset: () => {
+        lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
         sim.reset();
@@ -996,6 +1122,7 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       loadLevel: (levelIndex: number) => {
+        lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
         sim.loadLevel(levelIndex);
@@ -1003,6 +1130,7 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       loadMandala: (seed: number) => {
+        lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
         sim.loadMandala(seed);
@@ -1010,6 +1138,7 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       loadCustomSeed: (raw: string) => {
+        lastUserTapAt = performance.now();
         const seed = parseSeedInput(raw);
         recordedCompleteKey = '';
         displayedScore = 0;
@@ -1019,6 +1148,7 @@ async function bootstrap(): Promise<void> {
         return seed;
       },
       loadDaily: (dateKey?: number) => {
+        lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
         sim.loadDaily(dateKey ?? getTodayDateKey().keyNum);
@@ -1041,12 +1171,14 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       enterGame: () => {
+        lastUserTapAt = performance.now();
         setScreen('playing');
         updateHud(sim.readState(getAspect()));
       },
       openStartMenu: () => {
         closeGallery();
         closeSettings();
+        closeInstallGuide();
         setScreen('menu');
       },
     };
@@ -1062,16 +1194,17 @@ async function bootstrap(): Promise<void> {
     resolveReady();
 
     // True 0-FPS Event-Driven Battery-Saving Frame Loop:
-    // - 60 FPS ONLY during active 3D motion (pearl flight, temporary 2.2s unlock interior glow, shake, shockwaves)
+    // - 60 FPS ONLY during active 3D motion (pearl flight, temporary 3.5s unlock glow, gentle wiggles, shake)
     // - 0 FPS (ZERO WebGPU submissions & ZERO WASM repacks) while player thinks!
     // - Real-world solar clock syncs once every 15 seconds (not 60x/sec) for effortless battery life.
-    // - 0 FPS completely paused when tab is hidden or Gallery/Settings drawer covers canvas.
+    // - 0 FPS completely paused when tab is hidden or Gallery/Settings/Install drawer covers canvas.
     let lastTs = performance.now();
     let accumulator = 0;
     const frame = (now: number) => {
       const sheetOpen =
         Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
-        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden'));
+        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden')) ||
+        Boolean(installModal && !installModal.classList.contains('hidden'));
       if (document.visibilityState === 'hidden' || sheetOpen) {
         lastTs = now;
         renderer.setIdleThrottled(true);
@@ -1121,19 +1254,21 @@ async function bootstrap(): Promise<void> {
       requestAnimationFrame(frame);
     };
 
-    // Periodic zero-spoiler active-color pearl wiggle (~1.25s cadence during active play):
-    // Picks 1 random alive pearl of ANY active color (ignoring blocked/unblocked) and wakes GPU for ~0.48s,
-    // returning cleanly to 0 FPS between wiggles and staying 100% 0 FPS on Start Menu / drawers / completion!
+    // Calm periodic zero-spoiler active-color pearl wiggle (~3.0s cadence + 2.5s quiet-hand cooldown after taps):
+    // Picks 1 random alive pearl of ANY active color (ignoring blocked/unblocked) ONLY when the player pauses
+    // to scan the board, returning cleanly to 0 FPS between wiggles and staying 100% 0 FPS on Start Menu / drawers!
     window.setInterval(() => {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
+      if (performance.now() - lastUserTapAt < 2500) return;
       const sheetOpen =
         Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
-        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden'));
+        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden')) ||
+        Boolean(installModal && !installModal.classList.contains('hidden'));
       if (sheetOpen || sim.phase() !== 0 || sim.isAnimating()) return;
       if (sim.triggerActiveWiggle() >= 0) {
         wakeRenderer();
       }
-    }, 1250);
+    }, 3000);
 
     requestAnimationFrame(frame);
   } catch (err) {
