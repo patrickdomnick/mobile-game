@@ -18,7 +18,7 @@ const (
 	NumThemes         = 4
 
 	NumChapters      = 4
-	LevelsPerChapter = 8
+	LevelsPerChapter = 13
 )
 
 // ThemePalettes defines 4 vibrant, unmistakable high-pop 6-color themes with maximum hue separation.
@@ -63,7 +63,7 @@ var ThemePalettes = [NumThemes][NumColors][4]float32{
 }
 
 // StitchPoint is one pearl placement inside the normalized embroidery hoop (radius <= 0.86),
-// tagged with Layer (0=Core, 1=Mid, 2=Outer) for Vampire Survivors-style ring celebrations!
+// tagged with Layer (0=Core, 1=Mid, 2=Outer) for ring celebrations.
 type StitchPoint struct {
 	X     float32
 	Z     float32
@@ -74,67 +74,37 @@ type StitchPoint struct {
 // ArtworkDef defines a theme-matched, multi-layer embroidery pattern and paired untangle board.
 type ArtworkDef struct {
 	ID         int
-	Chapter    int // 0..3
-	Theme      int // Visual theme natively bound to this chapter/pattern
+	Chapter    int // 0..3 (4 independent Day-1 Campaigns)
+	Theme      int // Visual theme natively bound to this campaign
 	Name       string
 	Cols       int
 	Rows       int
-	Difficulty int // 1..4
+	Difficulty int // 0 = zero-blocker warm-up, 1..11 = strictly escalating difficulty
 	Seed       uint32
 	NoBlockers bool // When true, every starting tile has an unobstructed outward lane
-	MaxHearts  int  // 0 = auto (2..3), capped strictly at MaxHeartsPerLevel (3)
+	MaxHearts  int  // 1..3 bonus Heart Pearls
 	Stitches   []StitchPoint
 }
 
-func ringPoints(count int, radius float64, offsetRad float64, cEven, cOdd uint8, layer uint8) []StitchPoint {
+func waveRingPoints(count int, baseR, waveAmp float64, waveFreq int, offsetRad float64, colors []uint8, layer uint8) []StitchPoint {
 	pts := make([]StitchPoint, 0, count)
 	for i := 0; i < count; i++ {
 		ang := offsetRad + float64(i)*(2.0*math.Pi/float64(count))
-		c := cEven
-		if i%2 == 1 {
-			c = cOdd
+		r := baseR + waveAmp*math.Cos(float64(waveFreq)*(ang-offsetRad))
+		if r > 0.85 {
+			r = 0.85
 		}
-		pts = append(pts, StitchPoint{
-			X:     float32(math.Cos(ang) * radius),
-			Z:     float32(math.Sin(ang) * radius),
-			Color: c,
-			Layer: layer,
-		})
-	}
-	return pts
-}
-
-func starPoints(points int, outerR, innerR float64, cOuter, cInner uint8, layer uint8) []StitchPoint {
-	pts := make([]StitchPoint, 0, points*2)
-	for i := 0; i < points*2; i++ {
-		ang := -math.Pi/2 + float64(i)*(math.Pi/float64(points))
-		r := outerR
-		c := cOuter
-		if i%2 == 1 {
-			r = innerR
-			c = cInner
+		if r < 0.14 {
+			r = 0.14
 		}
 		pts = append(pts, StitchPoint{
 			X:     float32(math.Cos(ang) * r),
 			Z:     float32(math.Sin(ang) * r),
-			Color: c,
+			Color: colors[i%len(colors)],
 			Layer: layer,
 		})
 	}
 	return pts
-}
-
-func diamondRing(radius float64, cAxis, cDiag uint8, layer uint8) []StitchPoint {
-	return []StitchPoint{
-		{0, float32(-radius), cAxis, layer},
-		{float32(radius), 0, cAxis, layer},
-		{0, float32(radius), cAxis, layer},
-		{float32(-radius), 0, cAxis, layer},
-		{float32(radius * 0.55), float32(-radius * 0.55), cDiag, layer},
-		{float32(radius * 0.55), float32(radius * 0.55), cDiag, layer},
-		{float32(-radius * 0.55), float32(radius * 0.55), cDiag, layer},
-		{float32(-radius * 0.55), float32(-radius * 0.55), cDiag, layer},
-	}
 }
 
 func buildHeartStitches(cCore, cAccent, cMain, cTrim uint8) []StitchPoint {
@@ -158,8 +128,8 @@ func buildSpiralStitches(count int, turns float64, colors []uint8) []StitchPoint
 	pts := make([]StitchPoint, 0, count)
 	for i := 0; i < count; i++ {
 		t := float64(i) / float64(count-1)
-		ang := t * turns * 2.0 * math.Pi
-		rad := 0.10 + t*0.72
+		ang := -math.Pi/2 + t*turns*2.0*math.Pi
+		rad := 0.10 + t*0.74
 		layer := uint8(0)
 		if i >= (count*2)/3 {
 			layer = 2
@@ -176,262 +146,244 @@ func buildSpiralStitches(count int, turns float64, colors []uint8) []StitchPoint
 	return pts
 }
 
-func buildSymmetricGridMotif(pairs [][2]float32, center []StitchPoint, c0, c1, c2 uint8) []StitchPoint {
-	pts := make([]StitchPoint, 0, len(center)+len(pairs)*2)
-	pts = append(pts, center...)
-	for i, pr := range pairs {
-		layer := uint8(1)
-		col := c1
-		if i >= len(pairs)/2 {
-			layer = 2
-			col = c2
-		} else if i < len(pairs)/4 {
-			layer = 0
-			col = c0
-		}
-		pts = append(pts,
-			StitchPoint{X: -pr[0], Z: pr[1], Color: col, Layer: layer},
-			StitchPoint{X: pr[0], Z: pr[1], Color: col, Layer: layer},
-		)
+type ringSpec struct {
+	count   int
+	radius  float64
+	waveAmp float64
+	freq    int
+	offset  float64
+	layer   uint8
+	cA      int // index into motif palette
+	cB      int
+}
+
+func buildMultiRingMotif(centerColor uint8, hasCenter bool, pal []uint8, rings []ringSpec) []StitchPoint {
+	total := 0
+	if hasCenter {
+		total++
+	}
+	for _, r := range rings {
+		total += r.count
+	}
+	pts := make([]StitchPoint, 0, total)
+	if hasCenter {
+		pts = append(pts, StitchPoint{X: 0, Z: 0, Color: centerColor, Layer: 0})
+	}
+	for _, r := range rings {
+		cols := []uint8{pal[r.cA%len(pal)], pal[r.cB%len(pal)]}
+		pts = append(pts, waveRingPoints(r.count, r.radius, r.waveAmp, r.freq, r.offset, cols, r.layer)...)
 	}
 	return pts
 }
 
-// buildCuratedArtworks constructs 4 vibrant native Thematic Chapters x 8 patterns = 32 handcrafted levels!
-func buildCuratedArtworks() []ArtworkDef {
-	arts := make([]ArtworkDef, 0, NumChapters*LevelsPerChapter)
-	add := func(chapter, theme int, name string, cols, rows, diff int, seed uint32, st []StitchPoint) {
-		arts = append(arts, ArtworkDef{
-			ID:         len(arts),
-			Chapter:    chapter,
-			Theme:      theme,
-			Name:       name,
-			Cols:       cols,
-			Rows:       rows,
-			Difficulty: diff,
-			Seed:       seed,
-			Stitches:   st,
+// buildCampaignPattern builds a clean, zero-overlap, theme-tailored hoop pattern for tier 0..12
+// with exact pearl count and color count matching the 13-level campaign ladder!
+func buildCampaignPattern(campaignIdx, tierIdx int, pal []uint8) []StitchPoint {
+	// Per-campaign signature geometry twists so every world feels unmistakable!
+	baseOffset := -math.Pi / 2
+	petalAmp := 0.045
+	freqShift := 0
+	switch campaignIdx {
+	case 0: // Jewel Atelier: floral petals & artisan brooches
+		baseOffset = -math.Pi / 2
+		petalAmp = 0.055
+		freqShift = 0
+	case 1: // Cyber Arcade: sharp 4-fold & 8-fold neon grids / prisms
+		baseOffset = math.Pi / 4
+		petalAmp = 0.065
+		freqShift = 1
+	case 2: // Pop Studio: bold comic starbursts & graphic rays
+		baseOffset = -math.Pi/2 + math.Pi/10
+		petalAmp = 0.075
+		freqShift = 2
+	case 3: // Cathedral Glass: gothic arches & symmetrical rose windows
+		baseOffset = -math.Pi / 2
+		petalAmp = 0.035
+		freqShift = 0
+	}
+
+	switch tierIdx {
+	case 0: // L1 (5x5, 14 pearls, 3 colors, ZERO blockers)
+		return buildMultiRingMotif(pal[0], true, pal[:3], []ringSpec{
+			{count: 5, radius: 0.34, waveAmp: 0, freq: 5, offset: baseOffset, layer: 1, cA: 1, cB: 0},
+			{count: 8, radius: 0.72, waveAmp: petalAmp, freq: 4, offset: baseOffset + math.Pi/8, layer: 2, cA: 2, cB: 1},
+		})
+	case 1: // L2 (5x5, 16 pearls, 4 colors, ZERO blockers)
+		return buildMultiRingMotif(pal[0], false, pal[:4], []ringSpec{
+			{count: 4, radius: 0.24, waveAmp: 0, freq: 4, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 4, radius: 0.48, waveAmp: 0, freq: 4, offset: baseOffset + math.Pi/4, layer: 1, cA: 2, cB: 1},
+			{count: 8, radius: 0.76, waveAmp: petalAmp, freq: 4, offset: baseOffset, layer: 2, cA: 3, cB: 2},
+		})
+	case 2: // L3 (5x5, 21 pearls, 4 colors, Diff 1)
+		if campaignIdx == 0 {
+			return buildHeartStitches(pal[0], pal[1], pal[2], pal[3])
+		}
+		return buildMultiRingMotif(pal[0], true, pal[:4], []ringSpec{
+			{count: 6, radius: 0.30, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 1, cB: 0},
+			{count: 6, radius: 0.55, waveAmp: petalAmp * 0.7, freq: 3 + freqShift, offset: baseOffset + math.Pi/6, layer: 1, cA: 2, cB: 3},
+			{count: 8, radius: 0.79, waveAmp: petalAmp, freq: 4, offset: baseOffset, layer: 2, cA: 3, cB: 1},
+		})
+	case 3: // L4 (6x5, 26 pearls, 4 colors, Diff 2)
+		return buildMultiRingMotif(pal[0], true, pal[:4], []ringSpec{
+			{count: 5, radius: 0.25, waveAmp: 0, freq: 5, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 8, radius: 0.52, waveAmp: petalAmp * 0.8, freq: 4, offset: baseOffset + math.Pi/8, layer: 1, cA: 2, cB: 1},
+			{count: 12, radius: 0.79, waveAmp: petalAmp, freq: 6, offset: baseOffset, layer: 2, cA: 3, cB: 2},
+		})
+	case 4: // L5 (6x6, 32 pearls, 5 colors, Diff 3)
+		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
+			{count: 6, radius: 0.25, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 10, radius: 0.52, waveAmp: petalAmp * 0.8, freq: 5, offset: baseOffset + math.Pi/10, layer: 1, cA: 2, cB: 3},
+			{count: 15, radius: 0.79, waveAmp: petalAmp, freq: 5, offset: baseOffset, layer: 2, cA: 4, cB: 2},
+		})
+	case 5: // L6 (7x6, 37 pearls, 5 colors, Diff 4)
+		if campaignIdx == 1 || campaignIdx == 3 {
+			return buildSpiralStitches(37, 2.35, pal[:5])
+		}
+		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
+			{count: 6, radius: 0.24, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 12, radius: 0.51, waveAmp: petalAmp * 0.7, freq: 6, offset: baseOffset + math.Pi/12, layer: 1, cA: 2, cB: 3},
+			{count: 18, radius: 0.80, waveAmp: petalAmp, freq: 6, offset: baseOffset, layer: 2, cA: 4, cB: 1},
+		})
+	case 6: // L7 (7x7, 43 pearls, 5 colors, Diff 5)
+		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
+			{count: 7, radius: 0.25, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 14, radius: 0.52, waveAmp: petalAmp * 0.7, freq: 7, offset: baseOffset + math.Pi/14, layer: 1, cA: 2, cB: 3},
+			{count: 21, radius: 0.80, waveAmp: petalAmp * 0.85, freq: 7, offset: baseOffset, layer: 2, cA: 4, cB: 2},
+		})
+	case 7: // L8 (8x6, 45 pearls, 6 colors, Diff 6)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 10, radius: 0.42, waveAmp: 0.02, freq: 5, offset: baseOffset + math.Pi/10, layer: 1, cA: 2, cB: 3},
+			{count: 13, radius: 0.63, waveAmp: 0.025, freq: 6 + freqShift, offset: baseOffset, layer: 1, cA: 4, cB: 1},
+			{count: 15, radius: 0.82, waveAmp: petalAmp * 0.7, freq: 5, offset: baseOffset + math.Pi/15, layer: 2, cA: 5, cB: 3},
+		})
+	case 8: // L9 (8x7, 51 pearls, 6 colors, Diff 7)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 11, radius: 0.41, waveAmp: 0.02, freq: 4, offset: baseOffset, layer: 1, cA: 2, cB: 3},
+			{count: 15, radius: 0.62, waveAmp: 0.025, freq: 5, offset: baseOffset + math.Pi/15, layer: 1, cA: 4, cB: 5},
+			{count: 18, radius: 0.83, waveAmp: petalAmp * 0.6, freq: 6, offset: baseOffset, layer: 2, cA: 5, cB: 2},
+		})
+	case 9: // L10 (8x8 Standard, 54 pearls, 6 colors, Diff 8)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 11, radius: 0.41, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/11, layer: 1, cA: 2, cB: 3},
+			{count: 16, radius: 0.62, waveAmp: 0.025, freq: 8, offset: baseOffset, layer: 1, cA: 4, cB: 1},
+			{count: 20, radius: 0.83, waveAmp: petalAmp * 0.55, freq: 4 + freqShift, offset: baseOffset + math.Pi/20, layer: 2, cA: 5, cB: 3},
+		})
+	case 10: // L11 (8x8 Hard, 58 pearls, 6 colors, Diff 9)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 12, radius: 0.42, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/12, layer: 1, cA: 2, cB: 3},
+			{count: 17, radius: 0.63, waveAmp: 0.02, freq: 6, offset: baseOffset, layer: 1, cA: 4, cB: 5},
+			{count: 21, radius: 0.83, waveAmp: petalAmp * 0.5, freq: 7, offset: baseOffset + math.Pi/21, layer: 2, cA: 5, cB: 0},
+		})
+	case 11: // L12 (8x8 Expert, 61 pearls, 6 colors, Diff 10)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 2},
+			{count: 13, radius: 0.42, waveAmp: 0.02, freq: 5, offset: baseOffset, layer: 1, cA: 1, cB: 3},
+			{count: 18, radius: 0.63, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/18, layer: 1, cA: 4, cB: 5},
+			{count: 22, radius: 0.83, waveAmp: petalAmp * 0.45, freq: 6 + freqShift, offset: baseOffset, layer: 2, cA: 3, cB: 5},
+		})
+	default: // L13 (8x8 Grand Masterpiece, 64 pearls, 6 colors, Diff 11)
+		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
+			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
+			{count: 14, radius: 0.42, waveAmp: 0.018, freq: 7, offset: baseOffset + math.Pi/14, layer: 1, cA: 2, cB: 3},
+			{count: 19, radius: 0.63, waveAmp: 0.018, freq: 6, offset: baseOffset, layer: 1, cA: 4, cB: 5},
+			{count: 23, radius: 0.84, waveAmp: petalAmp * 0.35, freq: 8, offset: baseOffset + math.Pi/23, layer: 2, cA: 5, cB: 1},
 		})
 	}
+}
 
-	// =========================================================================
-	// CHAPTER 0: JEWEL ATELIER (Theme 0 — Rich Sunlit Gemstones, 8 patterns)
-	// =========================================================================
-	add(0, ThemeJewelAtelier, "Jewel Heart", 5, 5, 2, 1101,
-		buildHeartStitches(ColorGold, ColorTurquoise, ColorRuby, ColorAmethyst))
+type tierTemplate struct {
+	cols       int
+	rows       int
+	difficulty int
+	noBlockers bool
+	maxHearts  int
+}
 
-	sakura := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(5, 0.26, -math.Pi/2, ColorRuby, ColorRuby, 0)...)
-	sakura = append(sakura, ringPoints(5, 0.50, -math.Pi/2+math.Pi/5, ColorAmethyst, ColorAmethyst, 1)...)
-	sakura = append(sakura, ringPoints(5, 0.56, -math.Pi/2, ColorRuby, ColorRuby, 1)...)
-	sakura = append(sakura, ringPoints(9, 0.78, -math.Pi/2, ColorEmerald, ColorGold, 2)...)
-	add(0, ThemeJewelAtelier, "Sakura Mandala", 5, 5, 2, 2202, sakura)
+// Option A Campaign Testrun Ladder (13 escalating levels per theme: 5x5 warmups -> 8x8 64-pearl finale).
+// Difficulty increases monotonically across every size step without ever resetting!
+var campaignLadder = [LevelsPerChapter]tierTemplate{
+	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 1},   // L1: Warm-Up I (14 pearls, 0 blockers)
+	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 2},   // L2: Warm-Up II (16 pearls, 0 blockers)
+	{cols: 5, rows: 5, difficulty: 1, noBlockers: false, maxHearts: 2},  // L3: First Weave (21 pearls)
+	{cols: 6, rows: 5, difficulty: 2, noBlockers: false, maxHearts: 2},  // L4: Gentle Knot (26 pearls)
+	{cols: 6, rows: 6, difficulty: 3, noBlockers: false, maxHearts: 2},  // L5: Rising Loom (32 pearls)
+	{cols: 7, rows: 6, difficulty: 4, noBlockers: false, maxHearts: 2},  // L6: Woven Cross (37 pearls)
+	{cols: 7, rows: 7, difficulty: 5, noBlockers: false, maxHearts: 3},  // L7: Deep Tapestry (43 pearls)
+	{cols: 8, rows: 6, difficulty: 6, noBlockers: false, maxHearts: 3},  // L8: Wide Corridor (45 pearls)
+	{cols: 8, rows: 7, difficulty: 7, noBlockers: false, maxHearts: 3},  // L9: Grand Braid (51 pearls)
+	{cols: 8, rows: 8, difficulty: 8, noBlockers: false, maxHearts: 3},  // L10: Artisan (54 pearls)
+	{cols: 8, rows: 8, difficulty: 9, noBlockers: false, maxHearts: 3},  // L11: Virtuoso (58 pearls)
+	{cols: 8, rows: 8, difficulty: 10, noBlockers: false, maxHearts: 3}, // L12: Expert (61 pearls)
+	{cols: 8, rows: 8, difficulty: 11, noBlockers: false, maxHearts: 3}, // L13: Masterpiece (64 pearls)
+}
 
-	crown := []StitchPoint{
-		{0, 0.36, ColorGold, 0}, {-0.26, 0.36, ColorGold, 0}, {0.26, 0.36, ColorGold, 0},
-		{-0.52, 0.36, ColorGold, 0}, {0.52, 0.36, ColorGold, 0},
-		{0, 0.10, ColorRuby, 1}, {-0.28, 0.12, ColorCobalt, 1}, {0.28, 0.12, ColorCobalt, 1},
-		{-0.56, 0.12, ColorEmerald, 1}, {0.56, 0.12, ColorEmerald, 1},
-		{0, -0.18, ColorGold, 1}, {-0.32, -0.14, ColorRuby, 1}, {0.32, -0.14, ColorRuby, 1},
-		{-0.60, -0.16, ColorGold, 1}, {0.60, -0.16, ColorGold, 1},
-		{0, -0.52, ColorRuby, 2}, {-0.38, -0.44, ColorCobalt, 2}, {0.38, -0.44, ColorCobalt, 2},
-		{-0.68, -0.42, ColorGold, 2}, {0.68, -0.42, ColorGold, 2},
-		{0, -0.74, ColorGold, 2}, {-0.44, -0.68, ColorAmethyst, 2}, {0.44, -0.68, ColorAmethyst, 2},
-		{-0.40, 0.58, ColorCobalt, 2}, {0.40, 0.58, ColorCobalt, 2}, {0, 0.60, ColorRuby, 2},
-		{-0.70, 0.34, ColorAmethyst, 2}, {0.70, 0.34, ColorAmethyst, 2},
+var campaignNames = [NumChapters][LevelsPerChapter]string{
+	// Campaign 0: Jewel Atelier (Theme 0)
+	{
+		"Sunbeam Brooch", "Dewdrop Ring", "Jewel Heart", "Sakura Bloom",
+		"Royal Crown", "Emerald Clover", "Monarch Crest", "Sapphire Fan",
+		"Velvet Lotus", "Nautilus Gold", "Imperial Tiara", "Starlight Filigree",
+		"Grand Jewel Rose",
+	},
+	// Campaign 1: Cyber Arcade (Theme 1)
+	{
+		"Neon Spark", "Bit Halo", "Neon Pulse", "Synth Diamond",
+		"Pixel Star", "Laser Spiral", "Arcade Core", "Vector Grid",
+		"Flux Portal", "Hyper Matrix", "Volt Overdrive", "Quantum Circuit",
+		"Cyber Singularity",
+	},
+	// Campaign 2: Pop Studio (Theme 2)
+	{
+		"Pop Dot", "Comic Ring", "Comic Star", "Pop Heart",
+		"Halftone Bolt", "Warhol Bloom", "Boom Burst", "Retro Sun",
+		"Pop Diamond", "Studio Crown", "Super Flash", "Gallery Splash",
+		"Grand Pop Burst",
+	},
+	// Campaign 3: Cathedral Glass (Theme 3)
+	{
+		"Candle Shard", "Silver Chalice", "Prism Lantern", "Gothic Arch",
+		"Angel Crest", "Aurora Spire", "Cathedral Cross", "Vespers Halo",
+		"Radiant Choir", "Stained Compass", "Sapphire Nave", "Celestial Vault",
+		"Grand Rose Window",
+	},
+}
+
+var campaignColorOrders = [NumChapters][NumColors]uint8{
+	{ColorGold, ColorTurquoise, ColorRuby, ColorAmethyst, ColorEmerald, ColorCobalt},
+	{ColorCobalt, ColorRuby, ColorEmerald, ColorGold, ColorAmethyst, ColorTurquoise},
+	{ColorGold, ColorRuby, ColorCobalt, ColorAmethyst, ColorEmerald, ColorTurquoise},
+	{ColorGold, ColorTurquoise, ColorRuby, ColorCobalt, ColorAmethyst, ColorEmerald},
+}
+
+// buildCuratedArtworks constructs 4 independent Day-1 Campaigns x 13 escalating levels = 52 levels!
+func buildCuratedArtworks() []ArtworkDef {
+	arts := make([]ArtworkDef, 0, NumChapters*LevelsPerChapter)
+	for ch := 0; ch < NumChapters; ch++ {
+		pal := campaignColorOrders[ch][:]
+		for tIdx, tpl := range campaignLadder {
+			seed := uint32((ch+1)*10000 + (tIdx+1)*137 + 41)
+			st := buildCampaignPattern(ch, tIdx, pal)
+			arts = append(arts, ArtworkDef{
+				ID:         len(arts),
+				Chapter:    ch,
+				Theme:      ch,
+				Name:       campaignNames[ch][tIdx],
+				Cols:       tpl.cols,
+				Rows:       tpl.rows,
+				Difficulty: tpl.difficulty,
+				Seed:       seed,
+				NoBlockers: tpl.noBlockers,
+				MaxHearts:  tpl.maxHearts,
+				Stitches:   st,
+			})
+		}
 	}
-	add(0, ThemeJewelAtelier, "Royal Crown", 6, 5, 3, 3303, crown)
-
-	clover := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(4, 0.24, math.Pi/4, ColorGold, ColorTurquoise, 0)...)
-	clover = append(clover, ringPoints(8, 0.46, 0, ColorEmerald, ColorTurquoise, 1)...)
-	clover = append(clover, ringPoints(16, 0.74, math.Pi/16, ColorEmerald, ColorCobalt, 2)...)
-	add(0, ThemeJewelAtelier, "Emerald Clover", 6, 5, 3, 4404, clover)
-
-	lotus := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.25, -math.Pi/2, ColorRuby, ColorAmethyst, 0)...)
-	lotus = append(lotus, ringPoints(12, 0.52, -math.Pi/2, ColorRuby, ColorGold, 1)...)
-	lotus = append(lotus, ringPoints(14, 0.78, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-	add(0, ThemeJewelAtelier, "Royal Lotus", 6, 6, 3, 5505, lotus)
-
-	butterfly := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.26, -0.36}, {0.48, -0.24}, {0.30, -0.06}, {0.26, 0.18}, {0.44, 0.30}, {0.26, 0.46},
-			{0.54, -0.54}, {0.74, -0.32}, {0.76, -0.04}, {0.62, 0.08}, {0.68, 0.28}, {0.52, 0.54}, {0.16, -0.64},
-		},
-		[]StitchPoint{
-			{0, -0.44, ColorGold, 0}, {0, -0.20, ColorGold, 0}, {0, 0.04, ColorGold, 0},
-			{0, 0.28, ColorGold, 0}, {0, 0.52, ColorTurquoise, 0}, {0, 0.74, ColorGold, 2},
-		},
-		ColorRuby, ColorCobalt, ColorAmethyst,
-	)
-	add(0, ThemeJewelAtelier, "Monarch Wing", 6, 6, 3, 6606, butterfly)
-
-	add(0, ThemeJewelAtelier, "Nautilus Prism", 6, 6, 4, 7707,
-		buildSpiralStitches(36, 2.1, []uint8{ColorRuby, ColorCobalt, ColorEmerald, ColorGold, ColorAmethyst, ColorTurquoise}))
-
-	starlight := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.24, -math.Pi/2, ColorRuby, ColorTurquoise, 0)...)
-	starlight = append(starlight, ringPoints(12, 0.48, -math.Pi/2, ColorGold, ColorAmethyst, 1)...)
-	starlight = append(starlight, ringPoints(10, 0.66, -math.Pi/2+math.Pi/10, ColorCobalt, ColorEmerald, 2)...)
-	starlight = append(starlight, ringPoints(12, 0.81, -math.Pi/2, ColorRuby, ColorGold, 2)...)
-	add(0, ThemeJewelAtelier, "Grand Starlight", 7, 6, 4, 8808, starlight)
-
-	// =========================================================================
-	// CHAPTER 1: CYBER ARCADE (Theme 1 — Electric Synthwave Neon, 8 patterns)
-	// =========================================================================
-	neonPulse := append(diamondRing(0.28, ColorCobalt, ColorRuby, 0), diamondRing(0.54, ColorEmerald, ColorGold, 1)...)
-	neonPulse = append(neonPulse, diamondRing(0.78, ColorAmethyst, ColorCobalt, 2)...)
-	add(1, ThemeCyberNeon, "Neon Pulse", 5, 5, 2, 10101, neonPulse)
-
-	invader := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.20, -0.18}, {0.42, -0.18}, {0.20, 0.04}, {0.44, 0.04}, {0.66, 0.04},
-			{0.24, -0.44}, {0.44, -0.64}, {0.66, 0.28}, {0.44, 0.28}, {0.22, 0.48}, {0.52, 0.54},
-		},
-		[]StitchPoint{{0, -0.18, ColorCobalt, 0}, {0, 0.04, ColorRuby, 0}, {0, 0.26, ColorEmerald, 1}, {0, -0.44, ColorGold, 1}},
-		ColorCobalt, ColorRuby, ColorEmerald,
-	)
-	add(1, ThemeCyberNeon, "Pixel Invader", 6, 5, 3, 10202, invader)
-
-	synthSun := append([]StitchPoint{{0, -0.18, ColorGold, 0}}, ringPoints(6, 0.28, 0, ColorGold, ColorTurquoise, 0)...)
-	synthSun = append(synthSun, ringPoints(9, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
-	synthSun = append(synthSun,
-		StitchPoint{-0.70, 0.36, ColorCobalt, 2}, StitchPoint{-0.35, 0.36, ColorCobalt, 2},
-		StitchPoint{0.0, 0.36, ColorCobalt, 2}, StitchPoint{0.35, 0.36, ColorCobalt, 2},
-		StitchPoint{0.70, 0.36, ColorCobalt, 2},
-		StitchPoint{-0.56, 0.58, ColorRuby, 2}, StitchPoint{-0.18, 0.58, ColorRuby, 2},
-		StitchPoint{0.18, 0.58, ColorRuby, 2}, StitchPoint{0.56, 0.58, ColorRuby, 2},
-		StitchPoint{-0.36, 0.76, ColorEmerald, 2}, StitchPoint{0.0, 0.76, ColorEmerald, 2},
-		StitchPoint{0.36, 0.76, ColorEmerald, 2},
-	)
-	add(1, ThemeCyberNeon, "Synth Horizon", 6, 5, 3, 10303, synthSun)
-
-	laserGrid := append(ringPoints(6, 0.24, 0, ColorCobalt, ColorRuby, 0), ringPoints(10, 0.50, math.Pi/10, ColorEmerald, ColorAmethyst, 1)...)
-	laserGrid = append(laserGrid, ringPoints(14, 0.78, 0, ColorCobalt, ColorGold, 2)...)
-	add(1, ThemeCyberNeon, "Laser Grid", 6, 5, 3, 10404, laserGrid)
-
-	circuit := append(diamondRing(0.28, ColorEmerald, ColorCobalt, 0), ringPoints(12, 0.54, 0, ColorRuby, ColorAmethyst, 1)...)
-	circuit = append(circuit, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorTurquoise, 2)...)
-	add(1, ThemeCyberNeon, "Cyber Circuit", 6, 6, 3, 10505, circuit)
-
-	add(1, ThemeCyberNeon, "Hyper Portal", 6, 6, 3, 10606,
-		buildSpiralStitches(34, 2.2, []uint8{ColorCobalt, ColorRuby, ColorAmethyst, ColorEmerald, ColorGold}))
-
-	bolt := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.18, -0.56}, {0.36, -0.34}, {0.22, -0.14}, {0.48, -0.10}, {0.68, -0.10},
-			{0.24, 0.14}, {0.50, 0.14}, {0.36, 0.36}, {0.18, 0.58},
-			{0.62, -0.44}, {0.62, 0.44}, {0.76, -0.22}, {0.76, 0.22}, {0.44, -0.64}, {0.44, 0.64},
-		},
-		[]StitchPoint{
-			{0, -0.76, ColorGold, 0}, {0, -0.38, ColorGold, 0}, {0, 0, ColorCobalt, 0},
-			{0, 0.38, ColorGold, 1}, {0, 0.76, ColorGold, 2}, {0, -0.18, ColorRuby, 1},
-		},
-		ColorGold, ColorCobalt, ColorRuby,
-	)
-	add(1, ThemeCyberNeon, "Plasma Bolt", 6, 6, 4, 10707, bolt)
-
-	matrix := append([]StitchPoint{{0, 0, ColorEmerald, 0}}, ringPoints(7, 0.25, 0, ColorEmerald, ColorCobalt, 0)...)
-	matrix = append(matrix, ringPoints(14, 0.52, 0, ColorRuby, ColorAmethyst, 1)...)
-	matrix = append(matrix, ringPoints(16, 0.79, math.Pi/16, ColorCobalt, ColorTurquoise, 2)...)
-	add(1, ThemeCyberNeon, "Matrix Core", 7, 6, 4, 10808, matrix)
-
-	// =========================================================================
-	// CHAPTER 2: POP STUDIO (Theme 2 — Bold Comic & Warhol Primaries, 8 patterns)
-	// =========================================================================
-	cStar := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(5, 0.44, 0.22, ColorRuby, ColorGold, 0)...)
-	cStar = append(cStar, ringPoints(13, 0.76, -math.Pi/2, ColorCobalt, ColorAmethyst, 2)...)
-	add(2, ThemePopArt, "Comic Star", 5, 5, 2, 11101, cStar)
-
-	popHeart := append(buildHeartStitches(ColorGold, ColorCobalt, ColorRuby, ColorAmethyst),
-		StitchPoint{-0.76, -0.54, ColorGold, 2}, StitchPoint{0.76, -0.54, ColorGold, 2},
-		StitchPoint{-0.70, 0.48, ColorEmerald, 2}, StitchPoint{0.70, 0.48, ColorEmerald, 2},
-		StitchPoint{0, -0.72, ColorTurquoise, 2},
-	)
-	add(2, ThemePopArt, "Pop Heart", 6, 5, 3, 11202, popHeart)
-
-	pBolt := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(6, 0.46, 0.24, ColorGold, ColorRuby, 0)...)
-	pBolt = append(pBolt, ringPoints(15, 0.77, 0, ColorCobalt, ColorTurquoise, 2)...)
-	add(2, ThemePopArt, "Halftone Bolt", 6, 5, 3, 11303, pBolt)
-
-	warhol := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(6, 0.24, 0, ColorGold, ColorTurquoise, 0)...)
-	warhol = append(warhol, ringPoints(11, 0.50, 0, ColorAmethyst, ColorRuby, 1)...)
-	warhol = append(warhol, ringPoints(12, 0.78, math.Pi/12, ColorCobalt, ColorEmerald, 2)...)
-	add(2, ThemePopArt, "Warhol Flower", 6, 5, 3, 11404, warhol)
-
-	boom := append(starPoints(7, 0.44, 0.24, ColorRuby, ColorGold, 0), starPoints(9, 0.80, 0.56, ColorCobalt, ColorAmethyst, 2)...)
-	add(2, ThemePopArt, "Boom Burst", 6, 6, 3, 11505, boom)
-
-	retroSun := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.25, 0, ColorGold, ColorTurquoise, 0)...)
-	retroSun = append(retroSun, ringPoints(12, 0.52, 0, ColorRuby, ColorGold, 1)...)
-	retroSun = append(retroSun, ringPoints(14, 0.79, 0, ColorCobalt, ColorAmethyst, 2)...)
-	add(2, ThemePopArt, "Retro Sun", 6, 6, 3, 11606, retroSun)
-
-	popDia := append(diamondRing(0.24, ColorGold, ColorRuby, 0), diamondRing(0.50, ColorCobalt, ColorAmethyst, 1)...)
-	popDia = append(popDia, ringPoints(20, 0.78, 0, ColorEmerald, ColorTurquoise, 2)...)
-	add(2, ThemePopArt, "Pop Diamond", 6, 6, 4, 11707, popDia)
-
-	sCrown := append([]StitchPoint{{0, 0, ColorGold, 0}}, starPoints(8, 0.44, 0.24, ColorRuby, ColorGold, 0)...)
-	sCrown = append(sCrown, ringPoints(21, 0.79, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
-	add(2, ThemePopArt, "Studio Crown", 7, 6, 4, 11808, sCrown)
-
-	// =========================================================================
-	// CHAPTER 3: CATHEDRAL GLASS (Theme 3 — Glowing Stained Glass, 8 patterns)
-	// =========================================================================
-	lantern := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorGold, ColorTurquoise, 0)...)
-	lantern = append(lantern, ringPoints(8, 0.52, math.Pi/8, ColorRuby, ColorAmethyst, 1)...)
-	lantern = append(lantern, ringPoints(11, 0.78, -math.Pi/2, ColorCobalt, ColorEmerald, 2)...)
-	add(3, ThemeStainedGlass, "Prism Lantern", 6, 5, 3, 12101, lantern)
-
-	chalice := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.20, -0.50}, {0.42, -0.44}, {0.58, -0.28}, {0.46, -0.06}, {0.26, 0.08},
-			{0.18, 0.30}, {0.36, 0.56}, {0.58, 0.64}, {0.68, -0.54}, {0.28, -0.70},
-			{0.72, -0.02}, {0.64, 0.32},
-		},
-		[]StitchPoint{
-			{0, -0.58, ColorGold, 0}, {0, -0.32, ColorTurquoise, 0}, {0, -0.06, ColorCobalt, 0},
-			{0, 0.22, ColorGold, 1}, {0, 0.48, ColorGold, 1}, {0, 0.68, ColorRuby, 2},
-		},
-		ColorGold, ColorCobalt, ColorAmethyst,
-	)
-	add(3, ThemeStainedGlass, "Sapphire Chalice", 6, 5, 3, 12202, chalice)
-
-	arch := append(ringPoints(8, 0.26, -math.Pi/2, ColorGold, ColorTurquoise, 0), ringPoints(10, 0.52, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
-	arch = append(arch, ringPoints(14, 0.78, -math.Pi/2, ColorRuby, ColorEmerald, 2)...)
-	add(3, ThemeStainedGlass, "Gothic Arch", 6, 6, 3, 12303, arch)
-
-	wings := buildSymmetricGridMotif(
-		[][2]float32{
-			{0.22, -0.30}, {0.42, -0.42}, {0.62, -0.48}, {0.76, -0.30}, {0.78, -0.04},
-			{0.58, -0.14}, {0.38, -0.04}, {0.68, 0.22}, {0.48, 0.22}, {0.26, 0.22},
-			{0.56, 0.46}, {0.34, 0.50}, {0.18, 0.68}, {0.24, -0.66},
-		},
-		[]StitchPoint{
-			{0, -0.50, ColorTurquoise, 0}, {0, -0.22, ColorGold, 0}, {0, 0.06, ColorGold, 0},
-			{0, 0.34, ColorTurquoise, 1}, {0, 0.62, ColorCobalt, 1}, {0, -0.76, ColorGold, 2},
-		},
-		ColorTurquoise, ColorCobalt, ColorAmethyst,
-	)
-	add(3, ThemeStainedGlass, "Angel Wings", 6, 6, 3, 12404, wings)
-
-	catCross := append([]StitchPoint{{0, 0, ColorGold, 0}}, diamondRing(0.28, ColorRuby, ColorGold, 0)...)
-	catCross = append(catCross, ringPoints(12, 0.54, 0, ColorCobalt, ColorAmethyst, 1)...)
-	catCross = append(catCross, ringPoints(15, 0.80, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-	add(3, ThemeStainedGlass, "Cathedral Cross", 6, 6, 4, 12505, catCross)
-
-	add(3, ThemeStainedGlass, "Aurora Spire", 7, 6, 4, 12606,
-		buildSpiralStitches(38, 2.3, []uint8{ColorEmerald, ColorCobalt, ColorAmethyst, ColorRuby, ColorGold, ColorTurquoise}))
-
-	roseWin := append([]StitchPoint{{0, 0, ColorGold, 0}}, ringPoints(7, 0.24, -math.Pi/2, ColorRuby, ColorGold, 0)...)
-	roseWin = append(roseWin, ringPoints(14, 0.50, -math.Pi/2, ColorCobalt, ColorAmethyst, 1)...)
-	roseWin = append(roseWin, ringPoints(20, 0.79, -math.Pi/2, ColorEmerald, ColorTurquoise, 2)...)
-	add(3, ThemeStainedGlass, "Rose Window", 7, 6, 4, 12707, roseWin)
-
-	vault := append([]StitchPoint{{0, 0, ColorTurquoise, 0}}, ringPoints(8, 0.24, 0, ColorGold, ColorRuby, 0)...)
-	vault = append(vault, ringPoints(16, 0.52, math.Pi/16, ColorCobalt, ColorAmethyst, 1)...)
-	vault = append(vault, ringPoints(20, 0.80, 0, ColorEmerald, ColorGold, 2)...)
-	add(3, ThemeStainedGlass, "Celestial Vault", 7, 7, 4, 12808, vault)
-
 	return arts
 }
 
-// CuratedArtworks holds all 32 handcrafted, vibrant theme-matched patterns across 4 native Chapters.
+// CuratedArtworks holds all 52 progressive campaign testrun levels (4 Campaigns x 13 levels).
 var CuratedArtworks = buildCuratedArtworks()

@@ -171,7 +171,28 @@ Informed by real-device standalone PWA playtesting of v2.6:
 
 ---
 
-## 9. Iteration Log
+## 9. Pearl Loom v2.8 Design Delta — Campaign Testrun (`Status: Locked`)
+
+Validating the core **4-Campaign Progressive Philosophy** before generating the full 200-level catalog (see [`docs/specs/03-campaign-200-plan.md`](file:///home/antigravity/patrickdomnick/mobile-game/docs/specs/03-campaign-200-plan.md)):
+
+1. **4 Independent Campaigns × 13 Levels = 52 Curated Levels (Testrun)**:
+   - All 4 themed campaigns (**Jewel Atelier**, **Cyber Arcade**, **Pop Studio**, **Cathedral Glass**) are unlocked from Day 1 with independent progress.
+   - Instead of 5 levels per size tier (200 total), this testrun ships **1 level per tier step + 2 zero-blocker warm-ups = 13 levels per campaign**:
+     - `L1–L2`: `5×5` Warm-Ups (**`NoBlockers: true`**, 100% direct outward placement, `14` & `16` pearls)
+     - `L3`: `5×5` First Weave (`Difficulty 1`) → `L4`: `6×5` (`2`) → `L5`: `6×6` (`3`) → `L6`: `7×6` (`4`) → `L7`: `7×7` (`5`) → `L8`: `8×6` (`6`) → `L9`: `8×7` (`7`) → `L10–L13`: `8×8` Artisan / Virtuoso / Expert / Masterpiece (`8 → 11`, up to **64 pearls**).
+   - **Monotonic Difficulty**: Difficulty strictly escalates from Level 3 → Level 13 (higher inward-arrow ratio, deeper interlocking chains, wider color-order scramble, more colors `3 → 6`, larger grids) without ever resetting when grid dimensions increase. Every single level is mathematically verified **100% 3-star achievable**.
+2. **Full `8×8` (64-Tile) Engine & WebGPU Raytracer Upgrade**:
+   - Raise `MaxGridTiles` & `MaxHoopPearls` from `49 → 64`, expanding `SceneFloats` cleanly from `1008 → 1248` (`4,992` bytes) across Go, TypeScript, and WGSL (guarded by `pnpm check:contracts`).
+   - Move `solverVisited` (with O(1) generation-stamped reset + dedicated `trayUses` byte tag) and per-depth DFS scratch arrays to static BSS memory so 64-pearl `8×8` solves run in <5 KB of TinyGo WASM stack with zero collisions and zero heap allocations.
+   - Scale hoop pearl radius cleanly for 51–64 pearl embroidery hoops (`0.090`) so dense `8×8` masterpieces never overlap.
+3. **Sequential Level Locking & Campaign-First UI**:
+   - Level 1 of every campaign is playable on Day 1; Level `k` (`k >= 2`) stays locked (`🔒`) until Level `k - 1` in that same campaign is completed.
+   - **Start Menu**: Features a tactile 4-Campaign world switcher right on the home screen (switching the live 3D background board immediately), a focused Campaign Hero CTA showing level progress + grid/tier badge, a `View Levels` button, and a clean compact `Daily Stitch` / `Endless` row below.
+   - **Campaigns Drawer**: Elevates the 4 Campaign tabs, per-campaign progress bar + star count, and numbered `01–13` progression cards (Completed / Current Play / Locked) front-and-center, with Daily, Endless & Pattern Code cleanly tucked beneath.
+
+---
+
+## 10. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -183,5 +204,6 @@ Informed by real-device standalone PWA playtesting of v2.6:
 | 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Playtested** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks. Playtest requested: playful pearl-only wiggles on load/unlock + periodic ~1.2s random active-color pearl wiggle, plus closer 1-to-1 color matching between top-left HUD swatches and 3D board pearls. |
 | 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Playtested** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). Playtest revealed: iOS 26.5 blocked programmatic switch `.click()` haptics, Safari audio needed `audioSession='playback'` + `'interrupted'`/frozen-clock self-healing, wiggles fired too immediately/frequently, and iOS 26 Safari hides *Add to Home Screen* behind `•••` → Share. |
 | 2026-11-25 | **Pearl Loom v2.6 — iOS 26.5 Direct-Tap Haptics, Bulletproof Audio, Delayed Wiggles & Install Guide** | **Shipped & Playtested** | Direct-tap transparent switch/label overlay haptics + Settings Test Haptic; `audioSession='playback'` + interrupted/frozen-clock self-healing audio; `+0.70s`/`+0.85s` delayed calm wiggles + `3.0s` quiet-hand ambient cadence; in-app iOS 26 Safari PWA Install Guide (`pearl-loom-v10`). Playtest revealed: standalone PWA had a bottom black chin (`100dvh` WebKit quirk), Start Menu had duplicate Time & unnecessary Install buttons, UI copy felt too technical; requested Heart Pearls (max 3/level with early-placement bonus & chime), remote-cached `levels.json`, and a 200-level 4-campaign roadmap plan. |
-| 2026-11-25 | **Pearl Loom v2.7 — Full-Screen Standalone Fix, Cozy UI, Heart Pearls & Remote Cached `levels.json`** | **Shipped & Verified** | Edge-to-edge standalone PWA height fix; clean non-technical UI without redundant Time/Install buttons; 1–3 Bonus Heart Pearls with contrast-adaptive ♥ inlay, early-placement score scaling, periodic wiggle & crystalline chime; remote-fetched + offline-cached `public/levels.json` loaded dynamically into WASM (`pearl-loom-v11`); plus `03-campaign-200-plan.md` roadmap. |
+| 2026-11-25 | **Pearl Loom v2.7 — Full-Screen Standalone Fix, Cozy UI, Heart Pearls & Remote Cached `levels.json`** | **Shipped & Playtested** | Edge-to-edge standalone PWA height fix (confirmed working on iPhone!); clean non-technical UI without redundant Time/Install buttons; 1–3 Bonus Heart Pearls with contrast-adaptive ♥ inlay, early-placement score scaling, periodic wiggle & crystalline chime; remote-fetched + offline-cached `public/levels.json` loaded dynamically into WASM (`pearl-loom-v11`). |
+| 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Verified** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). |
 

@@ -41,7 +41,7 @@
       <div id="fx-callout-layer" class="fx-callout-layer" aria-hidden="true"></div>
 
       <!-- =============================================================== -->
-      <!-- CLEAN START MENU (Floating over live 3D pearl board)            -->
+      <!-- CAMPAIGN-FIRST START MENU (Floating over live 3D pearl board)   -->
       <!-- =============================================================== -->
       <section id="overlay-start-menu" class="start-menu" role="dialog" aria-label="Pearl Loom Start Menu">
         <div class="start-top-bar start-top-bar-end">
@@ -54,36 +54,36 @@
           <p class="start-eyebrow">PEARL EMBROIDERY PUZZLE</p>
           <h1 class="start-title">Pearl Loom</h1>
           <div id="menu-chapter-pill" class="chapter-badge-pill">
-            <span id="menu-chapter-label">CHAPTER I · JEWEL ATELIER · 0/8</span>
+            <span id="menu-chapter-label">4 CAMPAIGNS · 0/52 MASTERED</span>
           </div>
         </div>
 
-        <div class="start-modes" aria-label="Game Modes">
+        <div class="start-modes" aria-label="Campaigns and Modes">
+          <div id="menu-campaign-strip" class="menu-campaign-strip" role="tablist" aria-label="Choose Campaign"></div>
+
           <button id="btn-mode-journey" class="mode-btn mode-btn-primary" type="button">
-            <span id="menu-journey-badge" class="mode-btn-badge">CHAPTER I · JEWEL ATELIER</span>
-            <span id="menu-journey-main" class="mode-btn-main">Play Jewel Heart</span>
-            <span id="menu-journey-meta" class="mode-btn-sub">4 Worlds · 32 Handcrafted Patterns</span>
+            <span id="menu-journey-badge" class="mode-btn-badge">JEWEL ATELIER · LEVEL 1 OF 13</span>
+            <span id="menu-journey-main" class="mode-btn-main">Play Sunbeam Brooch</span>
+            <span id="menu-journey-meta" class="mode-btn-sub">5×5 · Warm-Up · No Blockers</span>
+          </button>
+
+          <button id="btn-menu-gallery" class="tactile-pill-btn menu-levels-btn" type="button">
+            <span aria-hidden="true">✦</span>
+            <span id="menu-gallery-label">View All 13 Levels</span>
           </button>
 
           <div class="mode-btn-grid">
-            <button id="btn-mode-daily" class="mode-btn mode-btn-gold" type="button">
+            <button id="btn-mode-daily" class="mode-btn mode-btn-gold mode-btn-compact" type="button">
               <span id="menu-daily-badge" class="mode-btn-badge">TODAY · DAILY</span>
               <span class="mode-btn-main">Daily Stitch</span>
               <span id="menu-daily-meta" class="mode-btn-sub">Fresh daily pattern</span>
             </button>
-            <button id="btn-mode-endless" class="mode-btn mode-btn-prism" type="button">
+            <button id="btn-mode-endless" class="mode-btn mode-btn-prism mode-btn-compact" type="button">
               <span class="mode-btn-badge">ENDLESS</span>
               <span class="mode-btn-main">Endless</span>
               <span id="menu-endless-meta" class="mode-btn-sub">Fresh pattern every time</span>
             </button>
           </div>
-        </div>
-
-        <div class="start-footer-row start-footer-single">
-          <button id="btn-menu-gallery" class="tactile-pill-btn" type="button">
-            <span aria-hidden="true">✦</span>
-            <span>Browse Patterns</span>
-          </button>
         </div>
       </section>
 
@@ -247,17 +247,41 @@
       </section>
 
       <!-- =============================================================== -->
-      <!-- PATTERNS GALLERY + CUSTOM PATTERN CODE                          -->
+      <!-- CAMPAIGNS MAP + SIDE MODES & PATTERN CODE                       -->
       <!-- =============================================================== -->
-      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Patterns Gallery">
+      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Campaigns">
         <div class="sheet-header">
           <div>
-            <p id="gallery-eyebrow" class="modal-eyebrow">4 WORLDS · 32 PATTERNS</p>
-            <h2 class="sheet-title">Patterns</h2>
+            <p id="gallery-eyebrow" class="modal-eyebrow">4 CAMPAIGNS · 52 LEVELS</p>
+            <h2 class="sheet-title">Campaigns</h2>
           </div>
-          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Patterns">
+          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Campaigns">
             ✕
           </button>
+        </div>
+
+        <div id="chapter-tabs" class="chapter-tabs" role="tablist" aria-label="Campaign Worlds"></div>
+
+        <div id="chapter-banner" class="chapter-banner campaign-banner">
+          <div class="campaign-banner-row">
+            <div>
+              <strong id="chapter-banner-title">Jewel Atelier</strong>
+              <span id="chapter-banner-sub" class="gallery-meta">Sunlit gemstones &amp; artisan brooches</span>
+            </div>
+            <div class="campaign-banner-stats">
+              <span id="chapter-banner-progress" class="pill-value">0/13</span>
+              <span id="chapter-banner-stars" class="campaign-stars-pill">★ 0/39</span>
+            </div>
+          </div>
+          <div class="campaign-progress-track" aria-hidden="true">
+            <div id="chapter-progress-bar" class="campaign-progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div id="gallery-grid" class="gallery-grid" aria-label="Campaign Levels"></div>
+
+        <div class="gallery-side-divider">
+          <span>BONUS MODES</span>
         </div>
 
         <div class="gallery-special-row">
@@ -287,18 +311,6 @@
           />
           <button id="btn-play-seed" class="seed-play-btn" type="submit">Play</button>
         </form>
-
-        <div id="chapter-tabs" class="chapter-tabs" role="tablist" aria-label="Worlds"></div>
-
-        <div id="chapter-banner" class="chapter-banner">
-          <div>
-            <strong id="chapter-banner-title">Chapter I · Jewel Atelier</strong>
-            <span id="chapter-banner-sub" class="gallery-meta">Sunlit gemstones &amp; artisan brooches</span>
-          </div>
-          <span id="chapter-banner-progress" class="pill-value">0/8</span>
-        </div>
-
-        <div id="gallery-grid" class="gallery-grid" aria-label="Patterns"></div>
       </section>
 
       <!-- =============================================================== -->

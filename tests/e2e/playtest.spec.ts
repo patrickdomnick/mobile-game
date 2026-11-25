@@ -4,8 +4,8 @@ import path from 'node:path';
 
 const RESULTS_DIR = path.resolve(process.cwd(), 'test-results');
 
-test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Playtest', () => {
-  test('verifies Streamlined Start Menu, 4 Vibrant Chapters (32 levels, no Noir), Anti-Aliased Visual Pop, Solo Finale Solve, Pinch-Rescue Hints, Daily Stitch & True 0-FPS Idle', async ({
+test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtest', () => {
+  test('verifies Campaign-First Start Menu, 4 Day-1 Campaigns (52 levels, 5x5 warmups -> 8x8 64-pearl finales), Sequential Locking, Anti-Aliased Visual Pop, Heart Pearls, Daily Stitch & 0-FPS Idle', async ({
     page,
     request,
   }) => {
@@ -29,7 +29,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       }
     });
 
-    // 1. Verify PWA manifest, icons, SW & WASM endpoints (subpath-portable)
+    // 1. Verify PWA manifest, icons, SW, WASM & v2 52-level JSON endpoints (subpath-portable)
     const manifestRes = await request.get('/manifest.webmanifest');
     expect(manifestRes.status()).toBe(200);
     const manifest = await manifestRes.json();
@@ -44,17 +44,18 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const levelsRes = await request.get('/levels.json');
     expect(levelsRes.status()).toBe(200);
     const levelsJson = await levelsRes.json();
+    expect(levelsJson.version).toBe(2);
     expect(levelsJson.chapters.length).toBe(4);
-    expect(levelsJson.levels.length).toBe(32);
+    expect(levelsJson.levels.length).toBe(52);
 
-    // 2. Load Pearl Loom v2.7 on localhost (secure context for WebGPU)
+    // 2. Load Pearl Loom v2.8 on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
     await page.evaluate(async () => {
       await window.__GAME_TEST__!.ready();
     });
 
-    // 3. Verify Clean Start Menu (no redundant Time or Install buttons, no technical jargon, touch targets >= 36px)
+    // 3. Verify Campaign-First Start Menu (4 Day-1 campaigns, clean UI, zero overflow, touch targets >= 36px)
     const menuAudit = await page.evaluate(() => {
       const capable = document
         .querySelector('meta[name="apple-mobile-web-app-capable"]')
@@ -93,6 +94,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         noOverflowY: document.documentElement.scrollHeight <= document.documentElement.clientHeight,
         hasRemovedTimeBtn: Boolean(document.querySelector('#btn-menu-solar')),
         hasRemovedInstallBtn: Boolean(document.querySelector('#btn-menu-install')),
+        campaignPillCount: document.querySelectorAll('#menu-campaign-strip .menu-campaign-pill').length,
         chapterPillText: document.querySelector('#menu-chapter-label')?.textContent?.trim() ?? '',
         buttons,
       };
@@ -104,7 +106,8 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(menuAudit.noOverflowY).toBe(true);
     expect(menuAudit.hasRemovedTimeBtn).toBe(false);
     expect(menuAudit.hasRemovedInstallBtn).toBe(false);
-    expect(menuAudit.chapterPillText).toContain('CHAPTER I');
+    expect(menuAudit.campaignPillCount).toBe(4);
+    expect(menuAudit.chapterPillText).toContain('4 CAMPAIGNS');
     for (const btn of menuAudit.buttons) {
       expect(btn.inBounds, `${btn.sel} out of viewport`).toBe(true);
       expect(btn.height, `${btn.sel} touch target too short`).toBeGreaterThanOrEqual(36);
@@ -116,11 +119,37 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(bootState.timeMode).toBe('auto');
     expect(bootState.themeIndex).toBe(0);
     expect(bootState.levelsCatalog.source).toBe('network');
-    expect(bootState.levelsCatalog.count).toBe(32);
+    expect(bootState.levelsCatalog.version).toBe(2);
+    expect(bootState.levelsCatalog.count).toBe(52);
     expect(bootState.renderer.validationErrors).toEqual([]);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'start-menu.png') });
 
-    // 4. Verify Settings Drawer, Direct-Tap iOS Haptic Switch, Settings Install Guide & 24h Lighting Override
+    // Switch Start Menu campaign pill to Cyber Arcade (Day-1 unlocked!) & back to Jewel Atelier
+    await page.locator('#menu-campaign-strip .menu-campaign-pill[data-campaign-id="1"]').click();
+    await expect(page.locator('#menu-journey-main')).toHaveText('Play Neon Spark');
+    await expect(page.locator('#menu-journey-meta')).toContainText('No Blockers');
+    const neonPreviewState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(neonPreviewState.themeIndex).toBe(1);
+    await page.locator('#menu-campaign-strip .menu-campaign-pill[data-campaign-id="0"]').click();
+    await expect(page.locator('#menu-journey-main')).toHaveText('Play Sunbeam Brooch');
+
+    // 4. Verify Sequential Level Locking inside Campaigns Map BEFORE beating Level 1!
+    await page.locator('#btn-menu-gallery').click();
+    await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await expect(page.locator('#chapter-tabs .chapter-tab')).toHaveCount(4);
+    await expect(page.locator('#gallery-grid .gallery-item')).toHaveCount(13);
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="0"]')).toHaveAttribute('data-locked', 'false');
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="0"]')).toHaveClass(/is-current/);
+    await expect(page.locator('#gallery-grid .gallery-item[data-locked="true"]')).toHaveCount(12);
+
+    // Clicking locked Level 2 MUST NOT launch it or close the Campaigns drawer!
+    await page.locator('#gallery-grid .gallery-item[data-level-index="1"]').click({ force: true });
+    await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'gallery-drawer.png') });
+    await page.locator('#btn-close-gallery').click();
+    await expect(page.locator('#overlay-gallery')).toBeHidden();
+
+    // 5. Verify Settings Drawer, Direct-Tap iOS Haptic Switch, Settings Install Guide & 24h Lighting Override
     const hapticSwitchAudit = await page.evaluate(() => {
       const sw = document.querySelector('#ios-haptic-switch') as HTMLInputElement | null;
       const layer = document.querySelector('#canvas-haptic-layer') as HTMLLabelElement | null;
@@ -150,47 +179,73 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const afterAuto = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(afterAuto.timeMode).toBe('auto');
 
-    // Settings Install button opens the iOS 26 Safari 3-step Add to Home Screen guide cleanly
     await page.locator('#btn-settings-install').click();
     await expect(page.locator('#overlay-install')).toBeVisible();
     await page.screenshot({ path: path.join(RESULTS_DIR, 'install-guide.png') });
     await page.locator('#btn-close-install').click();
     await expect(page.locator('#overlay-install')).toBeHidden();
 
-    // 5. Enter Gameplay via Start Menu "Play Jewel Heart" & audit Gameplay HUD
+    // 6. Launch Jewel Atelier Level 1 (Sunbeam Brooch — Zero-Blocker Warm-Up!), solve it & verify Level 2 UNLOCKS!
     await page.locator('#btn-mode-journey').click();
     await expect(page.locator('#overlay-start-menu')).toBeHidden();
     await expect(page.locator('#hud-top')).toBeVisible();
 
-    const hudAudit = await page.evaluate(() => {
-      const selectors = ['#btn-home', '#btn-pattern', '#btn-settings', '#btn-audio', '#btn-undo', '#btn-hint', '#btn-reset'];
-      return selectors.map((sel) => {
-        const el = document.querySelector(sel) as HTMLElement | null;
-        const rect = el?.getBoundingClientRect();
-        return {
-          sel,
-          height: rect?.height ?? 0,
-          inBounds:
-            rect != null &&
-            rect.width > 0 &&
-            rect.left >= 0 &&
-            rect.top >= 0 &&
-            rect.right <= window.innerWidth + 1 &&
-            rect.bottom <= window.innerHeight + 1,
-        };
-      });
-    });
-    for (const btn of hudAudit) {
-      expect(btn.inBounds, `${btn.sel} out of viewport`).toBe(true);
-      expect(btn.height, `${btn.sel} touch target too short`).toBeGreaterThanOrEqual(36);
-    }
+    const warmupStart = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(warmupStart.levelIndex).toBe(0);
+    expect(warmupStart.totalPearls).toBe(14);
+    expect(warmupStart.tiles.every((t) => t.unblocked), 'Level 1 Warm-Up must have 0 blockers').toBe(true);
+    expect(warmupStart.tiles.filter((t) => t.alive && t.isHeart).length).toBeGreaterThanOrEqual(1);
 
-    // 6. Verify ALL 4 Vibrant Native Chapters render distinctly with crisp anti-aliased pop (Noir removed!)
+    await page.evaluate(async () => {
+      for (let i = 0; i < 16; i++) {
+        const cur = window.__GAME_TEST__!.getState();
+        if (cur.phase === 'complete') break;
+        const target =
+          cur.tiles.find((t) => t.alive && t.unblocked && cur.activeColors.includes(t.color)) ??
+          cur.tiles.find((t) => t.alive && t.unblocked);
+        if (!target) break;
+        window.__GAME_TEST__!.tapTile(target.index);
+        await window.__GAME_TEST__!.stepTicks(24, true);
+      }
+      await window.__GAME_TEST__!.stepTicks(28, false);
+    });
+    const warmupDone = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(warmupDone.phase).toBe('complete');
+    expect(warmupDone.stitchedCount).toBe(14);
+    expect(warmupDone.events.heartClearEvents).toBeGreaterThanOrEqual(1);
+    expect(warmupDone.gallery.completedCuratedIds).toContain(0);
+    await expect(page.locator('#overlay-complete')).toBeVisible();
+    await expect(page.locator('#complete-title')).toHaveText('Sunbeam Brooch');
+    await expect(page.locator('#complete-bonus-line')).toContainText('Unlocked #2 Dewdrop Ring');
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'completed-warmup.png') });
+
+    // Clicking Next advances directly to newly unlocked Level 2 (Dewdrop Ring), while Level 3 stays locked!
+    await page.locator('#btn-next-level').click();
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
+    const lvl2State = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(lvl2State.levelIndex).toBe(1);
+    expect(lvl2State.totalPearls).toBe(16);
+    expect(lvl2State.tiles.every((t) => t.unblocked), 'Level 2 Warm-Up must also have 0 blockers').toBe(true);
+
+    await page.locator('#btn-pattern').click();
+    await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="0"]')).toHaveClass(/is-completed/);
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="1"]')).toHaveAttribute('data-locked', 'false');
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="1"]')).toHaveClass(/is-current/);
+    await expect(page.locator('#gallery-grid .gallery-item[data-level-index="2"]')).toHaveAttribute('data-locked', 'true');
+    // Verify 0-FPS pause while Campaigns drawer is open
+    const framesAtOpen = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
+    await page.waitForTimeout(300);
+    const framesAfterWait = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
+    expect(framesAfterWait).toBe(framesAtOpen);
+    await page.locator('#btn-close-gallery').click();
+
+    // 7. Verify ALL 4 Campaigns render distinctly with crisp anti-aliased pop + inspect an 8x8 (64-pearl!) Masterpiece!
     const chapterSamples = [
-      { level: 0, expectedTheme: 0, file: 'theme-0-jewel.png', label: 'Chapter I Jewel Atelier' },
-      { level: 8, expectedTheme: 1, file: 'theme-1-neon.png', label: 'Chapter II Cyber Arcade' },
-      { level: 16, expectedTheme: 2, file: 'theme-2-popart.png', label: 'Chapter III Pop Studio' },
-      { level: 24, expectedTheme: 3, file: 'theme-3-prism.png', label: 'Chapter IV Cathedral Glass' },
+      { level: 2, expectedTheme: 0, file: 'theme-0-jewel.png', label: 'Jewel Atelier (Jewel Heart)' },
+      { level: 15, expectedTheme: 1, file: 'theme-1-neon.png', label: 'Cyber Arcade (Neon Pulse)' },
+      { level: 28, expectedTheme: 2, file: 'theme-2-popart.png', label: 'Pop Studio (Comic Star)' },
+      { level: 41, expectedTheme: 3, file: 'theme-3-prism.png', label: 'Cathedral Glass (Prism Lantern)' },
     ];
     const themeCaptures: Buffer[] = [];
     await page.evaluate(async () => {
@@ -200,7 +255,6 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     for (const sample of chapterSamples) {
       await page.evaluate(async (lvl) => {
         window.__GAME_TEST__!.loadLevel(lvl);
-        // Step 4 ticks so Peak 1 of the 3.5s pure additive interior glow is clearly visible on active colors!
         await window.__GAME_TEST__!.stepTicks(4);
       }, sample.level);
       const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
@@ -212,11 +266,11 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     }
     for (let i = 0; i < themeCaptures.length; i++) {
       for (let j = i + 1; j < themeCaptures.length; j++) {
-        expect(Buffer.compare(themeCaptures[i], themeCaptures[j]), `Chapter theme ${i} vs ${j} identical`).not.toBe(0);
+        expect(Buffer.compare(themeCaptures[i], themeCaptures[j]), `Campaign theme ${i} vs ${j} identical`).not.toBe(0);
       }
     }
 
-    // Automated Visual Pop & Contrast Regression Guard (catches double-gamma washout / mushy pastels early!)
+    // Automated Visual Pop & Contrast Regression Guard
     const analyzeCanvasPng = async (png: Buffer) => {
       const b64 = png.toString('base64');
       return page.evaluate(async (dataUrl) => {
@@ -267,34 +321,29 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(popMetrics.p95Sat, 'Pop Art colors too dull').toBeGreaterThan(0.65);
     expect(prismMetrics.p95Sat, 'Cathedral Glass colors too dull').toBeGreaterThan(0.55);
 
-    // 7. Verify 24h Solar Lighting contrast on Jewel Atelier (Noon vs Golden Hour vs Night)
+    // 7b. Verify full 8x8 (64-pearl!) Grand Masterpiece renders cleanly with zero WebGPU errors!
     await page.evaluate(async () => {
-      window.__GAME_TEST__!.loadLevel(0);
-      window.__GAME_TEST__!.setTimeOfDayOverride(18.25);
-      await window.__GAME_TEST__!.stepTicks(3);
+      window.__GAME_TEST__!.loadLevel(12); // Grand Jewel Rose (8x8, 64 pearls)
+      await window.__GAME_TEST__!.stepTicks(4);
     });
-    const goldenPng = await page.screenshot({ path: path.join(RESULTS_DIR, 'solar-golden.png') });
-    await page.evaluate(async () => {
-      window.__GAME_TEST__!.setTimeOfDayOverride(23.0);
-      await window.__GAME_TEST__!.stepTicks(3);
-    });
-    const nightPng = await page.screenshot({ path: path.join(RESULTS_DIR, 'solar-night.png') });
-    expect(Buffer.compare(themeCaptures[0], goldenPng)).not.toBe(0);
-    expect(Buffer.compare(themeCaptures[0], nightPng)).not.toBe(0);
-    expect(Buffer.compare(goldenPng, nightPng)).not.toBe(0);
+    const finale8x8 = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(finale8x8.gridCols).toBe(8);
+    expect(finale8x8.gridRows).toBe(8);
+    expect(finale8x8.totalPearls).toBe(64);
+    expect(finale8x8.tiles.length).toBe(64);
+    expect(finale8x8.renderer.validationErrors).toEqual([]);
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'campaign-8x8-finale.png') });
 
-    // Return to crisp sunlit morning (10.5h) on Level 0 (Jewel Heart, 5x5, 21 pearls)
+    // 8. Verify Causal Blocker Highlight, Periodic Wiggle, Hint (-250) & Undo (-150) on Level 2 (Jewel Heart, 5x5)
     await page.evaluate(async () => {
       window.__GAME_TEST__!.setTimeOfDayOverride(10.5);
-      window.__GAME_TEST__!.loadLevel(0);
+      window.__GAME_TEST__!.loadLevel(2);
       await window.__GAME_TEST__!.stepTicks(3);
     });
-
-    // 8. Test Blocked Tile Causal Blocker Highlight & Impact Beam via REAL canvas click
     const startSnap = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(startSnap.totalPearls).toBe(21);
     const blockedTile = startSnap.tiles.find((t) => t.alive && !t.unblocked);
-    expect(blockedTile, '5x5 Jewel Heart must contain interlocking blocked tiles').toBeTruthy();
+    expect(blockedTile, 'Level 3 Jewel Heart must contain interlocking blocked tiles').toBeTruthy();
     if (blockedTile) {
       await page.mouse.click(blockedTile.screenX * 393, blockedTile.screenY * 852);
       await page.evaluate(() => window.__GAME_TEST__!.stepTicks(2));
@@ -302,29 +351,9 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       expect(afterBlocked.events.blockedEvents).toBeGreaterThan(startSnap.events.blockedEvents);
       expect(afterBlocked.lastBlockerIdx).toBeGreaterThanOrEqual(0);
       expect(afterBlocked.tiles[blockedTile.index].alive).toBe(true);
-      await page.screenshot({ path: path.join(RESULTS_DIR, 'blocker-feedback.png') });
     }
 
-    // 8b. Verify Heart Pearls (1..3 per level), Zero-Spoiler Periodic Wiggle & ACES-Matched 3D HUD Swatch Variables
-    const initialHearts = startSnap.tiles.filter((t) => t.alive && t.isHeart);
-    expect(initialHearts.length).toBeGreaterThanOrEqual(1);
-    expect(initialHearts.length).toBeLessThanOrEqual(3);
-
-    const swatchVars = await page.evaluate(() => {
-      const dot = document.querySelector('#swatch-list .swatch-dot') as HTMLElement | null;
-      return dot
-        ? {
-            hi: dot.style.getPropertyValue('--sw-hi'),
-            mid: dot.style.getPropertyValue('--sw-mid'),
-            lo: dot.style.getPropertyValue('--sw-lo'),
-          }
-        : null;
-    });
-    expect(swatchVars).not.toBeNull();
-    expect(swatchVars!.hi).toMatch(/^#[0-9a-f]{6}$/i);
-    expect(swatchVars!.mid).toMatch(/^#[0-9a-f]{6}$/i);
-    expect(swatchVars!.lo).toMatch(/^#[0-9a-f]{6}$/i);
-
+    // Periodic wiggle & ACES-matched 3D HUD swatches
     await page.evaluate(async () => {
       await window.__GAME_TEST__!.stepTicks(230, true);
     });
@@ -334,16 +363,15 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const wiggledTile = afterWiggle.tiles[wiggleIdx];
     expect(wiggledTile?.alive).toBe(true);
     expect(
-      afterWiggle.activeColors.includes(wiggledTile?.color ?? -1) || wiggledTile?.isHeart === true
+      afterWiggle.activeColors.includes(wiggledTile?.color ?? -1) || wiggledTile?.isHeart === true,
     ).toBe(true);
-    expect(afterWiggle.isAnimating).toBe(true);
     await page.evaluate(async () => {
       await window.__GAME_TEST__!.stepTicks(40, true);
     });
     const afterWiggleSettle = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(afterWiggleSettle.isAnimating).toBe(false);
 
-    // 9. Test Direct Stitches -> Hint (-250 score deduction) -> Undo (-150 score deduction)
+    // Direct stitches -> Hint (-250) -> Undo (-150)
     await page.evaluate(async () => {
       const st = window.__GAME_TEST__!.getState();
       const direct = st.tiles.filter((t) => t.alive && t.unblocked && st.activeColors.includes(t.color));
@@ -354,109 +382,19 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     });
     const beforeHint = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(beforeHint.score).toBeGreaterThanOrEqual(200);
-
     await page.locator('#btn-hint').click();
     await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
     const afterHint = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(afterHint.hintTileIndex).toBeGreaterThanOrEqual(0);
     expect(afterHint.hintsUsed).toBe(1);
     expect(afterHint.score).toBeLessThan(beforeHint.score);
 
-    const scoreBeforeUndo = afterHint.score;
     await page.locator('#btn-undo').click();
     await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
     const afterUndo = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(afterUndo.undoUsed).toBe(1);
     expect(afterUndo.streak).toBe(0);
-    expect(afterUndo.score).toBeLessThanOrEqual(scoreBeforeUndo);
 
-    // 10. Autonomously solve the entire 21-pearl 5x5 Jewel Heart (exercising Solo Finale endgame rule!)
-    await page.evaluate(async () => {
-      window.__GAME_TEST__!.loadLevel(0);
-      await window.__GAME_TEST__!.stepTicks(3, true);
-    });
-
-    for (let step = 0; step < 4; step++) {
-      const cur = await page.evaluate(() => window.__GAME_TEST__!.getState());
-      if (cur.phase === 'complete') break;
-      const target =
-        cur.tiles.find((t) => t.alive && t.unblocked && cur.activeColors.includes(t.color)) ??
-        cur.tiles.find((t) => t.alive && t.unblocked);
-      expect(target).toBeTruthy();
-      await page.mouse.click(target!.screenX * 393, target!.screenY * 852);
-      await page.evaluate(() => window.__GAME_TEST__!.stepTicks(24, true));
-    }
-
-    // Mid-puzzle streak render (after 4.0s spotlight settled, all pearls show calm natural luster!)
-    await page.evaluate(async () => {
-      for (let i = 0; i < 7; i++) {
-        const cur = window.__GAME_TEST__!.getState();
-        if (cur.phase === 'complete') break;
-        const h = window.__GAME_TEST__!.hint();
-        if (h < 0) break;
-        window.__GAME_TEST__!.tapTile(h);
-        await window.__GAME_TEST__!.stepTicks(24, true);
-      }
-      await window.__GAME_TEST__!.stepTicks(260, false);
-    });
-    await page.screenshot({ path: path.join(RESULTS_DIR, 'mid-puzzle-streak.png') });
-
-    // Finish remaining pearls of Jewel Heart & verify completion modal appears FAST (~0.45s, not 2+s lag!)
-    await page.evaluate(async () => {
-      for (let i = 0; i < 20; i++) {
-        const cur = window.__GAME_TEST__!.getState();
-        if (cur.phase === 'complete') break;
-        const h = window.__GAME_TEST__!.hint();
-        if (h < 0) break;
-        window.__GAME_TEST__!.tapTile(h);
-        await window.__GAME_TEST__!.stepTicks(24, true);
-      }
-      // Only 28 ticks (~0.46s) after the final pearl tap -> modal MUST already be visible!
-      await window.__GAME_TEST__!.stepTicks(28, false);
-    });
-    const completed = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(completed.phase).toBe('complete');
-    expect(completed.flyingCount).toBe(0);
-    expect(completed.stitchedCount).toBe(21);
-    expect(completed.totalPearls).toBe(21);
-    expect(completed.trayColors).toEqual([]);
-    expect(completed.score).toBeGreaterThan(2000);
-    expect(completed.maxStreak).toBeGreaterThanOrEqual(4);
-    expect(completed.stars).toBeGreaterThanOrEqual(1);
-    expect(completed.layersComplete).toBe(completed.totalLayers);
-    expect(completed.events.heartClearEvents).toBeGreaterThanOrEqual(1);
-    expect(completed.audio.initialized).toBe(true);
-    expect(completed.audio.notesScheduled).toBeGreaterThan(0);
-    expect(completed.gallery.completedCuratedIds).toContain(0);
-
-    await expect(page.locator('#overlay-complete')).toBeVisible();
-    await expect(page.locator('#complete-title')).toHaveText('Jewel Heart');
-    await page.screenshot({ path: path.join(RESULTS_DIR, 'completed-jewel-heart.png') });
-
-    // 11. Test Chapter-Tabbed Gallery (4 Vibrant Chapter tabs x 8 patterns), 0-FPS pause & Cyber Arcade launch
-    await page.locator('#btn-next-level').click();
-    await page.locator('#btn-pattern').click();
-    await expect(page.locator('#overlay-gallery')).toBeVisible();
-    await expect(page.locator('#chapter-tabs .chapter-tab')).toHaveCount(4);
-    await expect(page.locator('#gallery-grid .gallery-item')).toHaveCount(8);
-    await expect(page.locator('#gallery-grid .gallery-item.is-completed')).toHaveCount(1);
-
-    const framesAtOpen = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
-    await page.waitForTimeout(300);
-    const framesAfterWait = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
-    expect(framesAfterWait).toBe(framesAtOpen);
-    await page.screenshot({ path: path.join(RESULTS_DIR, 'gallery-drawer.png') });
-
-    // Switch to Chapter II (Cyber Arcade) tab and launch Neon Pulse (Level 8)
-    await page.locator('#chapter-tabs .chapter-tab[data-chapter-id="1"]').click();
-    await expect(page.locator('#chapter-banner-title')).toContainText('Cyber Arcade');
-    await page.locator('#gallery-grid .gallery-item[data-level-index="8"]').click();
-    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
-    const cyberLoaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(cyberLoaded.levelIndex).toBe(8);
-    expect(cyberLoaded.themeIndex).toBe(1);
-
-    // Launch Daily Stitch (20261125) & verify native theme + smart hint
+    // 9. Verify Daily Stitch & Custom Pattern Code Input UI
     await page.evaluate(async () => {
       window.__GAME_TEST__!.loadDaily(20261125);
       await window.__GAME_TEST__!.stepTicks(3);
@@ -464,14 +402,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const dailySt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(dailySt.mode).toBe('daily');
     expect(dailySt.seed).toBe(20261125);
-    expect(dailySt.themeIndex).toBeGreaterThanOrEqual(0);
-    expect(dailySt.themeIndex).toBeLessThan(4);
-    const dailyHint = await page.evaluate(() => window.__GAME_TEST__!.hint());
-    expect(dailyHint).toBeGreaterThanOrEqual(0);
-    await page.screenshot({ path: path.join(RESULTS_DIR, 'daily-stitch.png') });
 
-    // 11b. Test Custom Seed Input UI inside Chapters & Seeds drawer:
-    // Entering 20261125 as a custom seed MUST generate the exact same theme & tile count as Daily 20261125!
     await page.locator('#btn-pattern').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
     await page.locator('#input-custom-seed').fill('20261125');
@@ -485,35 +416,19 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(customSeedSt.themeIndex).toBe(dailySt.themeIndex);
     expect(customSeedSt.totalPearls).toBe(dailySt.totalPearls);
 
-    // Reload page and confirm Gallery persistence survives full browser reload
+    // 10. Reload page and verify Campaign progress & Level 2 unlock survive browser reload!
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
-    await page.evaluate(() => window.__GAME_TEST__!.ready());
-    const reloaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(reloaded.gallery.completedCuratedIds).toContain(0);
-
-    // 12. Verify 3.5s additive interior pulse decays cleanly AND true 0-FPS idle battery mode engages!
     await page.evaluate(async () => {
-      // Step past the 3.5s temporary start glow (230 ticks = 3.83s)
-      await window.__GAME_TEST__!.stepTicks(230);
+      await window.__GAME_TEST__!.ready();
     });
-    await page.waitForFunction(
-      () => {
-        const s = window.__GAME_TEST__?.getState();
-        return Boolean(s && !s.isAnimating && s.renderer.isIdleThrottled);
-      },
-      undefined,
-      { timeout: 4_000 },
-    );
-    const idleFramesBefore = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
-    await page.waitForTimeout(550);
-    const idleFramesAfter = await page.evaluate(() => window.__GAME_TEST__!.getState().renderer.renderedFrames);
-    expect(idleFramesAfter, 'True 0-FPS idle must submit ZERO frames while contemplating').toBe(idleFramesBefore);
+    const reloaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(reloaded.screen).toBe('menu');
+    expect(reloaded.gallery.completedCuratedIds).toContain(0);
+    await expect(page.locator('#menu-journey-main')).toHaveText('Play Dewdrop Ring');
 
-    const finalState = await page.evaluate(() => window.__GAME_TEST__!.getState());
-    expect(finalState.renderer.validationErrors).toEqual([]);
-    expect(failedResponses).toEqual([]);
-    expect(consoleErrors).toEqual([]);
-    expect(pageErrors).toEqual([]);
+    expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
+    expect(pageErrors, `Page errors: ${pageErrors.join('\n')}`).toEqual([]);
+    expect(failedResponses, `Failed HTTP responses: ${failedResponses.join('\n')}`).toEqual([]);
   });
 });

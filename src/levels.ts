@@ -1,6 +1,16 @@
 import { CHAPTERS, CURATED_LEVELS, type ChapterDef } from './wasmBridge';
 
-const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v1';
+const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v2';
+
+export function getLevelTierLabel(lvl: { noBlockers?: boolean; difficulty: number }): string {
+  if (lvl.noBlockers || lvl.difficulty <= 0) return 'Warm-Up';
+  if (lvl.difficulty <= 2) return 'Easy';
+  if (lvl.difficulty <= 4) return 'Medium';
+  if (lvl.difficulty <= 6) return 'Challenging';
+  if (lvl.difficulty <= 8) return 'Hard';
+  if (lvl.difficulty <= 10) return 'Expert';
+  return 'Masterpiece';
+}
 
 /** Compact 4-tuple stitch entry in levels.json: [x, z, colorIndex, layerIndex]. */
 export type RemoteStitchTuple = readonly [number, number, number, number];
@@ -137,7 +147,8 @@ export function getBuiltinLevelsCatalog(): LevelsCatalog {
       name: l.name,
       cols: Number(cStr) || 5,
       rows: Number(rStr) || 5,
-      difficulty: 1,
+      difficulty: l.difficulty,
+      noBlockers: l.noBlockers,
       seed: (l.id + 1) * 1001,
       grid: l.grid,
       pearls: l.pearls,

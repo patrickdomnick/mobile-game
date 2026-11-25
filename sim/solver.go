@@ -8,10 +8,20 @@ const (
 )
 
 const (
-	MaxGridTiles = 49 // Up to 7x7 rich puzzle boards!
+	MaxGridTiles = 64 // Up to full 8x8 campaign boards!
 	TrayCapacity = 5
 	ActiveSlots  = 2
 )
+
+func fullMask(n int) uint64 {
+	if n >= 64 {
+		return ^uint64(0)
+	}
+	if n <= 0 {
+		return 0
+	}
+	return (uint64(1) << uint(n)) - 1
+}
 
 // Tile represents one directional pearl tile on the untangle grid.
 type Tile struct {
@@ -264,42 +274,70 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 	return score
 }
 
-// fixedMaskSet is a zero-allocation open-addressed hash set for 49-bit aliveMasks (+ optional trayUses tag).
+// fixedMaskSet is a zero-allocation open-addressed hash set for full 64-bit aliveMasks + separate trayUses tag.
+// Stored in static BSS (not goroutine stack!) with an O(1) generation counter so TinyGo WASM never overflows its stack on 8x8 boards.
 const visitedTableSize = 8192 // power of two
 
 type fixedMaskSet struct {
 	keys [visitedTableSize]uint64
-	used [visitedTableSize]uint8
+	tags [visitedTableSize]uint8
+	gens [visitedTableSize]uint32
+	gen  uint32
 }
 
-func (s *fixedMaskSet) hash(k uint64) uint32 {
-	h := k ^ (k >> 30)
+type dfsFrame struct {
+	directMoves [MaxGridTiles]uint8
+	trayMoves   [MaxGridTiles]uint8
+	trayScores  [MaxGridTiles]int16
+}
+
+var (
+	solverVisited fixedMaskSet
+	solverFrames  [MaxGridTiles + 2]dfsFrame
+)
+
+func (s *fixedMaskSet) reset() {
+	s.gen++
+	if s.gen == 0 {
+		for i := range s.gens {
+			s.gens[i] = 0
+		}
+		s.gen = 1
+	}
+}
+
+func (s *fixedMaskSet) hash(k uint64, tag uint8) uint32 {
+	h := k ^ (uint64(tag) * 0x9e3779b97f4a7c15)
+	h ^= h >> 30
 	h *= 0xbf58476d1ce4e5b9
 	h ^= h >> 27
 	return uint32(h) & (visitedTableSize - 1)
 }
 
-func (s *fixedMaskSet) has(k uint64) bool {
-	slot := s.hash(k)
+func (s *fixedMaskSet) has(k uint64, tag uint8) bool {
+	slot := s.hash(k, tag)
+	g := s.gen
 	for probe := 0; probe < 16; probe++ {
 		idx := (slot + uint32(probe)) & (visitedTableSize - 1)
-		if s.used[idx] == 0 {
+		if s.gens[idx] != g {
 			return false
 		}
-		if s.keys[idx] == k {
+		if s.keys[idx] == k && s.tags[idx] == tag {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *fixedMaskSet) add(k uint64) {
-	slot := s.hash(k)
+func (s *fixedMaskSet) add(k uint64, tag uint8) {
+	slot := s.hash(k, tag)
+	g := s.gen
 	for probe := 0; probe < 16; probe++ {
 		idx := (slot + uint32(probe)) & (visitedTableSize - 1)
-		if s.used[idx] == 0 || s.keys[idx] == k {
+		if s.gens[idx] != g || (s.keys[idx] == k && s.tags[idx] == tag) {
 			s.keys[idx] = k
-			s.used[idx] = 1
+			s.tags[idx] = tag
+			s.gens[idx] = g
 			return
 		}
 	}
@@ -314,42 +352,40 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 
 	nodes := 0
 	hitBudget := false
-	var visited fixedMaskSet
+	solverVisited.reset()
 
-	var dfs func(st solverState) (bool, int)
-	dfs = func(st solverState) (bool, int) {
+	var dfs func(st solverState, depth int) (bool, int)
+	dfs = func(st solverState, depth int) (bool, int) {
 		if st.aliveMask == 0 {
 			return st.trayLen == 0 && (maxTrayUses < 0 || st.trayUses <= maxTrayUses), -1
 		}
-		if nodes >= nodeBudget {
+		if nodes >= nodeBudget || depth >= len(solverFrames) {
 			hitBudget = true
 			return false, -1
 		}
 		nodes++
 
-		visitKey := st.aliveMask
+		visitTag := uint8(0)
 		if maxTrayUses >= 0 {
-			visitKey |= uint64(st.trayUses&0x7F) << 56
+			visitTag = uint8(st.trayUses & 0xFF)
 		}
-		if visited.has(visitKey) {
+		if solverVisited.has(st.aliveMask, visitTag) {
 			return false, -1
 		}
 
-		var directMoves [MaxGridTiles]int
+		frame := &solverFrames[depth]
 		directN := 0
-		var trayMoves [MaxGridTiles]int
-		var trayScores [MaxGridTiles]int
 		trayN := 0
 		canUseTray := st.trayLen < TrayCapacity && (maxTrayUses < 0 || st.trayUses < maxTrayUses)
 
 		for i := range tiles {
 			if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) {
 				if st.isActiveColor(tiles[i].Color) {
-					directMoves[directN] = i
+					frame.directMoves[directN] = uint8(i)
 					directN++
 				} else if canUseTray {
-					trayMoves[trayN] = i
-					trayScores[trayN] = scoreTrayCandidate(tiles, &st, i, cols, rows)
+					frame.trayMoves[trayN] = uint8(i)
+					frame.trayScores[trayN] = int16(scoreTrayCandidate(tiles, &st, i, cols, rows))
 					trayN++
 				}
 			}
@@ -357,10 +393,10 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 
 		// Try direct-stitch moves first (preserve tray space & build streak!)
 		for k := 0; k < directN; k++ {
-			mv := directMoves[k]
+			mv := int(frame.directMoves[k])
 			next := st
 			if next.applyTap(mv, tiles[mv].Color) {
-				if ok, _ := dfs(next); ok {
+				if ok, _ := dfs(next, depth+1); ok {
 					return true, mv
 				}
 			}
@@ -368,33 +404,33 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 
 		// Sort tray candidates descending by pinch-escape heuristic (unblocks active colors first!)
 		for a := 1; a < trayN; a++ {
-			mv := trayMoves[a]
-			sc := trayScores[a]
+			mv := frame.trayMoves[a]
+			sc := frame.trayScores[a]
 			b := a - 1
-			for b >= 0 && trayScores[b] < sc {
-				trayMoves[b+1] = trayMoves[b]
-				trayScores[b+1] = trayScores[b]
+			for b >= 0 && frame.trayScores[b] < sc {
+				frame.trayMoves[b+1] = frame.trayMoves[b]
+				frame.trayScores[b+1] = frame.trayScores[b]
 				b--
 			}
-			trayMoves[b+1] = mv
-			trayScores[b+1] = sc
+			frame.trayMoves[b+1] = mv
+			frame.trayScores[b+1] = sc
 		}
 
 		for k := 0; k < trayN; k++ {
-			mv := trayMoves[k]
+			mv := int(frame.trayMoves[k])
 			next := st
 			if next.applyTap(mv, tiles[mv].Color) {
-				if ok, _ := dfs(next); ok {
+				if ok, _ := dfs(next, depth+1); ok {
 					return true, mv
 				}
 			}
 		}
 
-		visited.add(visitKey)
+		solverVisited.add(st.aliveMask, visitTag)
 		return false, -1
 	}
 
-	ok, mv := dfs(start)
+	ok, mv := dfs(start, 0)
 	return ok, mv, !hitBudget
 }
 
@@ -532,13 +568,13 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		for i, cl := range perim {
 			tiles[i] = Tile{Col: cl.c, Row: cl.r, Alive: true}
 		}
-		fullMask := (uint64(1) << uint(n)) - 1
+		allMask := fullMask(n)
 		for i := 0; i < n; i++ {
 			bestDir := uint8(DirUp)
 			bestDist := 99
 			for d := uint8(0); d < 4; d++ {
 				tiles[i].Dir = d
-				if isUnblockedMask(tiles, fullMask, i, art.Cols, art.Rows) {
+				if isUnblockedMask(tiles, allMask, i, art.Cols, art.Rows) {
 					de := distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, d)
 					if de < bestDist {
 						bestDist = de
@@ -564,6 +600,24 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		return tiles, colorOrder, colorCount
 	}
 
+	// Normalize difficulty level (1..11) so difficulty rises monotonically as grid size grows!
+	diff := art.Difficulty
+	if diff < 1 {
+		diff = 1
+	}
+	if diff > 11 {
+		diff = 11
+	}
+	// Minimum fraction of starting tiles that must be blocked (strictly rising with difficulty!)
+	// Diff 1 -> ~26%, Diff 5 -> ~48%, Diff 11 -> ~64%
+	targetMinBlocked := (n * (22 + diff*4)) / 100
+	maxCap := (n * 66) / 100
+	if targetMinBlocked > maxCap {
+		targetMinBlocked = maxCap
+	}
+
+	allMask := fullMask(n)
+
 	for attempt := 0; attempt < 96; attempt++ {
 		tiles := make([]Tile, n)
 		for i, cl := range chosen {
@@ -574,8 +628,14 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		alive := (uint64(1) << uint(n)) - 1
+		alive := allMask
 		peelOrder := make([]int, 0, n)
+
+		// Monotonic inward bias (out of 100): Diff 1 = 44%, Diff 6 = 74%, Diff 11 = 92%
+		inwardBiasPct := 38 + diff*6
+		if inwardBiasPct > 92 {
+			inwardBiasPct = 92
+		}
 
 		for len(peelOrder) < n {
 			type cand struct {
@@ -607,11 +667,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 				}
 				if vCount > 0 {
 					chosenDir := validDirs[rng.intn(vCount)]
-					inwardBias := 5 + art.Difficulty
-					if inwardBias > 8 {
-						inwardBias = 8
-					}
-					if rng.intn(10) < inwardBias && bestDist > 0 {
+					if rng.intn(100) < inwardBiasPct && bestDist > 0 {
 						chosenDir = bestDir
 					}
 					w := 1 + distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, chosenDir)
@@ -641,6 +697,19 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			continue
 		}
 
+		// Verify starting interlocking blocker density meets this tier's escalating difficulty floor
+		if attempt < 56 {
+			blockedCount := 0
+			for i := 0; i < n; i++ {
+				if !isUnblockedMask(tiles, allMask, i, art.Cols, art.Rows) {
+					blockedCount++
+				}
+			}
+			if blockedCount < targetMinBlocked {
+				continue
+			}
+		}
+
 		colorSeq := make([]uint8, 0, n)
 		for qi := 0; qi < colorCount; qi++ {
 			c := colorOrder[qi]
@@ -649,11 +718,14 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		// Progressively refine color shuffle window if early high-scramble attempts exceed 3-star tray budget
-		window := 3 + art.Difficulty*2
-		swaps := n * (art.Difficulty + 1)
+		// Monotonic color-order scramble (scales cleanly with diff 1..11, gently eases on late retries)
+		window := 2 + diff
+		if window > 10 {
+			window = 10
+		}
+		swaps := n * (1 + (diff+1)/2)
 		if attempt >= 48 {
-			window = 2 + art.Difficulty
+			window = 2 + diff/2
 			swaps = n * 2
 		}
 		if attempt >= 76 {
@@ -673,7 +745,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		}
 
 		st := solverState{
-			aliveMask: (uint64(1) << uint(n)) - 1,
+			aliveMask: allMask,
 			remain:    colorCounts,
 			active:    [ActiveSlots]int{-1, -1},
 			queue:     colorOrder,
@@ -683,7 +755,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		st.refillActive()
 
 		// Provably verify BOTH 100% solvability AND 3-star achievability (TrayUses <= n/6)!
-		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 8000); ok {
+		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 12000); ok {
 			return tiles, colorOrder, colorCount
 		}
 	}

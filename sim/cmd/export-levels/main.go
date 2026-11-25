@@ -44,7 +44,7 @@ func round3(v float32) float64 {
 
 func main() {
 	cat := catalogJSON{
-		Version: 1,
+		Version: 2,
 		Chapters: []chapterJSON{
 			{ID: 0, Roman: "I", Name: "Jewel Atelier", ShortName: "Jewel", ThemeID: 0, Subtitle: "Sunlit gemstones & artisan brooches"},
 			{ID: 1, Roman: "II", Name: "Cyber Arcade", ShortName: "Neon", ThemeID: 1, Subtitle: "Electric synthwave grids & pulses"},

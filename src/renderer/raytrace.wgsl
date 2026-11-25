@@ -9,7 +9,7 @@ struct PearlNode {
   props: vec4<f32>,  // x = colorIdx, y = dir/bloom/occ, z = flags/shimmer/pulse, w = interiorGlowT/active/tension
 };
 
-// Exact 1008-float (4,032-byte) scene buffer matching sim/engine.go
+// Exact 1248-float (4,992-byte) scene buffer matching sim/engine.go
 struct SceneData {
   cameraPos: vec4<f32>,    // [0] xyz = pos (with micro-shake), w = elapsed
   cameraTarget: vec4<f32>, // [1] xyz = target, w = fovY
@@ -28,8 +28,8 @@ struct SceneData {
   extraFX: vec4<f32>,      // [14] x = blockerFlashT, y = streakFloat, z = layersDoneRatio, w = hintIdx
   queueFX: vec4<f32>,      // [15] x = multiplier, y = nextQueuedColor, z = levelIdx, w = spotlightMaxGlowT
   palette: array<vec4<f32>, 6>,
-  tiles: array<PearlNode, 49>,
-  hoopPearls: array<PearlNode, 49>,
+  tiles: array<PearlNode, 64>,
+  hoopPearls: array<PearlNode, 64>,
   trayPearls: array<PearlNode, 5>,
   flyingPearls: array<PearlNode, 12>,
 };
@@ -354,7 +354,7 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
   let boardHalf = scene.boardBounds.zw;
 
   if (length(p.xz - hoopC) < hoopR + 0.32) {
-    let hCount = min(u32(scene.countsInfo.x), 49u);
+    let hCount = min(u32(scene.countsInfo.x), 64u);
     for (var i: u32 = 0u; i < hCount; i = i + 1u) {
       let hp = scene.hoopPearls[i];
       let bloom = hp.props.y;
@@ -378,7 +378,7 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
       }
     }
   } else if (abs(p.x - boardC.x) < boardHalf.x + 0.42 && abs(p.z - boardC.y) < boardHalf.y + 0.42) {
-    let tCount = min(u32(scene.boardInfo.w), 49u);
+    let tCount = min(u32(scene.boardInfo.w), 64u);
     let pitch = scene.boardInfo.z;
     for (var i: u32 = 0u; i < tCount; i = i + 1u) {
       let tl = scene.tiles[i];
@@ -542,7 +542,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
       let innerEdge = smoothstep(hoopR - 0.055, hoopR - 0.18, hpDist);
       clothCol *= mix(0.74, 1.0, innerEdge);
 
-      let hCount = min(u32(scene.countsInfo.x), 49u);
+      let hCount = min(u32(scene.countsInfo.x), 64u);
       for (var i: u32 = 0u; i < hCount; i = i + 1u) {
         let hp = scene.hoopPearls[i];
         let dDot = length(p.xz - hp.posRad.xz);
@@ -755,7 +755,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           boardCol = mix(boardCol, fRimCol, frameRim);
         }
 
-      let tCount = min(u32(scene.boardInfo.w), 49u);
+      let tCount = min(u32(scene.boardInfo.w), 64u);
       let pitch = scene.boardInfo.z;
       let tileHalf = pitch * 0.445;
 
@@ -997,7 +997,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
   // Mutually exclusive spatial zone partitioning for resting pearls
   if (length(pDesk.xz - hoopC) < hoopR + 0.32) {
-    let hCount = min(u32(scene.countsInfo.x), 49u);
+    let hCount = min(u32(scene.countsInfo.x), 64u);
     for (var i: u32 = 0u; i < hCount; i = i + 1u) {
       let hp = scene.hoopPearls[i];
       let bloom = hp.props.y;
@@ -1047,7 +1047,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
       }
     }
   } else if (abs(pDesk.x - boardC.x) < boardHalf.x + 0.42 && abs(pDesk.z - boardC.y) < boardHalf.y + 0.42) {
-    let tCount = min(u32(scene.boardInfo.w), 49u);
+    let tCount = min(u32(scene.boardInfo.w), 64u);
     let pitch = scene.boardInfo.z;
     for (var i: u32 = 0u; i < tCount; i = i + 1u) {
       let tl = scene.tiles[i];

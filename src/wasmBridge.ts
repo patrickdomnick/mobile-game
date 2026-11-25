@@ -102,10 +102,10 @@ export interface ChapterDef {
 }
 
 export const CHAPTERS: readonly ChapterDef[] = [
-  { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 8 },
-  { id: 1, roman: 'II', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 8, count: 8 },
-  { id: 2, roman: 'III', name: 'Pop Studio', shortName: 'Pop', themeId: 2, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 16, count: 8 },
-  { id: 3, roman: 'IV', name: 'Cathedral Glass', shortName: 'Prism', themeId: 3, subtitle: 'Grand rose windows & glowing caustics', startIndex: 24, count: 8 },
+  { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 13 },
+  { id: 1, roman: 'II', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 13, count: 13 },
+  { id: 2, roman: 'III', name: 'Pop Studio', shortName: 'Pop', themeId: 2, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 26, count: 13 },
+  { id: 3, roman: 'IV', name: 'Cathedral Glass', shortName: 'Prism', themeId: 3, subtitle: 'Grand rose windows & glowing glass', startIndex: 39, count: 13 },
 ] as const;
 
 export function getThemePalette(themeIndex: number): readonly PearlColorInfo[] {
@@ -153,50 +153,78 @@ export interface CuratedLevelDef {
   name: string;
   grid: string;
   pearls: number;
+  difficulty: number;
+  noBlockers: boolean;
   colors: readonly number[];
 }
 
-export const CURATED_LEVELS: readonly CuratedLevelDef[] = [
-  // Chapter 0: Jewel Atelier (Theme 0)
-  { id: 0, chapter: 0, theme: 0, name: 'Jewel Heart', grid: '5×5', pearls: 21, colors: [0, 3, 4, 5] },
-  { id: 1, chapter: 0, theme: 0, name: 'Sakura Mandala', grid: '5×5', pearls: 25, colors: [0, 2, 3, 4] },
-  { id: 2, chapter: 0, theme: 0, name: 'Royal Crown', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4] },
-  { id: 3, chapter: 0, theme: 0, name: 'Emerald Clover', grid: '6×5', pearls: 29, colors: [1, 2, 3, 5] },
-  { id: 4, chapter: 0, theme: 0, name: 'Royal Lotus', grid: '6×6', pearls: 33, colors: [0, 2, 3, 4, 5] },
-  { id: 5, chapter: 0, theme: 0, name: 'Monarch Wing', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4, 5] },
-  { id: 6, chapter: 0, theme: 0, name: 'Nautilus Prism', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 7, chapter: 0, theme: 0, name: 'Grand Starlight', grid: '7×6', pearls: 41, colors: [0, 1, 2, 3, 4, 5] },
-
-  // Chapter 1: Cyber Arcade (Theme 1)
-  { id: 8, chapter: 1, theme: 1, name: 'Neon Pulse', grid: '5×5', pearls: 24, colors: [0, 1, 2, 3, 4] },
-  { id: 9, chapter: 1, theme: 1, name: 'Pixel Invader', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3] },
-  { id: 10, chapter: 1, theme: 1, name: 'Synth Horizon', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 11, chapter: 1, theme: 1, name: 'Laser Grid', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4] },
-  { id: 12, chapter: 1, theme: 1, name: 'Cyber Circuit', grid: '6×6', pearls: 32, colors: [0, 1, 2, 4, 5] },
-  { id: 13, chapter: 1, theme: 1, name: 'Hyper Portal', grid: '6×6', pearls: 34, colors: [0, 1, 2, 3, 4] },
-  { id: 14, chapter: 1, theme: 1, name: 'Plasma Bolt', grid: '6×6', pearls: 36, colors: [0, 1, 3] },
-  { id: 15, chapter: 1, theme: 1, name: 'Matrix Core', grid: '7×6', pearls: 38, colors: [0, 1, 2, 4, 5] },
-
-  // Chapter 2: Pop Studio (Theme 2)
-  { id: 16, chapter: 2, theme: 2, name: 'Comic Star', grid: '5×5', pearls: 24, colors: [0, 1, 3, 4] },
-  { id: 17, chapter: 2, theme: 2, name: 'Pop Heart', grid: '6×5', pearls: 26, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 18, chapter: 2, theme: 2, name: 'Halftone Bolt', grid: '6×5', pearls: 28, colors: [0, 1, 3, 5] },
-  { id: 19, chapter: 2, theme: 2, name: 'Warhol Flower', grid: '6×5', pearls: 30, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 20, chapter: 2, theme: 2, name: 'Boom Burst', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4] },
-  { id: 21, chapter: 2, theme: 2, name: 'Retro Sun', grid: '6×6', pearls: 34, colors: [0, 1, 3, 4, 5] },
-  { id: 22, chapter: 2, theme: 2, name: 'Pop Diamond', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 23, chapter: 2, theme: 2, name: 'Studio Crown', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3] },
-
-  // Chapter 3: Cathedral Glass (Theme 3)
-  { id: 24, chapter: 3, theme: 3, name: 'Prism Lantern', grid: '6×5', pearls: 28, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 25, chapter: 3, theme: 3, name: 'Sapphire Chalice', grid: '6×5', pearls: 30, colors: [0, 1, 3, 4, 5] },
-  { id: 26, chapter: 3, theme: 3, name: 'Gothic Arch', grid: '6×6', pearls: 32, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 27, chapter: 3, theme: 3, name: 'Angel Wings', grid: '6×6', pearls: 34, colors: [1, 3, 4, 5] },
-  { id: 28, chapter: 3, theme: 3, name: 'Cathedral Cross', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 29, chapter: 3, theme: 3, name: 'Aurora Spire', grid: '7×6', pearls: 38, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 30, chapter: 3, theme: 3, name: 'Rose Window', grid: '7×6', pearls: 42, colors: [0, 1, 2, 3, 4, 5] },
-  { id: 31, chapter: 3, theme: 3, name: 'Celestial Vault', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
+const CAMPAIGN_LADDER_META = [
+  { grid: '5×5', pearls: 14, difficulty: 0, noBlockers: true, colorCount: 3 },
+  { grid: '5×5', pearls: 16, difficulty: 0, noBlockers: true, colorCount: 4 },
+  { grid: '5×5', pearls: 21, difficulty: 1, noBlockers: false, colorCount: 4 },
+  { grid: '6×5', pearls: 26, difficulty: 2, noBlockers: false, colorCount: 4 },
+  { grid: '6×6', pearls: 32, difficulty: 3, noBlockers: false, colorCount: 5 },
+  { grid: '7×6', pearls: 37, difficulty: 4, noBlockers: false, colorCount: 5 },
+  { grid: '7×7', pearls: 43, difficulty: 5, noBlockers: false, colorCount: 5 },
+  { grid: '8×6', pearls: 45, difficulty: 6, noBlockers: false, colorCount: 6 },
+  { grid: '8×7', pearls: 51, difficulty: 7, noBlockers: false, colorCount: 6 },
+  { grid: '8×8', pearls: 54, difficulty: 8, noBlockers: false, colorCount: 6 },
+  { grid: '8×8', pearls: 58, difficulty: 9, noBlockers: false, colorCount: 6 },
+  { grid: '8×8', pearls: 61, difficulty: 10, noBlockers: false, colorCount: 6 },
+  { grid: '8×8', pearls: 64, difficulty: 11, noBlockers: false, colorCount: 6 },
 ] as const;
+
+const CAMPAIGN_LEVEL_NAMES: readonly (readonly string[])[] = [
+  [
+    'Sunbeam Brooch', 'Dewdrop Ring', 'Jewel Heart', 'Sakura Bloom',
+    'Royal Crown', 'Emerald Clover', 'Monarch Crest', 'Sapphire Fan',
+    'Velvet Lotus', 'Nautilus Gold', 'Imperial Tiara', 'Starlight Filigree',
+    'Grand Jewel Rose',
+  ],
+  [
+    'Neon Spark', 'Bit Halo', 'Neon Pulse', 'Synth Diamond',
+    'Pixel Star', 'Laser Spiral', 'Arcade Core', 'Vector Grid',
+    'Flux Portal', 'Hyper Matrix', 'Volt Overdrive', 'Quantum Circuit',
+    'Cyber Singularity',
+  ],
+  [
+    'Pop Dot', 'Comic Ring', 'Comic Star', 'Pop Heart',
+    'Halftone Bolt', 'Warhol Bloom', 'Boom Burst', 'Retro Sun',
+    'Pop Diamond', 'Studio Crown', 'Super Flash', 'Gallery Splash',
+    'Grand Pop Burst',
+  ],
+  [
+    'Candle Shard', 'Silver Chalice', 'Prism Lantern', 'Gothic Arch',
+    'Angel Crest', 'Aurora Spire', 'Cathedral Cross', 'Vespers Halo',
+    'Radiant Choir', 'Stained Compass', 'Sapphire Nave', 'Celestial Vault',
+    'Grand Rose Window',
+  ],
+];
+
+const CAMPAIGN_PAL_ORDERS: readonly (readonly number[])[] = [
+  [3, 5, 0, 4, 2, 1],
+  [1, 0, 2, 3, 4, 5],
+  [3, 0, 1, 4, 2, 5],
+  [3, 5, 0, 1, 4, 2],
+];
+
+export const CURATED_LEVELS: readonly CuratedLevelDef[] = CAMPAIGN_LEVEL_NAMES.flatMap((names, ch) =>
+  names.map((name, idx) => {
+    const meta = CAMPAIGN_LADDER_META[idx];
+    const pal = CAMPAIGN_PAL_ORDERS[ch];
+    return {
+      id: ch * 13 + idx,
+      chapter: ch,
+      theme: ch,
+      name,
+      grid: meta.grid,
+      pearls: meta.pearls,
+      difficulty: meta.difficulty,
+      noBlockers: meta.noBlockers,
+      colors: [...pal.slice(0, meta.colorCount)].sort((a, b) => a - b),
+    };
+  }),
+);
 
 export const CURATED_LEVEL_NAMES = CURATED_LEVELS.map((l) => l.name);
 

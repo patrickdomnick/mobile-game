@@ -2,7 +2,7 @@ import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
 import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
-import { loadLevelsCatalog, type RemoteLevelDef } from './levels';
+import { getLevelTierLabel, loadLevelsCatalog, type RemoteLevelDef } from './levels';
 import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import {
@@ -68,7 +68,7 @@ declare global {
 
 const FIXED_DT = 1 / 60;
 const SOLAR_SYNC_INTERVAL_MS = 15_000;
-const SCENE_BUFFER_BYTES = 1008 * 4;
+const SCENE_BUFFER_BYTES = 1248 * 4;
 
 function getRealTimeOfDayHours(): number {
   const now = new Date();
@@ -107,6 +107,8 @@ async function bootstrap(): Promise<void> {
   const startMenuEl = document.getElementById('overlay-start-menu');
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
   const menuGalleryBtn = document.getElementById('btn-menu-gallery');
+  const menuGalleryLabel = document.getElementById('menu-gallery-label');
+  const menuCampaignStrip = document.getElementById('menu-campaign-strip');
   const menuChapterLabel = document.getElementById('menu-chapter-label');
   const menuJourneyBadge = document.getElementById('menu-journey-badge');
   const menuJourneyMain = document.getElementById('menu-journey-main');
@@ -150,7 +152,7 @@ async function bootstrap(): Promise<void> {
   const settingsInstallStatus = document.getElementById('settings-install-status');
   const settingsInstallBtn = document.getElementById('btn-settings-install') as HTMLButtonElement | null;
 
-  // Patterns Gallery drawer elements
+  // Campaigns drawer elements
   const gallerySheet = document.getElementById('overlay-gallery');
   const galleryEyebrowEl = document.getElementById('gallery-eyebrow');
   const closeGalleryBtn = document.getElementById('btn-close-gallery');
@@ -165,6 +167,8 @@ async function bootstrap(): Promise<void> {
   const chapterBannerTitle = document.getElementById('chapter-banner-title');
   const chapterBannerSub = document.getElementById('chapter-banner-sub');
   const chapterBannerProgress = document.getElementById('chapter-banner-progress');
+  const chapterBannerStars = document.getElementById('chapter-banner-stars');
+  const chapterProgressBar = document.getElementById('chapter-progress-bar');
   const galleryGridEl = document.getElementById('gallery-grid');
 
   // Modals
@@ -212,7 +216,7 @@ async function bootstrap(): Promise<void> {
 
     let isReady = false;
     let screenMode: ScreenMode = 'menu';
-    let activeGalleryChapter = 0;
+    let activeGalleryChapter = gallery.getSelectedCampaign();
     let lastSwatchKey = '';
     let lastLightingTheme = '';
     let lastDomTheme = '';
@@ -232,6 +236,10 @@ async function bootstrap(): Promise<void> {
     let prevHintEvents = 0;
     let prevUndoEvents = 0;
 
+    const getCampaignById = (campaignId: number) => {
+      return levelsCatalog.chapters.find((c) => c.id === campaignId) ?? levelsCatalog.chapters[0];
+    };
+
     const findCatalogLevel = (levelId: number): RemoteLevelDef => {
       return (
         levelsCatalog.levels.find((l) => l.id === levelId) ??
@@ -249,13 +257,15 @@ async function bootstrap(): Promise<void> {
       }
       if (def) {
         activeGalleryChapter = def.chapter;
+        gallery.setSelectedCampaign(def.chapter);
       }
       return def;
     };
 
-    // Load next uncompleted curated pattern onto the live 3D board behind the Start Menu
-    const initialJourneyId = gallery.getNextJourneyLevel(levelsCatalog.levels.map((l) => l.id));
-    loadCatalogLevelById(initialJourneyId);
+    // Load the selected campaign's unlocked frontier level onto the live 3D board behind the Start Menu
+    const initialCampaign = getCampaignById(activeGalleryChapter);
+    const initialFrontierId = gallery.getCampaignFrontierLevel(initialCampaign.levelIds);
+    loadCatalogLevelById(initialFrontierId);
 
     const getAspect = (): number => {
       const rect = canvas.getBoundingClientRect();
@@ -379,27 +389,41 @@ async function bootstrap(): Promise<void> {
     };
 
     const refreshStartMenuCopy = (): void => {
-      const allIds = levelsCatalog.levels.map((l) => l.id);
-      const nextId = gallery.getNextJourneyLevel(allIds);
-      const nextLvl = findCatalogLevel(nextId);
-      const ch = levelsCatalog.chapters.find((c) => c.id === nextLvl.chapter) ?? levelsCatalog.chapters[0];
+      const selectedId = gallery.getSelectedCampaign();
+      const ch = getCampaignById(selectedId);
+      const frontierId = gallery.getCampaignFrontierLevel(ch.levelIds);
+      const frontierLvl = findCatalogLevel(frontierId);
       const chProg = gallery.getChapterCompletion(ch.id, ch.levelIds);
+      const frontierPos = Math.max(0, ch.levelIds.indexOf(frontierId)) + 1;
+      const allCompleted = chProg.done >= chProg.total && chProg.total > 0;
+      const tierLabel = getLevelTierLabel(frontierLvl);
+
+      const prog = gallery.getSnapshot();
+      const totalDone = Object.keys(prog.completedCurated).length;
       const today = getTodayDateKey();
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
-      const prog = gallery.getSnapshot();
       const dailyDone = prog.completedDailyDates.includes(today.label);
 
       if (menuChapterLabel) {
-        menuChapterLabel.textContent = `CHAPTER ${ch.roman} · ${ch.name.toUpperCase()} · ${chProg.done}/${chProg.total}`;
+        menuChapterLabel.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${totalDone}/${levelsCatalog.levels.length} MASTERED`;
       }
       if (menuJourneyBadge) {
-        menuJourneyBadge.textContent = `CHAPTER ${ch.roman} · ${ch.name.toUpperCase()}`;
+        menuJourneyBadge.textContent = allCompleted
+          ? `${ch.name.toUpperCase()} · MASTERED ✦`
+          : `${ch.name.toUpperCase()} · LEVEL ${frontierPos} OF ${chProg.total}`;
       }
       if (menuJourneyMain) {
-        menuJourneyMain.textContent = `Play ${nextLvl.name}`;
+        menuJourneyMain.textContent = allCompleted
+          ? `Replay ${frontierLvl.name}`
+          : `Play ${frontierLvl.name}`;
       }
       if (menuJourneyMeta) {
-        menuJourneyMeta.textContent = `${levelsCatalog.chapters.length} Worlds · ${levelsCatalog.levels.length} Handcrafted Patterns`;
+        menuJourneyMeta.textContent = frontierLvl.noBlockers
+          ? `${frontierLvl.grid} · ${tierLabel} · No Blockers`
+          : `${frontierLvl.grid} · ${tierLabel} · ${frontierLvl.pearls} pearls`;
+      }
+      if (menuGalleryLabel) {
+        menuGalleryLabel.textContent = `View ${ch.shortName} Levels (${chProg.done}/${chProg.total})`;
       }
       if (menuDailyBadge) {
         menuDailyBadge.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
@@ -410,6 +434,51 @@ async function bootstrap(): Promise<void> {
       if (menuEndlessMeta) {
         menuEndlessMeta.textContent =
           prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} completed · Infinite` : 'Fresh pattern every time';
+      }
+
+      if (menuCampaignStrip) {
+        menuCampaignStrip.innerHTML = '';
+        levelsCatalog.chapters.forEach((camp) => {
+          const theme = VISUAL_THEMES[camp.themeId] ?? VISUAL_THEMES[0];
+          const cp = gallery.getChapterCompletion(camp.id, camp.levelIds);
+          const isSel = camp.id === ch.id;
+          const pill = document.createElement('button');
+          pill.type = 'button';
+          pill.className = `menu-campaign-pill${isSel ? ' is-active' : ''}`;
+          pill.dataset.campaignId = String(camp.id);
+          pill.setAttribute('role', 'tab');
+          pill.setAttribute('aria-selected', isSel ? 'true' : 'false');
+
+          const orb = document.createElement('span');
+          orb.className = 'menu-campaign-orb';
+          orb.style.background = theme.swatchGradient;
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'menu-campaign-name';
+          nameSpan.textContent = camp.shortName;
+
+          const cntSpan = document.createElement('span');
+          cntSpan.className = 'menu-campaign-count';
+          cntSpan.textContent = `${cp.done}/${cp.total}`;
+
+          pill.append(orb, nameSpan, cntSpan);
+          pill.addEventListener('click', () => {
+            soundscape.unlock();
+            soundscape.playUiTap(settings.hapticsEnabled);
+            gallery.setSelectedCampaign(camp.id);
+            activeGalleryChapter = camp.id;
+            const nextFront = gallery.getCampaignFrontierLevel(camp.levelIds);
+            loadCatalogLevelById(nextFront);
+            const snap = sim.readState(getAspect());
+            if (appEl) {
+              appEl.dataset.theme = String(snap.themeIndex);
+              lastDomTheme = String(snap.themeIndex);
+            }
+            refreshStartMenuCopy();
+            wakeRenderer();
+          });
+          menuCampaignStrip.append(pill);
+        });
       }
     };
 
@@ -453,7 +522,7 @@ async function bootstrap(): Promise<void> {
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
 
       if (galleryEyebrowEl) {
-        galleryEyebrowEl.textContent = `${levelsCatalog.chapters.length} WORLDS · ${levelsCatalog.levels.length} PATTERNS`;
+        galleryEyebrowEl.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${levelsCatalog.levels.length} LEVELS`;
       }
       if (galleryDailyTag) {
         galleryDailyTag.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
@@ -482,7 +551,7 @@ async function bootstrap(): Promise<void> {
           orb.style.background = theme.swatchGradient;
 
           const lbl = document.createElement('span');
-          lbl.textContent = `${ch.roman}·${ch.shortName}`;
+          lbl.textContent = ch.shortName;
 
           const cnt = document.createElement('span');
           cnt.className = 'gallery-meta';
@@ -493,48 +562,88 @@ async function bootstrap(): Promise<void> {
             soundscape.unlock();
             soundscape.playUiTap(settings.hapticsEnabled);
             activeGalleryChapter = ch.id;
+            gallery.setSelectedCampaign(ch.id);
             renderGalleryUi();
           });
           chapterTabsEl.append(tab);
         });
       }
 
-      const activeCh = levelsCatalog.chapters.find((c) => c.id === activeGalleryChapter) ?? levelsCatalog.chapters[0];
+      const activeCh = getCampaignById(activeGalleryChapter);
       const chProg = gallery.getChapterCompletion(activeCh.id, activeCh.levelIds);
-      if (chapterBannerTitle) chapterBannerTitle.textContent = `Chapter ${activeCh.roman} · ${activeCh.name}`;
+      const chStars = gallery.getCampaignStars(activeCh.levelIds);
+      const frontierId = gallery.getCampaignFrontierLevel(activeCh.levelIds);
+
+      if (chapterBannerTitle) chapterBannerTitle.textContent = activeCh.name;
       if (chapterBannerSub) chapterBannerSub.textContent = activeCh.subtitle;
       if (chapterBannerProgress) chapterBannerProgress.textContent = `${chProg.done}/${chProg.total}`;
+      if (chapterBannerStars) chapterBannerStars.textContent = `★ ${chStars.earned}/${chStars.total}`;
+      if (chapterProgressBar) {
+        const pct = chProg.total > 0 ? Math.round((chProg.done / chProg.total) * 100) : 0;
+        chapterProgressBar.style.width = `${pct}%`;
+      }
 
       if (!galleryGridEl) return;
       galleryGridEl.innerHTML = '';
 
       const pal = getThemePalette(activeCh.themeId);
       const chapterLevels = levelsCatalog.levels.filter((l) => l.chapter === activeCh.id);
-      chapterLevels.forEach((lvl) => {
+      chapterLevels.forEach((lvl, idxInCamp) => {
         const done = prog.completedCurated[lvl.id];
+        const unlocked = gallery.isLevelUnlocked(lvl.id, activeCh.levelIds);
+        const isCurrent = unlocked && !done && lvl.id === frontierId;
+        const tierLabel = getLevelTierLabel(lvl);
+
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `gallery-item${done ? ' is-completed' : ''}`;
+        btn.className = `gallery-item${done ? ' is-completed' : ''}${isCurrent ? ' is-current' : ''}${!unlocked ? ' is-locked' : ''}`;
         btn.dataset.levelIndex = String(lvl.id);
+        btn.dataset.locked = unlocked ? 'false' : 'true';
+        btn.setAttribute('aria-disabled', unlocked ? 'false' : 'true');
 
-        const top = document.createElement('div');
-        top.className = 'gallery-item-top';
+        const head = document.createElement('div');
+        head.className = 'gallery-lvl-head';
+
+        const badges = document.createElement('span');
+        badges.className = 'gallery-lvl-badges';
+
+        const numEl = document.createElement('span');
+        numEl.className = 'gallery-lvl-num';
+        numEl.textContent = String(idxInCamp + 1).padStart(2, '0');
+
+        const gridEl = document.createElement('span');
+        gridEl.className = 'gallery-lvl-grid';
+        gridEl.textContent = lvl.grid;
+
+        badges.append(numEl, gridEl);
+
+        const statusEl = document.createElement('span');
+        if (done) {
+          statusEl.className = 'gallery-star';
+          statusEl.textContent = '★'.repeat(Math.max(1, done.bestStars));
+        } else if (isCurrent) {
+          statusEl.className = 'gallery-play-chip';
+          statusEl.textContent = 'PLAY';
+        } else {
+          statusEl.className = 'gallery-lock-chip';
+          statusEl.textContent = '🔒';
+        }
+
+        head.append(badges, statusEl);
 
         const nameEl = document.createElement('span');
         nameEl.className = 'gallery-item-name';
         nameEl.textContent = lvl.name;
 
-        const starEl = document.createElement('span');
-        starEl.className = 'gallery-star';
-        starEl.textContent = done ? '★'.repeat(Math.max(1, done.bestStars)) : lvl.grid;
-
-        top.append(nameEl, starEl);
-
         const metaEl = document.createElement('span');
         metaEl.className = 'gallery-meta';
-        metaEl.textContent = done
-          ? `${done.bestScore.toLocaleString()} pts · ${done.bestMaxStreak}× streak`
-          : `${lvl.pearls} pearls · ${lvl.grid}`;
+        if (done) {
+          metaEl.textContent = `${done.bestScore.toLocaleString()} pts · ${done.bestMaxStreak}× streak`;
+        } else if (unlocked) {
+          metaEl.textContent = lvl.noBlockers ? `${tierLabel} · No Blockers` : `${lvl.pearls} pearls · ${tierLabel}`;
+        } else {
+          metaEl.textContent = `Complete #${idxInCamp} to unlock`;
+        }
 
         const dots = document.createElement('div');
         dots.className = 'gallery-dots';
@@ -545,9 +654,16 @@ async function bootstrap(): Promise<void> {
           dots.append(d);
         }
 
-        btn.append(top, metaEl, dots);
+        btn.append(head, nameEl, metaEl, dots);
         btn.addEventListener('click', () => {
           soundscape.unlock();
+          if (!unlocked) {
+            btn.classList.remove('locked-shake');
+            void btn.offsetWidth;
+            btn.classList.add('locked-shake');
+            soundscape.playUiTap(settings.hapticsEnabled);
+            return;
+          }
           soundscape.playUiTap(settings.hapticsEnabled);
           lastUserTapAt = performance.now();
           recordedCompleteKey = '';
@@ -739,37 +855,42 @@ async function bootstrap(): Promise<void> {
             snap.totalPearls > 0 ? Math.min(100, Math.round((snap.directCount / snap.totalPearls) * 100)) : 100;
           if (completeCleanEl) completeCleanEl.textContent = `${directPct}%`;
 
-          // Celebrate Chapter clearance when finishing the final pattern of a Chapter!
-          const curIdxInCat = levelsCatalog.levels.findIndex((l) => l.id === snap.levelIndex);
-          const nextCatLvl =
-            snap.mode === 'curated' && curIdxInCat >= 0 && curIdxInCat + 1 < levelsCatalog.levels.length
-              ? levelsCatalog.levels[curIdxInCat + 1]
+          // Celebrate Campaign level unlock or Campaign mastery!
+          const curCh = getCampaignById(snap.chapterIndex);
+          const posInCamp = curCh ? curCh.levelIds.indexOf(snap.levelIndex) : -1;
+          const nextInCampId =
+            snap.mode === 'curated' && curCh && posInCamp >= 0 && posInCamp + 1 < curCh.levelIds.length
+              ? curCh.levelIds[posInCamp + 1]
+              : -1;
+          const nextInCampLvl = nextInCampId >= 0 ? findCatalogLevel(nextInCampId) : null;
+          const finishedCampaign = snap.mode === 'curated' && curCh && posInCamp === curCh.levelIds.length - 1;
+          const nextCamp =
+            finishedCampaign && levelsCatalog.chapters.length > 1
+              ? levelsCatalog.chapters[(curCh.id + 1) % levelsCatalog.chapters.length]
               : null;
-          const nextChapter =
-            nextCatLvl && nextCatLvl.chapter !== snap.chapterIndex
-              ? levelsCatalog.chapters.find((c) => c.id === nextCatLvl.chapter) ?? null
-              : null;
-          const curCh = levelsCatalog.chapters.find((c) => c.id === snap.chapterIndex);
 
           if (completeEyebrowEl) {
-            completeEyebrowEl.textContent = nextChapter
-              ? `CHAPTER ${curCh?.roman ?? 'I'} COMPLETE!`
-              : 'PATTERN COMPLETE';
+            completeEyebrowEl.textContent = finishedCampaign
+              ? `${curCh?.name.toUpperCase() ?? 'CAMPAIGN'} MASTERED!`
+              : snap.mode === 'curated' && posInCamp >= 0
+                ? `${curCh?.shortName.toUpperCase() ?? 'CAMPAIGN'} · LEVEL ${posInCamp + 1} COMPLETE`
+                : 'PATTERN COMPLETE';
           }
           if (nextLevelBtn) {
-            nextLevelBtn.textContent = nextChapter
-              ? `Enter ${nextChapter.name} →`
-              : nextCatLvl
-                ? 'Next Pattern'
+            nextLevelBtn.textContent = nextInCampLvl
+              ? `Next · ${nextInCampLvl.grid}`
+              : nextCamp
+                ? `Explore ${nextCamp.shortName} →`
                 : 'New Pattern';
           }
           if (completeBonusLine) {
             const badges: string[] = [];
             if (snap.mode !== 'curated' && snap.seed > 0) badges.push(`Code #${snap.seed}`);
-            if (snap.trayUses === 0) badges.push('No Tray Bonus +1,500');
-            if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('No Hints Bonus +750');
+            if (nextInCampLvl) badges.push(`Unlocked #${posInCamp + 2} ${nextInCampLvl.name}`);
+            if (snap.trayUses === 0) badges.push('No Tray +1,500');
+            if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('No Hints +750');
             completeBonusLine.textContent =
-              badges.length > 0 ? `${badges.join(' · ')} · Saved to your collection.` : 'Saved to your collection.';
+              badges.length > 0 ? badges.join(' · ') : 'Saved to your collection.';
           }
         }
       }
@@ -867,7 +988,8 @@ async function bootstrap(): Promise<void> {
       lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
-      const nextId = gallery.getNextJourneyLevel(levelsCatalog.levels.map((l) => l.id));
+      const selCh = getCampaignById(gallery.getSelectedCampaign());
+      const nextId = gallery.getCampaignFrontierLevel(selCh.levelIds);
       loadCatalogLevelById(nextId);
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
@@ -987,9 +1109,16 @@ async function bootstrap(): Promise<void> {
       recordedCompleteKey = '';
       displayedScore = 0;
       const snap = sim.readState(getAspect());
-      const curIdx = levelsCatalog.levels.findIndex((l) => l.id === snap.levelIndex);
-      if (snap.mode === 'curated' && curIdx >= 0 && curIdx + 1 < levelsCatalog.levels.length) {
-        loadCatalogLevelById(levelsCatalog.levels[curIdx + 1].id);
+      if (snap.mode === 'curated') {
+        const curCh = getCampaignById(snap.chapterIndex);
+        const pos = curCh.levelIds.indexOf(snap.levelIndex);
+        if (pos >= 0 && pos + 1 < curCh.levelIds.length) {
+          loadCatalogLevelById(curCh.levelIds[pos + 1]);
+        } else {
+          const nextCh = levelsCatalog.chapters[(curCh.id + 1) % levelsCatalog.chapters.length] ?? curCh;
+          const nextFront = gallery.getCampaignFrontierLevel(nextCh.levelIds);
+          loadCatalogLevelById(nextFront);
+        }
       } else {
         sim.loadMandala(gallery.nextMandalaSeed());
       }

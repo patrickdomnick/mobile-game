@@ -3,18 +3,18 @@ package sim
 import "math"
 
 const (
-	MaxHoopPearls = 49
+	MaxHoopPearls = 64
 	MaxFlying     = 12
 	MaxLayers     = 3
 
 	// Scene buffer layout (all vec4<f32> aligned for WebGPU storage buffer)
 	// Header:       16 * 4 = 64 floats
 	// Palette:       6 * 4 = 24 floats
-	// Tiles:        49 * 8 = 392 floats
-	// HoopPearls:   49 * 8 = 392 floats
+	// Tiles:        64 * 8 = 512 floats
+	// HoopPearls:   64 * 8 = 512 floats
 	// TrayPearls:    5 * 8 = 40 floats
 	// FlyingPearls: 12 * 8 = 96 floats
-	// Total = 1008 floats (4,032 bytes)
+	// Total = 1248 floats (4,992 bytes)
 	SceneHeaderFloats  = 64
 	ScenePaletteFloats = NumColors * 4
 	SceneTileOffset    = SceneHeaderFloats + ScenePaletteFloats
@@ -28,7 +28,7 @@ const (
 	MaxHeartsPerLevel    = 3
 	CustomLevelBufFloats = 10 + MaxHoopPearls*4
 
-	// Per-tile telemetry layout (49 * 8 = 392 floats):
+	// Per-tile telemetry layout (64 * 8 = 512 floats):
 	// [col, row, color, dir, alive(1=normal,2=heart), unblocked, worldX, worldZ]
 	TileTelemetryStride = 8
 	TileTelemetryFloats = MaxGridTiles * TileTelemetryStride
@@ -1667,11 +1667,13 @@ func (e *Engine) syncBuffers() {
 		e.TileTelemetry[tBase+7] = wz
 	}
 
-	// --- Embroidery Hoop Pearls (49 * 8 floats) ---
+	// --- Embroidery Hoop Pearls (64 * 8 floats) ---
 	stitchedCount := 0
 	hoopPearlR := float32(0.125)
-	if e.HoopCount > 34 {
-		hoopPearlR = 0.105
+	if e.HoopCount > 50 {
+		hoopPearlR = 0.090
+	} else if e.HoopCount > 34 {
+		hoopPearlR = 0.102
 	} else if e.HoopCount > 24 {
 		hoopPearlR = 0.115
 	}

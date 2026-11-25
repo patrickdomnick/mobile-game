@@ -5,15 +5,16 @@ import (
 	"testing"
 )
 
-func TestAll32ChapterArtworksSolvableAndThreeStarGuaranteed(t *testing.T) {
+func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.T) {
 	if len(CuratedArtworks) != NumChapters*LevelsPerChapter {
-		t.Fatalf("expected %d curated artworks (4 chapters x 8), got %d", NumChapters*LevelsPerChapter, len(CuratedArtworks))
+		t.Fatalf("expected %d curated artworks (4 campaigns x 13), got %d", NumChapters*LevelsPerChapter, len(CuratedArtworks))
 	}
 
 	var e Engine
 	e.SetTimeOfDayHours(12.5)
 
 	for lvlIdx, art := range CuratedArtworks {
+		tierIdx := lvlIdx % LevelsPerChapter
 		e.LoadCuratedLevel(lvlIdx)
 		if e.ThemeIndex != art.Theme {
 			t.Fatalf("level %d (%s): expected native theme %d, got %d", lvlIdx, art.Name, art.Theme, e.ThemeIndex)
@@ -22,8 +23,38 @@ func TestAll32ChapterArtworksSolvableAndThreeStarGuaranteed(t *testing.T) {
 			t.Fatalf("level %d (%s): expected chapter %d, got %d", lvlIdx, art.Name, art.Chapter, e.ChapterIndex)
 		}
 
+		// Verify L1-L2 zero-blocker warmups vs L3-L13 monotonically increasing difficulty!
+		blockedCount := 0
+		for i := 0; i < e.TileCount; i++ {
+			if !isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
+				blockedCount++
+			}
+		}
+		if tierIdx < 2 {
+			if !art.NoBlockers || blockedCount != 0 {
+				t.Fatalf("campaign %d warm-up level %d (%s): expected NoBlockers=true and 0 blocked tiles, got NoBlockers=%v blocked=%d", art.Chapter, tierIdx+1, art.Name, art.NoBlockers, blockedCount)
+			}
+		} else {
+			if art.Difficulty != tierIdx-1 {
+				t.Fatalf("campaign %d level %d (%s): expected monotonic difficulty %d, got %d", art.Chapter, tierIdx+1, art.Name, tierIdx-1, art.Difficulty)
+			}
+			if blockedCount == 0 {
+				t.Fatalf("campaign %d level %d (%s): expected interlocking blocked tiles on non-warmup board", art.Chapter, tierIdx+1, art.Name)
+			}
+		}
+
+		hearts := 0
+		for i := 0; i < e.TileCount; i++ {
+			if e.Tiles[i].IsHeart {
+				hearts++
+			}
+		}
+		if hearts < 1 || hearts > MaxHeartsPerLevel {
+			t.Fatalf("level %d (%s): expected 1..%d Heart Pearls, got %d", lvlIdx, art.Name, MaxHeartsPerLevel, hearts)
+		}
+
 		starLimit := ThreeStarTrayLimit(e.HoopCount)
-		for step := 0; step < 80 && e.Phase != PhaseComplete; step++ {
+		for step := 0; step < 96 && e.Phase != PhaseComplete; step++ {
 			var aliveMask uint64
 			for i := 0; i < e.TileCount; i++ {
 				if e.Tiles[i].Alive {
@@ -41,9 +72,9 @@ func TestAll32ChapterArtworksSolvableAndThreeStarGuaranteed(t *testing.T) {
 				queueLen:  e.QueueLen,
 				queuePos:  e.QueuePos,
 			}
-			ok, mv := solveWithTrayBudget(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, starLimit, 16000)
+			ok, mv := solveWithTrayBudget(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, starLimit, 20000)
 			if !ok || mv < 0 {
-				t.Fatalf("level %d (%s): no 3-star winning move at step %d (trayUses=%d/%d)", lvlIdx, art.Name, step, e.TrayUses, starLimit)
+				t.Fatalf("level %d (%s, %dx%d): no 3-star winning move at step %d (trayUses=%d/%d)", lvlIdx, art.Name, art.Cols, art.Rows, step, e.TrayUses, starLimit)
 			}
 			if !e.TapTile(mv) {
 				t.Fatalf("level %d (%s): TapTile(%d) failed", lvlIdx, art.Name, mv)
@@ -60,13 +91,13 @@ func TestAll32ChapterArtworksSolvableAndThreeStarGuaranteed(t *testing.T) {
 			t.Fatalf("level %d (%s): expected guaranteed 3 stars, got %d (trayUses=%d limit=%d)", lvlIdx, art.Name, e.Stars, e.TrayUses, starLimit)
 		}
 	}
-	t.Logf("All %d handcrafted artworks across %d vibrant Chapters mathematically verified 100%% 3-STAR achievable!", len(CuratedArtworks), NumChapters)
+	t.Logf("All %d campaign artworks across %d Campaigns (5x5 warmups -> 8x8 64-pearl finales) mathematically verified 100%% 3-STAR achievable!", len(CuratedArtworks), NumChapters)
 }
 
 func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing.T) {
 	var e Engine
-	// Level 0 (Jewel Heart) has exactly 4 colors: C0, C1, C2, C3
-	e.LoadCuratedLevel(0)
+	// Level 2 (Jewel Heart) has exactly 4 colors: C0, C1, C2, C3
+	e.LoadCuratedLevel(2)
 	if e.QueueLen != 4 {
 		t.Fatalf("expected 4 colors on Jewel Heart, got %d", e.QueueLen)
 	}
@@ -208,7 +239,7 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 
 func TestZeroVisualSpoilersAndCausalBlocker(t *testing.T) {
 	var e Engine
-	e.LoadCuratedLevel(0)
+	e.LoadCuratedLevel(2)
 
 	blockedIdx := -1
 	for i := 0; i < e.TileCount; i++ {
@@ -240,7 +271,7 @@ func TestZeroVisualSpoilersAndCausalBlocker(t *testing.T) {
 
 func TestSmartPinchRescueHintAndScoreDeductions(t *testing.T) {
 	var e Engine
-	e.LoadCuratedLevel(0)
+	e.LoadCuratedLevel(2)
 
 	for s := 0; s < 3; s++ {
 		mv := -1
@@ -387,22 +418,31 @@ func TestSolar24hContinuity(t *testing.T) {
 func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	var e Engine
 
-	// 1. All 32 curated levels spawn 1..3 Heart Pearls (strictly <= MaxHeartsPerLevel)
-	for lvl := 0; lvl < len(CuratedArtworks); lvl++ {
-		e.LoadCuratedLevel(lvl)
-		hearts := 0
-		for i := 0; i < e.TileCount; i++ {
-			if e.Tiles[i].IsHeart {
-				hearts++
-			}
-		}
-		if hearts < 1 || hearts > MaxHeartsPerLevel {
-			t.Fatalf("level %d spawned %d Heart Pearls, expected 1..%d", lvl, hearts, MaxHeartsPerLevel)
-		}
+	// 1. Verify 64-tile 8x8 Grand Masterpiece loads cleanly via CustomLevelBuf (remote levels.json ABI!)
+	art64 := CuratedArtworks[12] // 8x8 Grand Jewel Rose (64 stitches)
+	e.CustomLevelBuf[0] = 64
+	e.CustomLevelBuf[1] = 0
+	e.CustomLevelBuf[2] = 0
+	e.CustomLevelBuf[3] = 8
+	e.CustomLevelBuf[4] = 8
+	e.CustomLevelBuf[5] = 11
+	e.CustomLevelBuf[6] = float32(art64.Seed & 0xFFFF)
+	e.CustomLevelBuf[7] = float32((art64.Seed >> 16) & 0xFFFF)
+	e.CustomLevelBuf[8] = 0
+	e.CustomLevelBuf[9] = 3
+	for i, sp := range art64.Stitches {
+		off := 10 + i*4
+		e.CustomLevelBuf[off+0] = sp.X
+		e.CustomLevelBuf[off+1] = sp.Z
+		e.CustomLevelBuf[off+2] = float32(sp.Color)
+		e.CustomLevelBuf[off+3] = float32(sp.Layer)
+	}
+	if !e.LoadCustomLevel(len(art64.Stitches)) || e.TileCount != 64 || e.HoopCount != 64 {
+		t.Fatalf("expected 64-tile 8x8 custom JSON load, got tiles=%d hoop=%d", e.TileCount, e.HoopCount)
 	}
 
 	// 2. Load a custom JSON-staged zero-blocker level (NoBlockers=true, MaxHearts=2) via CustomLevelBuf
-	art := CuratedArtworks[0]
+	art := CuratedArtworks[1] // 16 stitches
 	e.CustomLevelBuf[0] = 99
 	e.CustomLevelBuf[1] = 1
 	e.CustomLevelBuf[2] = 1
