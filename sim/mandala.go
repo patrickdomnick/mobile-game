@@ -2,94 +2,95 @@ package sim
 
 import "math"
 
-// GenerateMandalaArtwork procedurally synthesizes a balanced radial symmetrical
-// pearl embroidery mandala (4-, 5-, 6-, or 8-fold symmetry) from any seed.
+// GenerateMandalaArtwork procedurally synthesizes a rich 3-layer symmetrical pearl mandala
+// (30 to 44 pearls across 6x6 or 7x7 boards) from any seed.
 func GenerateMandalaArtwork(seed uint32) ArtworkDef {
 	rng := newPRNG(seed ^ 0x9E3779B9)
 
-	symmetries := [4]int{4, 5, 6, 8}
+	symmetries := [4]int{5, 6, 7, 8}
 	fold := symmetries[rng.intn(len(symmetries))]
 
-	// Pick a harmonious 4- or 5-color palette subset from our 6 gem pearls
 	palette := [NumColors]uint8{0, 1, 2, 3, 4, 5}
 	for i := NumColors - 1; i > 0; i-- {
 		j := rng.intn(i + 1)
 		palette[i], palette[j] = palette[j], palette[i]
 	}
 
-	stitches := make([]StitchPoint, 0, 25)
+	stitches := make([]StitchPoint, 0, 46)
 
-	// Optional glowing center jewel pearl
-	if fold != 8 {
-		stitches = append(stitches, StitchPoint{
-			X:     0,
-			Z:     0,
-			Color: palette[0],
-		})
-	}
-
-	// Inner ring
-	innerR := float64(0.32 + float32(rng.intn(8))*0.01)
-	innerAngleOffset := float64(rng.intn(2)) * (math.Pi / float64(fold))
+	// Layer 0: Center jewel + inner petal ring
+	stitches = append(stitches, StitchPoint{X: 0, Z: 0, Color: palette[0], Layer: 0})
+	innerR := 0.25 + float64(rng.intn(5))*0.01
+	innerOff := float64(rng.intn(2)) * (math.Pi / float64(fold))
 	for k := 0; k < fold; k++ {
-		ang := innerAngleOffset + float64(k)*(2.0*math.Pi/float64(fold))
+		ang := innerOff + float64(k)*(2.0*math.Pi/float64(fold))
 		col := palette[1]
-		if fold%2 == 0 && k%2 == 1 {
+		if k%2 == 1 {
 			col = palette[2]
 		}
 		stitches = append(stitches, StitchPoint{
 			X:     float32(math.Cos(ang) * innerR),
 			Z:     float32(math.Sin(ang) * innerR),
 			Color: col,
+			Layer: 0,
 		})
 	}
 
-	// Outer ring (possibly 2x petals for 4-fold or 5-fold to land nicely in 16..24 pearls)
-	outerCount := fold
-	if fold <= 5 && len(stitches)+fold*2 <= 25 {
-		outerCount = fold * 2
-	} else if fold == 6 && len(stitches)+12 <= 25 {
-		outerCount = 12
+	// Layer 1: Mid ornate ring (2x fold up to 14 pearls)
+	midCount := fold * 2
+	if midCount > 14 {
+		midCount = fold
 	}
-
-	outerR := float64(0.66 + float32(rng.intn(9))*0.01)
-	outerOffset := innerAngleOffset + math.Pi/float64(outerCount)
-	for k := 0; k < outerCount && len(stitches) < 25; k++ {
-		ang := outerOffset + float64(k)*(2.0*math.Pi/float64(outerCount))
+	midR := 0.50 + float64(rng.intn(5))*0.01
+	midOff := innerOff + math.Pi/float64(midCount)
+	for k := 0; k < midCount; k++ {
+		ang := midOff + float64(k)*(2.0*math.Pi/float64(midCount))
+		r := midR
+		if k%2 == 1 {
+			r -= 0.06
+		}
 		col := palette[2]
 		if k%2 == 1 {
 			col = palette[3]
-		}
-		// Gentle alternating scallop radius on 2x outer rings
-		r := outerR
-		if outerCount > fold && k%2 == 1 {
-			r -= 0.11
 		}
 		stitches = append(stitches, StitchPoint{
 			X:     float32(math.Cos(ang) * r),
 			Z:     float32(math.Sin(ang) * r),
 			Color: col,
+			Layer: 1,
 		})
 	}
 
-	// Add a secondary mid accent ring if 4-fold or 8-fold has room
-	if len(stitches)+fold <= 24 {
-		midR := 0.50
-		for k := 0; k < fold; k++ {
-			ang := innerAngleOffset + float64(k)*(2.0*math.Pi/float64(fold))
-			stitches = append(stitches, StitchPoint{
-				X:     float32(math.Cos(ang) * midR),
-				Z:     float32(math.Sin(ang) * midR),
-				Color: palette[4],
-			})
+	// Layer 2: Outer crown ring (2x fold up to 16 pearls)
+	outerCount := fold * 2
+	if outerCount > 16 {
+		outerCount = 16
+	}
+	outerR := 0.77 + float64(rng.intn(5))*0.01
+	outerOff := innerOff
+	for k := 0; k < outerCount && len(stitches) < 44; k++ {
+		ang := outerOff + float64(k)*(2.0*math.Pi/float64(outerCount))
+		r := outerR
+		if k%2 == 1 {
+			r -= 0.08
 		}
+		col := palette[4]
+		if k%2 == 1 {
+			col = palette[5]
+		}
+		stitches = append(stitches, StitchPoint{
+			X:     float32(math.Cos(ang) * r),
+			Z:     float32(math.Sin(ang) * r),
+			Color: col,
+			Layer: 2,
+		})
 	}
 
-	cols, rows := 4, 4
-	if len(stitches) > 20 {
-		cols, rows = 5, 5
-	} else if len(stitches) > 16 {
-		cols, rows = 5, 4
+	cols, rows := 6, 6
+	if len(stitches) > 36 {
+		cols, rows = 7, 7
+	} else if len(stitches) > 30 {
+		cols, rows = 6, 6
 	}
 
 	return ArtworkDef{
@@ -97,7 +98,7 @@ func GenerateMandalaArtwork(seed uint32) ArtworkDef {
 		Name:       "Mandala",
 		Cols:       cols,
 		Rows:       rows,
-		Difficulty: 3,
+		Difficulty: 4,
 		Seed:       seed ^ 0xA5A55A5A,
 		Stitches:   stitches,
 	}

@@ -3,18 +3,19 @@ package sim
 import "math"
 
 const (
-	MaxHoopPearls = 32
-	MaxFlying     = 8
+	MaxHoopPearls = 49
+	MaxFlying     = 12
+	MaxLayers     = 3
 
 	// Scene buffer layout (all vec4<f32> aligned for WebGPU storage buffer)
-	// Header: 12 * 4 = 48 floats
-	// Palette: 6 * 4 = 24 floats
-	// Tiles: 25 * 8 = 200 floats
-	// HoopPearls: 32 * 8 = 256 floats
-	// TrayPearls: 5 * 8 = 40 floats
-	// FlyingPearls: 8 * 8 = 64 floats
-	// Total = 632 floats (2,528 bytes)
-	SceneHeaderFloats  = 48
+	// Header:       16 * 4 = 64 floats
+	// Palette:       6 * 4 = 24 floats
+	// Tiles:        49 * 8 = 392 floats
+	// HoopPearls:   49 * 8 = 392 floats
+	// TrayPearls:    5 * 8 = 40 floats
+	// FlyingPearls: 12 * 8 = 96 floats
+	// Total = 1008 floats (4,032 bytes)
+	SceneHeaderFloats  = 64
 	ScenePaletteFloats = NumColors * 4
 	SceneTileOffset    = SceneHeaderFloats + ScenePaletteFloats
 	SceneHoopOffset    = SceneTileOffset + MaxGridTiles*8
@@ -23,19 +24,18 @@ const (
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
 	// Telemetry / state buffer layout for JS & E2E bridge
-	StateFloats = 32
+	StateFloats = 48
 
-	// Per-tile telemetry layout (25 * 8 = 200 floats):
+	// Per-tile telemetry layout (49 * 8 = 392 floats):
 	// [col, row, color, dir, alive, unblocked, worldX, worldZ]
 	TileTelemetryStride = 8
 	TileTelemetryFloats = MaxGridTiles * TileTelemetryStride
 
-	// Phase constants
 	PhasePlaying  = 0
 	PhaseTrayFull = 1
 	PhaseComplete = 2
 
-	// World-space atelier geometry (portrait iPhone 16 layout on y=0 linen desk)
+	// World-space atelier geometry (portrait iPhone 16 layout on y=0 desk)
 	CamPosX    = float32(0.0)
 	CamPosY    = float32(12.6)
 	CamPosZ    = float32(2.35)
@@ -45,15 +45,15 @@ const (
 	CamFovY    = float32(0.72)
 
 	HoopCenterX = float32(0.0)
-	HoopCenterZ = float32(-1.82)
-	HoopRadius  = float32(1.36)
+	HoopCenterZ = float32(-1.84)
+	HoopRadius  = float32(1.38)
 
-	TrayCenterZ = float32(0.24)
+	TrayCenterZ = float32(0.18)
 	TraySpacing = float32(0.62)
 
 	BoardCenterX = float32(0.0)
-	BoardCenterZ = float32(2.26)
-	BoardMaxSpan = float32(2.96)
+	BoardCenterZ = float32(2.28)
+	BoardMaxSpan = float32(3.16)
 
 	FixedDT = float32(1.0 / 60.0)
 )
@@ -63,85 +63,124 @@ type HoopPearl struct {
 	WorldX       float32
 	WorldZ       float32
 	Color        uint8
-	Claimed      bool    // Reserved by an in-flight or already-stitched pearl
-	Stitched     bool    // Landed on the hoop
-	BloomT       float32 // 0 -> 1 landing bloom
-	ShimmerPulse float32 // Decaying sparkle after arrival
+	Layer        uint8
+	Claimed      bool
+	Stitched     bool
+	BloomT       float32
+	ShimmerPulse float32
 }
 
 // FlyingPearl animates a freed pearl gliding from board/tray to hoop/tray.
 type FlyingPearl struct {
-	Active       bool
-	Color        uint8
-	StartX       float32
-	StartY       float32
-	StartZ       float32
-	CtrlX        float32
-	CtrlY        float32
-	CtrlZ        float32
-	EndX         float32
-	EndY         float32
-	EndZ         float32
-	Progress     float32
-	Delay        float32
-	Duration     float32
-	ToHoop       bool
-	TargetIndex  int
+	Active      bool
+	Color       uint8
+	StartX      float32
+	StartY      float32
+	StartZ      float32
+	CtrlX       float32
+	CtrlY       float32
+	CtrlZ       float32
+	EndX        float32
+	EndY        float32
+	EndZ        float32
+	Progress    float32
+	Delay       float32
+	Duration    float32
+	ToHoop      bool
+	TargetIndex int
 }
 
 type undoSnapshot struct {
-	aliveMask   uint32
-	claimedMask uint32
+	aliveMask   uint64
+	claimedMask uint64
 	tray        [TrayCapacity]uint8
 	trayLen     int
 	remain      [NumColors]int
 	active      [ActiveSlots]int
 	queuePos    int
-	moves       int
+	score       uint32
+	streak      uint32
+	directCount int
+	trayUses    int
+	layerDone   [MaxLayers]bool
 	phase       int
 }
 
-// Engine holds all deterministic Pearl Loom simulation state and flat GPU buffers.
+// Engine holds all deterministic Pearl Loom v2.0 state, Balatro/VS scoring, layers,
+// 5 visual themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
 type Engine struct {
 	FrameCount     uint32
 	ElapsedSec     float32
 	TimeOfDayHours float32
+	ThemeIndex     int
 
 	LevelIndex int
 	Mode       int // 0=curated, 1=mandala, 2=daily
-	Phase      int // PhasePlaying, PhaseTrayFull, PhaseComplete
-	Moves      int
+	Phase      int
+
+	// Meaningful Balatro-style mastery & scoring state
+	Score       uint32
+	Streak      uint32
+	MaxStreak   uint32
+	DirectCount int
+	TrayUses    int
+	UndoUsed    int
+	Stars       int
+
+	// Last scoring callout payload for JS floating popups
+	LastScoreDelta  uint32
+	LastEventWorldX float32
+	LastEventWorldZ float32
+
+	// Layer / Ring progression
+	LayerTotal     [MaxLayers]int
+	LayerDone      [MaxLayers]bool
+	TotalLayers    int
+	LayersComplete int
+
+	// Juice FX state
+	ShakeAmt             float32
+	ColorBurstPulse      float32
+	ColorBurstColor      int
+	LayerBurstPulse      float32
+	CelebrateT           float32
+	LastTappedBlockedIdx int
+	LastBlockerIdx       int
+	BlockerFlashT        float32
 
 	GridCols  int
 	GridRows  int
 	CellPitch float32
 
-	Tiles       [MaxGridTiles]Tile
-	TileCount   int
-	HoopPearls  [MaxHoopPearls]HoopPearl
-	HoopCount   int
-	Tray        [TrayCapacity]uint8
-	TrayLen     int
-	TrayPulse   [TrayCapacity]float32
-	Flying      [MaxFlying]FlyingPearl
+	Tiles      [MaxGridTiles]Tile
+	TileCount  int
+	HoopPearls [MaxHoopPearls]HoopPearl
+	HoopCount  int
+	Tray       [TrayCapacity]uint8
+	TrayLen    int
+	TrayPulse  [TrayCapacity]float32
+	Flying     [MaxFlying]FlyingPearl
 
-	ColorQueue  [NumColors]uint8
-	QueueLen    int
-	QueuePos    int
-	Remain      [NumColors]int
-	Active      [ActiveSlots]int
+	ColorQueue [NumColors]uint8
+	QueueLen   int
+	QueuePos   int
+	Remain     [NumColors]int
+	Active     [ActiveSlots]int
 
 	HintTileIdx int
 	HintPulse   float32
-	CelebrateT  float32
 
-	// Audio event counters consumed by procedural Web Audio engine
-	StitchEvents   uint32
-	LastStitchCol  uint32
-	TrayEvents     uint32
-	BlockedEvents  uint32
-	UndoEvents     uint32
-	CompleteEvents uint32
+	// Event counters consumed by procedural Web Audio + floating score popups + haptics
+	StitchEvents     uint32
+	LastStitchCol    uint32
+	CascadeEvents    uint32
+	TrayEvents       uint32
+	BlockedEvents    uint32
+	UndoEvents       uint32
+	ColorClearEvents uint32
+	LastColorCleared uint32
+	LayerClearEvents uint32
+	CompleteEvents   uint32
 
 	undoStack []undoSnapshot
 
@@ -153,7 +192,10 @@ type Engine struct {
 // Reset reloads the current level (defaulting to curated level 0 if uninitialized).
 func (e *Engine) Reset() {
 	if e.TimeOfDayHours <= 0 {
-		e.TimeOfDayHours = 11.5 // Warm late-morning sunlit atelier default until clock sync
+		e.TimeOfDayHours = 12.5
+	}
+	if e.ThemeIndex < 0 || e.ThemeIndex >= NumThemes {
+		e.ThemeIndex = ThemeJewelAtelier
 	}
 	if e.LevelIndex < 0 || e.LevelIndex >= len(CuratedArtworks) {
 		e.LevelIndex = 0
@@ -161,7 +203,16 @@ func (e *Engine) Reset() {
 	e.LoadCuratedLevel(e.LevelIndex)
 }
 
-// LoadCuratedLevel initializes one of the handcrafted embroidery artworks.
+// SetTheme switches the active visual theme (0..4) immediately.
+func (e *Engine) SetTheme(idx int) {
+	if idx < 0 {
+		idx = 0
+	}
+	e.ThemeIndex = idx % NumThemes
+	e.syncBuffers()
+}
+
+// LoadCuratedLevel initializes one of the 8 handcrafted multi-layer embroidery artworks.
 func (e *Engine) LoadCuratedLevel(idx int) {
 	if len(CuratedArtworks) == 0 {
 		return
@@ -175,7 +226,7 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 	e.loadArtwork(CuratedArtworks[idx])
 }
 
-// LoadMandala generates and loads an endless procedural symmetrical pearl mandala.
+// LoadMandala generates and loads an endless procedural 3-layer symmetrical pearl mandala.
 func (e *Engine) LoadMandala(seed uint32) {
 	if seed == 0 {
 		seed = 1
@@ -197,13 +248,28 @@ func (e *Engine) LoadDaily(dateKey uint32) {
 
 func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.Phase = PhasePlaying
-	e.Moves = 0
+	e.Score = 0
+	e.Streak = 0
+	e.MaxStreak = 0
+	e.DirectCount = 0
+	e.TrayUses = 0
+	e.UndoUsed = 0
+	e.Stars = 0
+	e.LastScoreDelta = 0
+	e.ShakeAmt = 0
+	e.ColorBurstPulse = 0
+	e.ColorBurstColor = 0
+	e.LayerBurstPulse = 0
+	e.CelebrateT = 0
+	e.LastTappedBlockedIdx = -1
+	e.LastBlockerIdx = -1
+	e.BlockerFlashT = 0
+
 	e.GridCols = art.Cols
 	e.GridRows = art.Rows
 	e.TrayLen = 0
 	e.HintTileIdx = -1
 	e.HintPulse = 0
-	e.CelebrateT = 0
 	e.undoStack = e.undoStack[:0]
 
 	for i := range e.Flying {
@@ -221,18 +287,16 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 		maxDim = 1
 	}
 	e.CellPitch = BoardMaxSpan / float32(maxDim)
-	if e.CellPitch > 0.86 {
-		e.CellPitch = 0.86
+	if e.CellPitch > 0.72 {
+		e.CellPitch = 0.72
 	}
 
-	// Build guaranteed-solvable board
 	tiles, colorOrder, colorCount := generateSolvableBoard(art)
 	e.TileCount = len(tiles)
 	for i := 0; i < e.TileCount; i++ {
 		e.Tiles[i] = tiles[i]
 	}
 
-	// Populate embroidery hoop stitch points
 	e.HoopCount = len(art.Stitches)
 	if e.HoopCount > MaxHoopPearls {
 		e.HoopCount = MaxHoopPearls
@@ -240,15 +304,33 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	for c := 0; c < NumColors; c++ {
 		e.Remain[c] = 0
 	}
+	for l := 0; l < MaxLayers; l++ {
+		e.LayerTotal[l] = 0
+		e.LayerDone[l] = false
+	}
 	for i := 0; i < e.HoopCount; i++ {
 		sp := art.Stitches[i]
+		layer := sp.Layer
+		if int(layer) >= MaxLayers {
+			layer = MaxLayers - 1
+		}
 		e.HoopPearls[i] = HoopPearl{
-			WorldX: HoopCenterX + sp.X*(HoopRadius*0.84),
-			WorldZ: HoopCenterZ + sp.Z*(HoopRadius*0.84),
+			WorldX: HoopCenterX + sp.X*(HoopRadius*0.86),
+			WorldZ: HoopCenterZ + sp.Z*(HoopRadius*0.86),
 			Color:  sp.Color,
+			Layer:  layer,
 		}
 		e.Remain[sp.Color]++
+		e.LayerTotal[layer]++
 	}
+
+	e.TotalLayers = 0
+	for l := 0; l < MaxLayers; l++ {
+		if e.LayerTotal[l] > 0 {
+			e.TotalLayers++
+		}
+	}
+	e.LayersComplete = 0
 
 	e.ColorQueue = colorOrder
 	e.QueueLen = colorCount
@@ -270,6 +352,23 @@ func (e *Engine) SetTimeOfDayHours(hours float32) {
 	e.syncBuffers()
 }
 
+func (e *Engine) currentMultiplier() uint32 {
+	m := uint32(1) + e.Streak
+	if m > 12 {
+		m = 12
+	}
+	return m
+}
+
+func (e *Engine) addShake(amount float32) {
+	if amount > e.ShakeAmt {
+		e.ShakeAmt = amount
+	}
+	if e.ShakeAmt > 1.0 {
+		e.ShakeAmt = 1.0
+	}
+}
+
 func (e *Engine) tileWorldPos(col, row int) (float32, float32) {
 	halfC := float32(e.GridCols-1) * 0.5
 	halfR := float32(e.GridRows-1) * 0.5
@@ -282,6 +381,16 @@ func (e *Engine) traySlotWorldPos(slot int) (float32, float32) {
 	half := float32(TrayCapacity-1) * 0.5
 	wx := (float32(slot) - half) * TraySpacing
 	return wx, TrayCenterZ
+}
+
+func (e *Engine) nextQueuedColor() int {
+	for pos := e.QueuePos; pos < e.QueueLen; pos++ {
+		c := int(e.ColorQueue[pos])
+		if e.Remain[c] > 0 {
+			return c
+		}
+	}
+	return -1
 }
 
 func (e *Engine) refillActiveColors() {
@@ -311,6 +420,15 @@ func (e *Engine) isActiveColor(c uint8) bool {
 }
 
 func (e *Engine) claimHoopSlot(color uint8) int {
+	// Prefer earliest incomplete layer so embroidery visually builds inside-out layer by layer!
+	for targetLayer := uint8(0); targetLayer < MaxLayers; targetLayer++ {
+		for i := 0; i < e.HoopCount; i++ {
+			if !e.HoopPearls[i].Claimed && e.HoopPearls[i].Color == color && e.HoopPearls[i].Layer == targetLayer {
+				e.HoopPearls[i].Claimed = true
+				return i
+			}
+		}
+	}
 	for i := 0; i < e.HoopCount; i++ {
 		if !e.HoopPearls[i].Claimed && e.HoopPearls[i].Color == color {
 			e.HoopPearls[i].Claimed = true
@@ -318,6 +436,56 @@ func (e *Engine) claimHoopSlot(color uint8) int {
 		}
 	}
 	return -1
+}
+
+func (e *Engine) checkLayerMilestones() {
+	doneCount := 0
+	for l := 0; l < MaxLayers; l++ {
+		if e.LayerTotal[l] == 0 {
+			continue
+		}
+		allClaimed := true
+		for i := 0; i < e.HoopCount; i++ {
+			if int(e.HoopPearls[i].Layer) == l && !e.HoopPearls[i].Claimed {
+				allClaimed = false
+				break
+			}
+		}
+		if allClaimed {
+			doneCount++
+			if !e.LayerDone[l] {
+				e.LayerDone[l] = true
+				e.Score += 750
+				e.LastScoreDelta += 750
+				e.LayerBurstPulse = 1.0
+				e.LayerClearEvents++
+				e.addShake(0.82)
+				// Shimmer every pearl in the newly completed layer!
+				for i := 0; i < e.HoopCount; i++ {
+					if int(e.HoopPearls[i].Layer) == l {
+						e.HoopPearls[i].ShimmerPulse = 1.0
+					}
+				}
+			}
+		}
+	}
+	e.LayersComplete = doneCount
+}
+
+func (e *Engine) triggerColorCleared(color uint8) {
+	e.Score += 500
+	e.LastScoreDelta += 500
+	e.ColorBurstPulse = 1.0
+	e.ColorBurstColor = int(color)
+	e.ColorClearEvents++
+	e.LastColorCleared = uint32(color)
+	e.addShake(0.58)
+	// Ripple shimmer across all hoop pearls of this completed color
+	for i := 0; i < e.HoopCount; i++ {
+		if e.HoopPearls[i].Color == color {
+			e.HoopPearls[i].ShimmerPulse = 1.0
+		}
+	}
 }
 
 func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay float32, toHoop bool, targetIdx int) {
@@ -329,7 +497,6 @@ func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay 
 		}
 	}
 	if slot < 0 {
-		// Instant fallback if flight pool is saturated
 		if toHoop && targetIdx >= 0 && targetIdx < e.HoopCount {
 			e.HoopPearls[targetIdx].Stitched = true
 			e.HoopPearls[targetIdx].BloomT = 1.0
@@ -338,9 +505,9 @@ func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay 
 		return
 	}
 
-	ctrlX := (sx+ex)*0.5 + (ex-sx)*0.12
+	ctrlX := (sx+ex)*0.5 + (ex-sx)*0.14
 	ctrlZ := (sz + ez) * 0.5
-	ctrlY := float32(1.45)
+	ctrlY := float32(1.55)
 	if !toHoop {
 		ctrlY = 0.85
 	}
@@ -359,23 +526,23 @@ func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay 
 		EndZ:        ez,
 		Progress:    0,
 		Delay:       delay,
-		Duration:    0.34,
+		Duration:    0.30,
 		ToHoop:      toHoop,
 		TargetIndex: targetIdx,
 	}
 }
 
 func (e *Engine) captureUndoSnapshot() undoSnapshot {
-	var aliveMask uint32
+	var aliveMask uint64
 	for i := 0; i < e.TileCount; i++ {
 		if e.Tiles[i].Alive {
-			aliveMask |= (1 << uint(i))
+			aliveMask |= (uint64(1) << uint(i))
 		}
 	}
-	var claimedMask uint32
+	var claimedMask uint64
 	for i := 0; i < e.HoopCount; i++ {
 		if e.HoopPearls[i].Claimed {
-			claimedMask |= (1 << uint(i))
+			claimedMask |= (uint64(1) << uint(i))
 		}
 	}
 	return undoSnapshot{
@@ -386,13 +553,17 @@ func (e *Engine) captureUndoSnapshot() undoSnapshot {
 		remain:      e.Remain,
 		active:      e.Active,
 		queuePos:    e.QueuePos,
-		moves:       e.Moves,
+		score:       e.Score,
+		streak:      e.Streak,
+		directCount: e.DirectCount,
+		trayUses:    e.TrayUses,
+		layerDone:   e.LayerDone,
 		phase:       e.Phase,
 	}
 }
 
 func (e *Engine) drainTrayToHoop() {
-	stagger := float32(0.06)
+	stagger := float32(0.07)
 	for {
 		progressed := false
 		writeIdx := 0
@@ -404,10 +575,26 @@ func (e *Engine) drainTrayToHoop() {
 					sx, sz := e.traySlotWorldPos(i)
 					hp := &e.HoopPearls[hoopIdx]
 					e.spawnFlight(c, sx, 0.22, sz, hp.WorldX, 0.14, hp.WorldZ, stagger, true, hoopIdx)
-					stagger += 0.07
+					stagger += 0.08
 					e.Remain[c]--
+					// Balatro-style escalating cascade bonus!
+					e.Streak++
+					if e.Streak > e.MaxStreak {
+						e.MaxStreak = e.Streak
+					}
+					pts := uint32(125) * e.currentMultiplier()
+					e.Score += pts
+					e.LastScoreDelta += pts
+					e.LastEventWorldX = hp.WorldX
+					e.LastEventWorldZ = hp.WorldZ
 					e.StitchEvents++
+					e.CascadeEvents++
 					e.LastStitchCol = uint32(c)
+					e.addShake(0.28 + float32(e.currentMultiplier())*0.03)
+					if e.Remain[c] == 0 {
+						e.triggerColorCleared(c)
+					}
+					e.checkLayerMilestones()
 					progressed = true
 					continue
 				}
@@ -436,12 +623,29 @@ func (e *Engine) updatePhase() {
 		if e.Phase != PhaseComplete {
 			e.Phase = PhaseComplete
 			e.CelebrateT = 1.0
+			e.addShake(0.92)
+			// Pure Craft end-of-pattern bonuses!
+			if e.TrayUses == 0 {
+				e.Score += 1500
+				e.LastScoreDelta += 1500
+			}
+			if e.UndoUsed == 0 {
+				e.Score += 750
+				e.LastScoreDelta += 750
+			}
+			// Meaningful 1-3 Star mastery rating
+			if e.UndoUsed == 0 && e.TrayUses <= e.HoopCount/6 {
+				e.Stars = 3
+			} else if e.TrayUses <= e.HoopCount/3 {
+				e.Stars = 2
+			} else {
+				e.Stars = 1
+			}
 			e.CompleteEvents++
 		}
 		return
 	}
 
-	// Check if tray is full AND no unblocked tile matches an active color
 	if e.TrayLen >= TrayCapacity {
 		hasDirect := false
 		for i := 0; i < e.TileCount; i++ {
@@ -456,6 +660,19 @@ func (e *Engine) updatePhase() {
 		}
 	}
 	e.Phase = PhasePlaying
+}
+
+func (e *Engine) computeTrayTension() float32 {
+	switch e.TrayLen {
+	case 0, 1, 2:
+		return 0.0
+	case 3:
+		return 0.35
+	case 4:
+		return 0.72
+	default:
+		return 1.0
+	}
 }
 
 // TapWorld maps a world-space XZ tap on the board plane to the nearest alive tile.
@@ -487,9 +704,15 @@ func (e *Engine) TapTile(idx int) bool {
 		return false
 	}
 
-	if !isTileUnblocked(e.Tiles[:e.TileCount], idx, e.GridCols, e.GridRows) {
-		// Gentle physical recoil wobble — zero penalty!
+	blocker := findFirstBlocker(e.Tiles[:e.TileCount], idx, e.GridCols, e.GridRows)
+	if blocker >= 0 {
+		// Crystal-clear causal feedback: recoil wobble + highlight the EXACT blocking tile!
 		e.Tiles[idx].WobbleT = 1.0
+		e.Tiles[blocker].WobbleT = 0.65
+		e.LastTappedBlockedIdx = idx
+		e.LastBlockerIdx = blocker
+		e.BlockerFlashT = 1.0
+		e.addShake(0.18)
 		e.BlockedEvents++
 		e.syncBuffers()
 		return false
@@ -498,19 +721,24 @@ func (e *Engine) TapTile(idx int) bool {
 	color := e.Tiles[idx].Color
 	direct := e.isActiveColor(color)
 	if !direct && e.TrayLen >= TrayCapacity {
-		// Tray is full for non-matching colors — soft wobble and calm tray-full prompt
 		e.Tiles[idx].WobbleT = 1.0
+		e.LastTappedBlockedIdx = idx
+		e.LastBlockerIdx = -1
+		e.BlockerFlashT = 0.75
+		e.addShake(0.24)
 		e.BlockedEvents++
 		e.updatePhase()
 		e.syncBuffers()
 		return false
 	}
 
-	// Save exact undo checkpoint before mutating state
 	e.undoStack = append(e.undoStack, e.captureUndoSnapshot())
+	e.LastScoreDelta = 0
+	e.LastTappedBlockedIdx = -1
+	e.LastBlockerIdx = -1
+	e.BlockerFlashT = 0
 
 	sx, sz := e.tileWorldPos(e.Tiles[idx].Col, e.Tiles[idx].Row)
-	// Slight launch offset in arrow direction for juicy tactile take-off
 	switch e.Tiles[idx].Dir {
 	case DirUp:
 		sz -= 0.14
@@ -524,7 +752,6 @@ func (e *Engine) TapTile(idx int) bool {
 
 	e.Tiles[idx].Alive = false
 	e.Tiles[idx].WobbleT = 0
-	e.Moves++
 	e.HintTileIdx = -1
 	e.HintPulse = 0
 
@@ -534,8 +761,24 @@ func (e *Engine) TapTile(idx int) bool {
 			hp := &e.HoopPearls[hoopIdx]
 			e.spawnFlight(color, sx, 0.24, sz, hp.WorldX, 0.14, hp.WorldZ, 0, true, hoopIdx)
 			e.Remain[color]--
+			e.DirectCount++
+			e.Streak++
+			if e.Streak > e.MaxStreak {
+				e.MaxStreak = e.Streak
+			}
+			pts := uint32(100) * e.currentMultiplier()
+			e.Score += pts
+			e.LastScoreDelta += pts
+			e.LastEventWorldX = hp.WorldX
+			e.LastEventWorldZ = hp.WorldZ
 			e.StitchEvents++
 			e.LastStitchCol = uint32(color)
+			e.addShake(0.16 + float32(e.currentMultiplier())*0.025)
+
+			if e.Remain[color] == 0 {
+				e.triggerColorCleared(color)
+			}
+			e.checkLayerMilestones()
 			e.refillActiveColors()
 			e.drainTrayToHoop()
 		}
@@ -543,8 +786,12 @@ func (e *Engine) TapTile(idx int) bool {
 		slot := e.TrayLen
 		e.Tray[slot] = color
 		e.TrayLen++
+		e.TrayUses++
+		e.Streak = 0 // Using tray resets the Clean Direct-Stitch Streak!
 		e.TrayPulse[slot] = 1.0
 		ex, ez := e.traySlotWorldPos(slot)
+		e.LastEventWorldX = ex
+		e.LastEventWorldZ = ez
 		e.spawnFlight(color, sx, 0.24, sz, ex, 0.20, ez, 0, false, slot)
 		e.TrayEvents++
 		e.drainTrayToHoop()
@@ -555,7 +802,7 @@ func (e *Engine) TapTile(idx int) bool {
 	return true
 }
 
-// Undo cleanly reverts the previous move (unlimited, zero friction).
+// Undo cleanly reverts the previous move (unlimited, tracks UndoUsed for Pure Craft mastery).
 func (e *Engine) Undo() bool {
 	if len(e.undoStack) == 0 {
 		return false
@@ -564,11 +811,11 @@ func (e *Engine) Undo() bool {
 	e.undoStack = e.undoStack[:len(e.undoStack)-1]
 
 	for i := 0; i < e.TileCount; i++ {
-		e.Tiles[i].Alive = (snap.aliveMask & (1 << uint(i))) != 0
+		e.Tiles[i].Alive = (snap.aliveMask & (uint64(1) << uint(i))) != 0
 		e.Tiles[i].WobbleT = 0
 	}
 	for i := 0; i < e.HoopCount; i++ {
-		claimed := (snap.claimedMask & (1 << uint(i))) != 0
+		claimed := (snap.claimedMask & (uint64(1) << uint(i))) != 0
 		e.HoopPearls[i].Claimed = claimed
 		e.HoopPearls[i].Stitched = claimed
 		if claimed {
@@ -587,27 +834,41 @@ func (e *Engine) Undo() bool {
 	e.Remain = snap.remain
 	e.Active = snap.active
 	e.QueuePos = snap.queuePos
-	e.Moves = snap.moves
+	e.Score = snap.score
+	e.Streak = snap.streak
+	e.DirectCount = snap.directCount
+	e.TrayUses = snap.trayUses
+	e.LayerDone = snap.layerDone
 	e.Phase = snap.phase
+	e.UndoUsed++
+	e.LayersComplete = 0
+	for l := 0; l < MaxLayers; l++ {
+		if e.LayerDone[l] {
+			e.LayersComplete++
+		}
+	}
 	e.HintTileIdx = -1
 	e.HintPulse = 0
 	e.CelebrateT = 0
+	e.LastTappedBlockedIdx = -1
+	e.LastBlockerIdx = -1
+	e.BlockerFlashT = 0
 	e.UndoEvents++
 
 	e.syncBuffers()
 	return true
 }
 
-// ComputeHint finds a guaranteed safe next tile from the live state and lights a calm golden halo.
+// ComputeHint finds a guaranteed safe next tile from the live state.
 func (e *Engine) ComputeHint() int {
 	if e.Phase == PhaseComplete {
 		return -1
 	}
 
-	var aliveMask uint32
+	var aliveMask uint64
 	for i := 0; i < e.TileCount; i++ {
 		if e.Tiles[i].Alive {
-			aliveMask |= (1 << uint(i))
+			aliveMask |= (uint64(1) << uint(i))
 		}
 	}
 
@@ -622,9 +883,8 @@ func (e *Engine) ComputeHint() int {
 		queuePos:  e.QueuePos,
 	}
 
-	ok, bestMove := solveFromState(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, 4000)
+	ok, bestMove := solveFromState(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, 5000)
 	if !ok || bestMove < 0 {
-		// Fallback: highlight any unblocked direct stitch if available
 		for i := 0; i < e.TileCount; i++ {
 			if e.Tiles[i].Alive && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) && e.isActiveColor(e.Tiles[i].Color) {
 				bestMove = i
@@ -641,9 +901,10 @@ func (e *Engine) ComputeHint() int {
 	return bestMove
 }
 
-// IsAnimating reports whether any pearl flight, wobble, bloom, hint, or celebration needs 60 FPS.
+// IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, or tension pulse needs 60 FPS.
 func (e *Engine) IsAnimating() bool {
-	if e.CelebrateT > 0.005 || e.HintTileIdx >= 0 {
+	if e.CelebrateT > 0.005 || e.HintTileIdx >= 0 || e.ShakeAmt > 0.005 ||
+		e.ColorBurstPulse > 0.005 || e.LayerBurstPulse > 0.005 || e.BlockerFlashT > 0.005 {
 		return true
 	}
 	for i := range e.Flying {
@@ -681,7 +942,34 @@ func (e *Engine) Step(dt float32) {
 	e.FrameCount++
 	e.ElapsedSec += dt
 
-	// Decay blocked wobbles
+	// Smooth exponential decay on juice pulses & screenshake
+	if e.ShakeAmt > 0 {
+		e.ShakeAmt -= dt * 3.8
+		if e.ShakeAmt < 0 {
+			e.ShakeAmt = 0
+		}
+	}
+	if e.ColorBurstPulse > 0 {
+		e.ColorBurstPulse -= dt * 1.45
+		if e.ColorBurstPulse < 0 {
+			e.ColorBurstPulse = 0
+		}
+	}
+	if e.LayerBurstPulse > 0 {
+		e.LayerBurstPulse -= dt * 1.15
+		if e.LayerBurstPulse < 0 {
+			e.LayerBurstPulse = 0
+		}
+	}
+	if e.BlockerFlashT > 0 {
+		e.BlockerFlashT -= dt * 2.2
+		if e.BlockerFlashT < 0 {
+			e.BlockerFlashT = 0
+			e.LastTappedBlockedIdx = -1
+			e.LastBlockerIdx = -1
+		}
+	}
+
 	for i := 0; i < e.TileCount; i++ {
 		if e.Tiles[i].WobbleT > 0 {
 			e.Tiles[i].WobbleT -= dt * 3.2
@@ -691,7 +979,6 @@ func (e *Engine) Step(dt float32) {
 		}
 	}
 
-	// Advance flying pearls along smooth cubic/quadratic Bezier arcs
 	for i := range e.Flying {
 		f := &e.Flying[i]
 		if !f.Active {
@@ -712,24 +999,22 @@ func (e *Engine) Step(dt float32) {
 		}
 	}
 
-	// Smooth pearl bloom & shimmer decay on embroidery hoop
 	for i := 0; i < e.HoopCount; i++ {
 		hp := &e.HoopPearls[i]
 		if hp.Stitched && hp.BloomT < 1.0 {
-			hp.BloomT += dt * 4.5
+			hp.BloomT += dt * 4.8
 			if hp.BloomT > 1.0 {
 				hp.BloomT = 1.0
 			}
 		}
 		if hp.ShimmerPulse > 0 {
-			hp.ShimmerPulse -= dt * 1.6
+			hp.ShimmerPulse -= dt * 1.65
 			if hp.ShimmerPulse < 0 {
 				hp.ShimmerPulse = 0
 			}
 		}
 	}
 
-	// Decay tray pulses & celebration shimmer
 	for i := range e.TrayPulse {
 		if e.TrayPulse[i] > 0 {
 			e.TrayPulse[i] -= dt * 2.5
@@ -755,18 +1040,25 @@ func easeOutCubic(t float32) float32 {
 
 func (e *Engine) syncBuffers() {
 	solar := ComputeSolarLighting(e.TimeOfDayHours)
+	palTable := ThemePalettes[e.ThemeIndex%NumThemes]
+	tension := e.computeTrayTension()
 
-	// --- Header (12 vec4s = 48 floats) ---
+	// Micro-screenshake offset scaled to ShakeAmt^2 for snappy physical feel
+	shakeMag := e.ShakeAmt * e.ShakeAmt * 0.14
+	shakeX := float32(math.Sin(float64(e.ElapsedSec)*78.0)) * shakeMag
+	shakeZ := float32(math.Cos(float64(e.ElapsedSec)*64.0)) * shakeMag
+
+	// --- Header (16 vec4s = 64 floats) ---
 	// 0: cameraPos + elapsed
-	e.Scene[0] = CamPosX
+	e.Scene[0] = CamPosX + shakeX
 	e.Scene[1] = CamPosY
-	e.Scene[2] = CamPosZ
+	e.Scene[2] = CamPosZ + shakeZ
 	e.Scene[3] = e.ElapsedSec
 
 	// 1: cameraTarget + fovY
-	e.Scene[4] = CamTargetX
+	e.Scene[4] = CamTargetX + shakeX*0.5
 	e.Scene[5] = CamTargetY
-	e.Scene[6] = CamTargetZ
+	e.Scene[6] = CamTargetZ + shakeZ*0.5
 	e.Scene[7] = CamFovY
 
 	// 2: sunDir + sunIntensity
@@ -787,10 +1079,10 @@ func (e *Engine) syncBuffers() {
 	e.Scene[18] = solar.AmbientB
 	e.Scene[19] = e.TimeOfDayHours
 
-	// 5: linenTint + celebrateT
-	e.Scene[20] = solar.LinenR
-	e.Scene[21] = solar.LinenG
-	e.Scene[22] = solar.LinenB
+	// 5: deskTint + celebrateT
+	e.Scene[20] = solar.DeskR
+	e.Scene[21] = solar.DeskG
+	e.Scene[22] = solar.DeskB
 	e.Scene[23] = e.CelebrateT
 
 	// 6: boardMeta
@@ -839,23 +1131,62 @@ func (e *Engine) syncBuffers() {
 	e.Scene[42] = HoopRadius
 	e.Scene[43] = TrayCenterZ
 
-	// 11: hintInfo
-	e.Scene[44] = float32(e.HintTileIdx)
-	e.Scene[45] = TraySpacing
-	e.Scene[46] = float32(TrayCapacity)
-	e.Scene[47] = float32(e.LevelIndex)
+	// 11: themeAndSolar (themeIndex, daylightFactor, horizonWarmth, traySpacing)
+	e.Scene[44] = float32(e.ThemeIndex)
+	e.Scene[45] = solar.DaylightFactor
+	e.Scene[46] = solar.HorizonWarmth
+	e.Scene[47] = TraySpacing
+
+	// 12: juiceFX (colorBurstPulse, colorBurstColor, layerBurstPulse, trayTension)
+	e.Scene[48] = e.ColorBurstPulse
+	e.Scene[49] = float32(e.ColorBurstColor)
+	e.Scene[50] = e.LayerBurstPulse
+	e.Scene[51] = tension
+
+	// 13: blockerFX (tappedX, tappedZ, blockerX, blockerZ)
+	txB, tzB, bxB, bzB := float32(0), float32(0), float32(0), float32(0)
+	if e.BlockerFlashT > 0.01 && e.LastTappedBlockedIdx >= 0 && e.LastTappedBlockedIdx < e.TileCount {
+		t0 := e.Tiles[e.LastTappedBlockedIdx]
+		txB, tzB = e.tileWorldPos(t0.Col, t0.Row)
+		if e.LastBlockerIdx >= 0 && e.LastBlockerIdx < e.TileCount {
+			tb := e.Tiles[e.LastBlockerIdx]
+			bxB, bzB = e.tileWorldPos(tb.Col, tb.Row)
+		} else {
+			bxB, bzB = txB, tzB
+		}
+	}
+	e.Scene[52] = txB
+	e.Scene[53] = tzB
+	e.Scene[54] = bxB
+	e.Scene[55] = bzB
+
+	// 14: extraFX (blockerFlashT, streakFloat, layersDoneRatio, hintIdx)
+	layerRatio := float32(0)
+	if e.TotalLayers > 0 {
+		layerRatio = float32(e.LayersComplete) / float32(e.TotalLayers)
+	}
+	e.Scene[56] = e.BlockerFlashT
+	e.Scene[57] = float32(e.Streak)
+	e.Scene[58] = layerRatio
+	e.Scene[59] = float32(e.HintTileIdx)
+
+	// 15: reserved
+	e.Scene[60] = float32(e.currentMultiplier())
+	e.Scene[61] = float32(e.nextQueuedColor())
+	e.Scene[62] = float32(e.LevelIndex)
+	e.Scene[63] = float32(TrayCapacity)
 
 	// --- Palette (6 vec4s) ---
 	for c := 0; c < NumColors; c++ {
 		base := SceneHeaderFloats + c*4
-		e.Scene[base+0] = PearlPalette[c][0]
-		e.Scene[base+1] = PearlPalette[c][1]
-		e.Scene[base+2] = PearlPalette[c][2]
-		e.Scene[base+3] = PearlPalette[c][3]
+		e.Scene[base+0] = palTable[c][0]
+		e.Scene[base+1] = palTable[c][1]
+		e.Scene[base+2] = palTable[c][2]
+		e.Scene[base+3] = palTable[c][3]
 	}
 
-	// --- Board Tiles (25 * 8 floats) & TileTelemetry ---
-	pearlRad := e.CellPitch * 0.235
+	// --- Board Tiles (49 * 8 floats) & TileTelemetry ---
+	pearlRad := e.CellPitch * 0.245
 	for i := 0; i < MaxGridTiles; i++ {
 		sBase := SceneTileOffset + i*8
 		tBase := i * TileTelemetryStride
@@ -870,10 +1201,9 @@ func (e *Engine) syncBuffers() {
 		wx, wz := e.tileWorldPos(t.Col, t.Row)
 		unblocked := t.Alive && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows)
 
-		// Apply gentle damped wobble offset along arrow direction if tapped while blocked
 		ox, oz := float32(0), float32(0)
 		if t.WobbleT > 0 {
-			w := float32(math.Sin(float64(t.WobbleT)*math.Pi*3.0)) * t.WobbleT * 0.08
+			w := float32(math.Sin(float64(t.WobbleT)*math.Pi*3.0)) * t.WobbleT * 0.085
 			switch t.Dir {
 			case DirUp:
 				oz = -w
@@ -886,15 +1216,17 @@ func (e *Engine) syncBuffers() {
 			}
 		}
 
+		// IMPORTANT: Zero-spoiler flags! Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash.
+		// We intentionally DO NOT expose unblocked to visual styling in raytrace.wgsl!
 		flags := uint32(0)
 		if t.Alive {
 			flags |= 1
 		}
-		if unblocked {
-			flags |= 2
-		}
 		if i == e.HintTileIdx {
 			flags |= 4
+		}
+		if e.BlockerFlashT > 0.01 && (i == e.LastBlockerIdx || i == e.LastTappedBlockedIdx) {
+			flags |= 8
 		}
 
 		e.Scene[sBase+0] = wx + ox
@@ -924,8 +1256,15 @@ func (e *Engine) syncBuffers() {
 		e.TileTelemetry[tBase+7] = wz
 	}
 
-	// --- Embroidery Hoop Pearls (32 * 8 floats) ---
+	// --- Embroidery Hoop Pearls (49 * 8 floats) ---
 	stitchedCount := 0
+	hoopPearlR := float32(0.125)
+	if e.HoopCount > 34 {
+		hoopPearlR = 0.105
+	} else if e.HoopCount > 24 {
+		hoopPearlR = 0.115
+	}
+
 	for i := 0; i < MaxHoopPearls; i++ {
 		base := SceneHoopOffset + i*8
 		if i >= e.HoopCount {
@@ -946,10 +1285,6 @@ func (e *Engine) syncBuffers() {
 		if !hp.Claimed && e.isActiveColor(hp.Color) {
 			activeFlag = 1
 		}
-		hoopPearlR := float32(0.145)
-		if e.HoopCount > 18 {
-			hoopPearlR = 0.12
-		}
 
 		e.Scene[base+0] = hp.WorldX
 		e.Scene[base+1] = 0.08 + hoopPearlR*0.65*bloom
@@ -966,7 +1301,6 @@ func (e *Engine) syncBuffers() {
 		base := SceneTrayOffset + i*8
 		tx, tz := e.traySlotWorldPos(i)
 		occupied := i < e.TrayLen
-		// Hide tray pearl until its inbound flight finishes if currently flying into this slot
 		inbound := false
 		for fi := range e.Flying {
 			if e.Flying[fi].Active && !e.Flying[fi].ToHoop && e.Flying[fi].TargetIndex == i {
@@ -986,10 +1320,10 @@ func (e *Engine) syncBuffers() {
 			e.Scene[base+5] = 0
 		}
 		e.Scene[base+6] = e.TrayPulse[i]
-		e.Scene[base+7] = 0
+		e.Scene[base+7] = tension
 	}
 
-	// --- Flying Pearls ---
+	// --- Flying Pearls (12 * 8 floats) ---
 	for i := 0; i < MaxFlying; i++ {
 		base := SceneFlyingOffset + i*8
 		f := e.Flying[i]
@@ -1008,14 +1342,14 @@ func (e *Engine) syncBuffers() {
 		e.Scene[base+0] = px
 		e.Scene[base+1] = py
 		e.Scene[base+2] = pz
-		e.Scene[base+3] = 0.175
+		e.Scene[base+3] = 0.165
 		e.Scene[base+4] = float32(f.Color)
 		e.Scene[base+5] = 1.0
 		e.Scene[base+6] = t
 		e.Scene[base+7] = 0
 	}
 
-	// --- Compact Telemetry State Buffer (32 floats) ---
+	// --- Compact Telemetry State Buffer (48 floats) ---
 	e.State[0] = float32(e.FrameCount)
 	e.State[1] = e.ElapsedSec
 	e.State[2] = float32(e.LevelIndex)
@@ -1027,7 +1361,7 @@ func (e *Engine) syncBuffers() {
 	} else {
 		e.State[6] = 0
 	}
-	e.State[7] = float32(e.Moves)
+	e.State[7] = float32(e.Score)
 	e.State[8] = float32(len(e.undoStack))
 	e.State[9] = float32(stitchedCount)
 	e.State[10] = float32(e.HoopCount)
@@ -1053,5 +1387,23 @@ func (e *Engine) syncBuffers() {
 	e.State[28] = float32(e.BlockedEvents)
 	e.State[29] = float32(e.UndoEvents)
 	e.State[30] = float32(e.CompleteEvents)
-	e.State[31] = solar.SunIntensity
+	e.State[31] = solar.DaylightFactor
+
+	// v2.0 Extended Balatro/VS telemetry
+	e.State[32] = float32(e.ThemeIndex)
+	e.State[33] = float32(e.Streak)
+	e.State[34] = float32(e.MaxStreak)
+	e.State[35] = float32(e.currentMultiplier())
+	e.State[36] = float32(e.DirectCount)
+	e.State[37] = float32(e.TrayUses)
+	e.State[38] = float32(e.UndoUsed)
+	e.State[39] = float32(e.Stars)
+	e.State[40] = float32(e.LayersComplete)
+	e.State[41] = float32(e.TotalLayers)
+	e.State[42] = float32(e.ColorClearEvents)
+	e.State[43] = float32(e.LayerClearEvents)
+	e.State[44] = float32(e.LastScoreDelta)
+	e.State[45] = float32(e.LastBlockerIdx)
+	e.State[46] = e.LastEventWorldX
+	e.State[47] = e.LastEventWorldZ
 }

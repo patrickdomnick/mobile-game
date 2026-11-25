@@ -44,6 +44,11 @@ func simSetTimeOfDay(hours float32) {
 	engine.SetTimeOfDayHours(hours)
 }
 
+//go:wasmexport sim_set_theme
+func simSetTheme(idx uint32) {
+	engine.SetTheme(int(idx))
+}
+
 //go:wasmexport sim_tap_world
 func simTapWorld(wx, wz float32) uint32 {
 	if engine.TapWorld(wx, wz) {

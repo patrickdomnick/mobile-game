@@ -1,10 +1,34 @@
-const GALLERY_STORAGE_KEY = 'pearl-loom-gallery-v1';
+const GALLERY_STORAGE_KEY = 'pearl-loom-gallery-v2';
+
+export interface CuratedCompletionRecord {
+  bestScore: number;
+  bestStars: number;
+  bestMaxStreak: number;
+  completedAt: string;
+}
+
+export interface UserSettings {
+  themeIndex: number;
+  hapticsEnabled: boolean;
+  timeMode: 'auto' | 'manual';
+  manualHour: number;
+}
 
 export interface GalleryProgress {
-  completedCurated: Record<number, { bestMoves: number; completedAt: string }>;
+  completedCurated: Record<number, CuratedCompletionRecord>;
   completedDailyDates: string[];
   mandalasCompleted: number;
   lastMandalaSeed: number;
+  settings: UserSettings;
+}
+
+function defaultSettings(): UserSettings {
+  return {
+    themeIndex: 0,
+    hapticsEnabled: true,
+    timeMode: 'auto',
+    manualHour: 12.5,
+  };
 }
 
 function emptyProgress(): GalleryProgress {
@@ -13,6 +37,7 @@ function emptyProgress(): GalleryProgress {
     completedDailyDates: [],
     mandalasCompleted: 0,
     lastMandalaSeed: 1,
+    settings: defaultSettings(),
   };
 }
 
@@ -38,11 +63,18 @@ export class EmbroideryGalleryStore {
       const raw = localStorage.getItem(GALLERY_STORAGE_KEY);
       if (!raw) return emptyProgress();
       const parsed = JSON.parse(raw) as Partial<GalleryProgress>;
+      const s = parsed.settings ?? defaultSettings();
       return {
         completedCurated: parsed.completedCurated ?? {},
         completedDailyDates: Array.isArray(parsed.completedDailyDates) ? parsed.completedDailyDates : [],
         mandalasCompleted: typeof parsed.mandalasCompleted === 'number' ? parsed.mandalasCompleted : 0,
         lastMandalaSeed: typeof parsed.lastMandalaSeed === 'number' ? parsed.lastMandalaSeed : 1,
+        settings: {
+          themeIndex: typeof s.themeIndex === 'number' ? Math.max(0, Math.min(4, Math.floor(s.themeIndex))) : 0,
+          hapticsEnabled: typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : true,
+          timeMode: s.timeMode === 'manual' ? 'manual' : 'auto',
+          manualHour: typeof s.manualHour === 'number' ? ((s.manualHour % 24) + 24) % 24 : 12.5,
+        },
       };
     } catch {
       return emptyProgress();
@@ -57,12 +89,22 @@ export class EmbroideryGalleryStore {
     }
   }
 
-  recordCompletion(mode: 'curated' | 'mandala' | 'daily', levelIndex: number, moves: number): void {
+  recordCompletion(
+    mode: 'curated' | 'mandala' | 'daily',
+    levelIndex: number,
+    score: number,
+    stars: number,
+    maxStreak: number,
+  ): void {
     const today = getTodayDateKey().label;
     if (mode === 'curated') {
       const prev = this.data.completedCurated[levelIndex];
-      const bestMoves = prev ? Math.min(prev.bestMoves, moves) : moves;
-      this.data.completedCurated[levelIndex] = { bestMoves, completedAt: today };
+      this.data.completedCurated[levelIndex] = {
+        bestScore: prev ? Math.max(prev.bestScore, score) : score,
+        bestStars: prev ? Math.max(prev.bestStars, stars) : stars,
+        bestMaxStreak: prev ? Math.max(prev.bestMaxStreak, maxStreak) : maxStreak,
+        completedAt: today,
+      };
     } else if (mode === 'daily') {
       if (!this.data.completedDailyDates.includes(today)) {
         this.data.completedDailyDates.push(today);
@@ -71,6 +113,16 @@ export class EmbroideryGalleryStore {
       this.data.mandalasCompleted++;
     }
     this.save();
+  }
+
+  getSettings(): UserSettings {
+    return { ...this.data.settings };
+  }
+
+  updateSettings(patch: Partial<UserSettings>): UserSettings {
+    this.data.settings = { ...this.data.settings, ...patch };
+    this.save();
+    return this.getSettings();
   }
 
   nextMandalaSeed(): number {
@@ -85,6 +137,7 @@ export class EmbroideryGalleryStore {
       completedDailyDates: [...this.data.completedDailyDates],
       mandalasCompleted: this.data.mandalasCompleted,
       lastMandalaSeed: this.data.lastMandalaSeed,
+      settings: { ...this.data.settings },
     };
   }
 }

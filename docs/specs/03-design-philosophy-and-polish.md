@@ -1,41 +1,39 @@
-# Spec 03 — Game Design Philosophy, Polish & Mobile Performance Rubric
+# Spec 03 — Game Design Philosophy, Juice Stack & Mobile Polish (v2.0)
 
 - **Status**: `Locked`
 - **Last Updated**: 2026-11-24
 
-Every vertical slice of **Pearl Loom** is audited against these concrete craft principles before being committed.
+Every system in **Pearl Loom** is audited against these concrete principles drawn from **Balatro**, **Vampire Survivors**, **Mark Brown (GMTK)**, **Nintendo**, and **Hideo Kojima**.
 
 ---
 
-## 1. Mark Brown (Game Maker's Toolkit) — Puzzle Craft & Autonomy
+## 1. Balatro — The Layered Juice Stack & Score as Teaching Tool
 
-- **Zero-Text Onboarding**: Directional arrows are visually clear on every pearl tile; unblocked tiles exhibit a subtle breathing luster so the core rule is understood on the very first tap.
-- **No Spoilers, No Timers, No Nagging**: Zero countdown clocks, zero unsolicited hints, zero FOMO mechanics. Hints are strictly opt-in and gently highlight one safe move.
-- **Zero Frustrating Softlocks**: Every generated board is mathematically verified solvable **with the 5-slot silk holding tray constraint** in `sim/`. Unlimited 1-tap **Undo** ensures a misstep is effortlessly reversible.
+> *"Remove all layers of the juice stack and you have a spreadsheet. Feedback is not polish — feedback IS the product."*
 
-## 2. Nintendo (Miyamoto / Hayashida) — Toy-First Feel & Kishōtenketsu Pacing
+- **Meaningful Scoring (Never "Took X Moves")**:
+  - Solving an N-pearl board always removes N tiles — so raw move count is meaningless. Instead, players chase **Luster Score**, **Clean-Stitch Streak Multiplier (`×1 → ×12`)**, **Tray-Free Direct Efficiency**, **Color-Clear & Layer-Clear Bonuses**, and **★★★ Pure Craft Mastery**.
+- **The 5-Layer Juice Stack on Every Stitch**:
+  1. **Tactile Flight**: Pearl launches sharply in its arrow direction and arcs onto its hoop pinhole with spring bloom.
+  2. **Rolling Score & Floating Callouts**: Score counter rolls smoothly upward; floating color-coded callouts (`+300 ×3!`, `COLOR CLEAR +500!`, `RING COMPLETE +750!`) pop directly where the action happened, teaching *why* the player earned big points.
+  3. **Magnitude-Scaled Screenshake & Haptics**: Subtle micro-shake scales with multiplier/milestone (tiny crisp snap on single stitch, punchy thrum on Color Clear / Layer Complete) paired with `navigator.vibrate` haptics.
+  4. **Background & Lighting Reaction**: Completing a color or embroidery ring sends a luminous **radial light shockwave** across the raytraced hoop and briefly bathes the atelier background in that jewel's color aura!
+  5. **Rising-Pitch Escalating Audio**: Every consecutive direct stitch climbs a harmonic pitch step (Balatro's rising tick!), turning streaks and tray cascades into musical crescendos.
 
-- **Toy-First Tactile Juice**:
-  - Tapping a free pearl tile: lifts slightly, glides smoothly out in its arrow direction, and arcs gracefully into either its Embroidery Hoop stitch pinhole (sparkling on arrival) or an open Silk Tray dimple.
-  - Tapping a blocked pearl tile: soft physical recoil wobble toward the blocker + quiet warm wooden click — tactile feedback without punishment.
-  - Auto-stitch cascade: when an active embroidery color completes, the next color activates and any waiting matching pearls in the 5-slot Silk Tray smoothly lift and stitch in a gentle cascade!
-- **Kishōtenketsu Difficulty Curve**:
-  1. *Introduction* (Artwork 1 — *Heart*, ~9 pearls, 3 colors): instant mastery, ~20–35s solve.
-  2. *Development* (Artworks 2–3 — *Blossom*, *Crescent Moon*, 12–16 pearls, 4 colors): silk tray order starts to matter, ~45–75s solve.
-  3. *Twist* (Artworks 4–6 — *Butterfly*, *Cozy Cat*, *Seashell*, 18–24 pearls, 5 colors): interlocking directional dependencies create Sudoku-like foresight, ~1.5–2.5 min solve.
-  4. *Synthesis* (Artworks 7–8 — *Clover*, *Starlight* + **Endless Procedural Symmetrical Mandalas** + **Daily Stitch**): serene endless craft.
-- **Unmistakable Clarity Across All 24 Hours**: High-contrast, distinct pastel pearl hues (Rose, Cream Pearl, Sage, Honey Gold, Lavender, Cerulean) and adaptive frosted HUD surfaces whose ink/backdrop remain effortless to read from sunlit Noon to candlelit Midnight.
+## 2. Vampire Survivors — Escalating Milestones & Delicious Tension
 
-## 3. Hideo Kojima — Real-World Solar Link & Diegetic Atmosphere
+- **Frequent Micro-Rewards → Big Milestone Payoffs**:
+  - Every direct stitch builds multiplier; every **Color Clear** triggers a staggered cascade draining waiting pearls out of the silk tray; every **Embroidery Ring / Layer** completed unleashes a golden shockwave fanfare!
+- **Subtle Tray Tension**:
+  - As the 5-slot silk tray fills (`3/5` warm amber glow → `4/5` rhythmic heartbeat tension rim + low harmonic hum → `5/5` urgent shimmer), the player feels engaging, non-punishing tension — making a multi-pearl cascade drain feel genuinely euphoric.
 
-- **Real-World Clock Connection**: Inspired by *Boktai*'s link to real sunlight, the atelier continuously tracks local time (`hour ∈ [0, 24)`). Sun azimuth/elevation, shadow length, window light color temperature, candle fill light, and procedural musical harmony drift imperceptibly across the day.
-- **Diegetic UI**: The raytraced **Embroidery Hoop** *is* the progress bar; the **5-slot Silk Tray** *is* physically recessed into the linen craft desk; the **Active Stitch Swatches** sit cleanly beside/above the hoop like real silk thread bobbins.
+## 3. Mark Brown (GMTK) & Nintendo — Zero Spoilers, Honest Deduction & Clarity
 
-## 4. iPhone 16 Performance, Battery & Load-Time Targets
+- **Never Spoil Unblocked Tiles**: Every alive board tile renders with **identical crispness and an equally sharp, bold directional arrow (`▲ ► ▼ ◄`)**. The player deduces clear paths honestly — the game never gives away answers by dimming blocked tiles or hiding arrows.
+- **Crystal-Clear Causal Feedback**: Tapping a blocked tile physically lunges toward its **exact blocking tile** and briefly flashes a crisp **blocker pulse/beam** between the tapped tile and the blocker so the player immediately sees *why* it couldn't escape.
+- **Substantial, Satisfying Boards**: Boards scale from **5×5 (21–25 pearls)** up to **7×7 (45 pearls)** across 3 embroidery layers, verified 100% solvable under the 5-slot tray constraint.
+- **High-Pop Visual Separation + 5 Visual Themes**: Unmistakable jewel-tone chroma on high-contrast craft tables, plus **Cyber Neon**, **Noir Monochrome (with geometric B&W pearl patterns)**, **Pop Art**, and **Stained Glass**.
 
-- **Idle-Smart Adaptive Frame Pacing**:
-  - `60 FPS` during active animations (pearl flight, blocked wobble, hint pulse, completion shimmer).
-  - Automatic calm-idle throttle (`~6 FPS` / `160ms` interval, or paused when backgrounded via `visibilitychange`) when no animations are running — cutting GPU battery drain by >75% while waking instantaneously on `pointerdown`.
-- **Spatial Zone Early-Out in WGSL**: Raytrace pixels partition tests across Hoop / Silk Tray / Untangle Board bounding regions so each pixel only intersects nearby pearls instead of all scene objects.
-- **Instant Mobile Load**:
-  - TinyGo WASM `< 100 KB` (hard budget `< 250 KB`), JS bundle `< 40 KB` gzipped, **zero** external audio/image texture downloads.
+## 4. Hideo Kojima — Real-World Solar Link & Player Control
+
+- **Default Real-World 24h Day/Night Sync + User Override**: Syncs automatically to the local clock by default (visibly transforming lighting, sun angle, twilight warmth, night starlight/candlelight, and generative audio across all themes), with a live **24-Hour Solar Slider & Auto Toggle** in Settings so the player can scrub or lock any hour at will.

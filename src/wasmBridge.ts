@@ -3,24 +3,118 @@ import { projectWorldToScreen } from './camera';
 export type GameMode = 'curated' | 'mandala' | 'daily';
 export type GamePhase = 'playing' | 'tray_full' | 'complete';
 
-export const PEARL_COLORS = [
-  { name: 'Rose Quartz', hex: '#eb7a94' },
-  { name: 'Ivory Pearl', hex: '#f5ede0' },
-  { name: 'Sage Mint', hex: '#70bf97' },
-  { name: 'Honey Gold', hex: '#f0b857' },
-  { name: 'Lavender', hex: '#ad8fe0' },
-  { name: 'Sky Blue', hex: '#6bb3e3' },
+export interface PearlColorInfo {
+  name: string;
+  hex: string;
+  pattern?: 'solid-light' | 'solid-dark' | 'band' | 'ring' | 'diag' | 'cross';
+}
+
+export interface VisualThemeDef {
+  id: number;
+  name: string;
+  shortName: string;
+  tagline: string;
+  swatchGradient: string;
+  accent: string;
+  colors: readonly PearlColorInfo[];
+}
+
+export const VISUAL_THEMES: readonly VisualThemeDef[] = [
+  {
+    id: 0,
+    name: 'Jewel Atelier',
+    shortName: 'Jewel',
+    tagline: 'Rich sunlit gemstones on slate-walnut',
+    swatchGradient: 'linear-gradient(135deg, #f5265c, #fcb80f, #1f75fa)',
+    accent: '#f5a623',
+    colors: [
+      { name: 'Ruby Crimson', hex: '#f5265c' },
+      { name: 'Electric Cobalt', hex: '#1f75fa' },
+      { name: 'Emerald Jade', hex: '#0dc773' },
+      { name: 'Solar Gold', hex: '#fcb80f' },
+      { name: 'Royal Amethyst', hex: '#a33dfa' },
+      { name: 'Turquoise', hex: '#0ad1e0' },
+    ],
+  },
+  {
+    id: 1,
+    name: 'Cyber Neon',
+    shortName: 'Neon',
+    tagline: 'Electric synthwave grid & glowing orbs',
+    swatchGradient: 'linear-gradient(135deg, #ff1a94, #0aebff, #6bff1f)',
+    accent: '#0aebff',
+    colors: [
+      { name: 'Hot Magenta', hex: '#ff1a94' },
+      { name: 'Electric Cyan', hex: '#0aebff' },
+      { name: 'Acid Lime', hex: '#6bff1f' },
+      { name: 'Laser Amber', hex: '#ffb30a' },
+      { name: 'Ultraviolet', hex: '#a838ff' },
+      { name: 'Plasma Coral', hex: '#ff5229' },
+    ],
+  },
+  {
+    id: 2,
+    name: 'Noir B&W',
+    shortName: 'Noir B&W',
+    tagline: 'Art-Deco monochrome with geometric inlays',
+    swatchGradient: 'linear-gradient(135deg, #ffffff 0%, #8a8d96 50%, #141418 100%)',
+    accent: '#e8eaef',
+    colors: [
+      { name: 'Alabaster', hex: '#f7f7fc', pattern: 'solid-light' },
+      { name: 'Obsidian', hex: '#17171c', pattern: 'solid-dark' },
+      { name: 'Striped Silver', hex: '#e2e4eb', pattern: 'band' },
+      { name: 'Ringed Onyx', hex: '#26272e', pattern: 'ring' },
+      { name: 'Sash Ivory', hex: '#ededf2', pattern: 'diag' },
+      { name: 'Star Charcoal', hex: '#1e1f26', pattern: 'cross' },
+    ],
+  },
+  {
+    id: 3,
+    name: 'Pop Art',
+    shortName: 'Pop Art',
+    tagline: 'Bold halftone comic ink & vibrant primaries',
+    swatchGradient: 'linear-gradient(135deg, #fa2429, #ffd60a, #1a61fa)',
+    accent: '#ffd60a',
+    colors: [
+      { name: 'Pop Red', hex: '#fa2429' },
+      { name: 'Pop Cobalt', hex: '#1a61fa' },
+      { name: 'Pop Mint', hex: '#0ad18a' },
+      { name: 'Comic Yellow', hex: '#ffd60a' },
+      { name: 'Hot Pink', hex: '#fa38b8' },
+      { name: 'Tangerine', hex: '#ff750a' },
+    ],
+  },
+  {
+    id: 4,
+    name: 'Stained Glass',
+    shortName: 'Prism',
+    tagline: 'Cathedral twilight jewels & glowing caustics',
+    swatchGradient: 'linear-gradient(135deg, #f02461, #b347fa, #2485fa)',
+    accent: '#d99bff',
+    colors: [
+      { name: 'Garnet Rose', hex: '#f02461' },
+      { name: 'Sapphire', hex: '#2485fa' },
+      { name: 'Viridian', hex: '#14d68f' },
+      { name: 'Amber Sun', hex: '#faad1a' },
+      { name: 'Amethyst', hex: '#b347fa' },
+      { name: 'Diamond Opal', hex: '#e0f5ff' },
+    ],
+  },
 ] as const;
 
+export function getThemePalette(themeIndex: number): readonly PearlColorInfo[] {
+  return (VISUAL_THEMES[themeIndex] ?? VISUAL_THEMES[0]).colors;
+}
+
 export const CURATED_LEVELS = [
-  { name: 'Rose Heart', pearls: 9, colors: [0, 1, 3] },
-  { name: 'Sakura Blossom', pearls: 14, colors: [0, 1, 2, 3] },
-  { name: 'Crescent Moon', pearls: 16, colors: [1, 3, 4, 5] },
-  { name: 'Morning Butterfly', pearls: 18, colors: [0, 1, 3, 4, 5] },
-  { name: 'Cozy Cat', pearls: 19, colors: [0, 1, 2, 3] },
-  { name: 'Ocean Seashell', pearls: 20, colors: [0, 1, 3, 4, 5] },
-  { name: 'Lucky Clover', pearls: 21, colors: [1, 2, 3, 5] },
-  { name: 'Starlight Wreath', pearls: 24, colors: [0, 1, 2, 3, 4, 5] },
+  { name: 'Jewel Heart', grid: '5×5', pearls: 21, colors: [0, 3, 4, 5] },
+  { name: 'Sakura Mandala', grid: '5×5', pearls: 25, colors: [0, 2, 3, 4] },
+  { name: 'Lunar Eclipse', grid: '6×5', pearls: 28, colors: [0, 1, 3, 4, 5] },
+  { name: 'Monarch Wing', grid: '6×6', pearls: 32, colors: [0, 1, 3, 4, 5] },
+  { name: 'Royal Lotus', grid: '6×6', pearls: 34, colors: [0, 2, 3, 4, 5] },
+  { name: 'Nautilus Prism', grid: '6×6', pearls: 36, colors: [0, 1, 2, 3, 4, 5] },
+  { name: 'Emerald Clover', grid: '7×6', pearls: 40, colors: [0, 1, 2, 3, 4, 5] },
+  { name: 'Grand Starlight', grid: '7×7', pearls: 45, colors: [0, 1, 2, 3, 4, 5] },
 ] as const;
 
 export const CURATED_LEVEL_NAMES = CURATED_LEVELS.map((l) => l.name);
@@ -45,6 +139,8 @@ export interface AudioEventCounters {
   trayEvents: number;
   blockedEvents: number;
   undoEvents: number;
+  colorClearEvents: number;
+  layerClearEvents: number;
   completeEvents: number;
 }
 
@@ -56,8 +152,24 @@ export interface SimSnapshot {
   mode: GameMode;
   phase: GamePhase;
   timeOfDayHours: number;
+  themeIndex: number;
   isAnimating: boolean;
-  moves: number;
+  score: number;
+  streak: number;
+  maxStreak: number;
+  multiplier: number;
+  directCount: number;
+  trayUses: number;
+  undoUsed: number;
+  stars: number;
+  layersComplete: number;
+  totalLayers: number;
+  lastScoreDelta: number;
+  lastBlockerIdx: number;
+  lastEventWorldX: number;
+  lastEventWorldZ: number;
+  nextQueuedColor: number;
+  trayTension: number;
   undoDepth: number;
   stitchedCount: number;
   totalPearls: number;
@@ -68,6 +180,7 @@ export interface SimSnapshot {
   hintTileIndex: number;
   gridCols: number;
   gridRows: number;
+  daylightFactor: number;
   sunIntensity: number;
   tiles: TileSnapshot[];
   events: AudioEventCounters;
@@ -82,6 +195,7 @@ interface SimExports {
   sim_load_daily: (dateKey: number) => void;
   sim_step: (dt: number) => void;
   sim_set_time_of_day: (hours: number) => void;
+  sim_set_theme: (themeIdx: number) => void;
   sim_tap_world: (wx: number, wz: number) => number;
   sim_tap_tile: (idx: number) => number;
   sim_undo: () => number;
@@ -209,6 +323,10 @@ export class WasmSimulation {
     this.exports.sim_set_time_of_day(hours);
   }
 
+  setTheme(themeIndex: number): void {
+    this.exports.sim_set_theme(Math.max(0, Math.min(VISUAL_THEMES.length - 1, Math.floor(themeIndex))));
+  }
+
   tapWorld(wx: number, wz: number): boolean {
     return this.exports.sim_tap_world(wx, wz) !== 0;
   }
@@ -232,6 +350,7 @@ export class WasmSimulation {
   readState(aspect: number): SimSnapshot {
     const s = new Float32Array(this.exports.memory.buffer, this.statePtr, this.stateLen);
     const tBuf = new Float32Array(this.exports.memory.buffer, this.tilesPtr, this.tilesLen);
+    const scene = this.sceneView();
 
     const levelIndex = Math.round(s[2]);
     const modeIdx = Math.round(s[3]);
@@ -295,8 +414,24 @@ export class WasmSimulation {
       mode,
       phase: PHASE_MAP[phaseIdx] ?? 'playing',
       timeOfDayHours: s[5],
+      themeIndex: Math.round(s[32]),
       isAnimating: s[6] > 0.5,
-      moves: Math.round(s[7]),
+      score: Math.round(s[7]),
+      streak: Math.round(s[33]),
+      maxStreak: Math.round(s[34]),
+      multiplier: Math.max(1, Math.round(s[35])),
+      directCount: Math.round(s[36]),
+      trayUses: Math.round(s[37]),
+      undoUsed: Math.round(s[38]),
+      stars: Math.round(s[39]),
+      layersComplete: Math.round(s[40]),
+      totalLayers: Math.round(s[41]),
+      lastScoreDelta: Math.round(s[44]),
+      lastBlockerIdx: Math.round(s[45]),
+      lastEventWorldX: s[46],
+      lastEventWorldZ: s[47],
+      nextQueuedColor: Math.round(scene[61] ?? -1),
+      trayTension: scene[51] ?? 0,
       undoDepth: Math.round(s[8]),
       stitchedCount: Math.round(s[9]),
       totalPearls: Math.round(s[10]),
@@ -307,6 +442,7 @@ export class WasmSimulation {
       hintTileIndex: Math.round(s[21]),
       gridCols: Math.round(s[22]),
       gridRows: Math.round(s[23]),
+      daylightFactor: s[31],
       sunIntensity: s[31],
       tiles,
       events: {
@@ -315,6 +451,8 @@ export class WasmSimulation {
         trayEvents: Math.round(s[27]),
         blockedEvents: Math.round(s[28]),
         undoEvents: Math.round(s[29]),
+        colorClearEvents: Math.round(s[42]),
+        layerClearEvents: Math.round(s[43]),
         completeEvents: Math.round(s[30]),
       },
     };

@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#e9dfd0" />
+    <meta name="theme-color" content="#1b2333" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -18,55 +18,221 @@
     <title>Pearl Loom — Raytraced Pearl Embroidery</title>
   </head>
   <body>
-    <main id="app">
+    <main id="app" data-theme="0" data-lighting="day" data-screen="menu">
       <canvas id="gpu-canvas" aria-label="Pearl Loom Raytraced Atelier"></canvas>
 
-      <header class="hud-top" aria-label="Pattern Status">
-        <div class="hud-group">
-          <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Open Pattern Gallery">
-            <span id="hud-pattern-name" class="pattern-name">Rose Heart</span>
-            <span id="hud-progress" class="pill-value">0 / 9</span>
-            <span class="caret" aria-hidden="true">▾</span>
+      <!-- Balatro / Vampire Survivors floating score & milestone callouts -->
+      <div id="fx-callout-layer" class="fx-callout-layer" aria-hidden="true"></div>
+
+      <!-- =============================================================== -->
+      <!-- STARTING MENU (Floating cleanly over the live 3D raytraced scene) -->
+      <!-- =============================================================== -->
+      <section id="overlay-start-menu" class="start-menu" role="dialog" aria-label="Pearl Loom Start Menu">
+        <div class="start-top-bar">
+          <button id="btn-menu-solar" class="solar-chip" type="button" aria-label="Open Solar Time Settings">
+            <span id="menu-solar-icon" aria-hidden="true">☀</span>
+            <span id="menu-solar-label">Auto · 12:30</span>
+          </button>
+          <button id="btn-menu-settings" class="tactile-icon-btn" type="button" aria-label="Open Settings">
+            <span aria-hidden="true">⚙</span>
           </button>
         </div>
 
-        <div class="hud-group">
+        <div class="start-hero">
+          <p class="start-eyebrow">RAYTRACED PEARL CRAFT</p>
+          <h1 class="start-title">Pearl Loom</h1>
+          <p class="start-subtitle">Untangle arrows · Chain direct stitches · Ignite the hoop</p>
+        </div>
+
+        <div class="start-modes" aria-label="Game Modes">
+          <button id="btn-mode-journey" class="mode-btn mode-btn-primary" type="button">
+            <span class="mode-btn-badge">JOURNEY</span>
+            <span class="mode-btn-main">Play Curated Patterns</span>
+            <span id="menu-journey-meta" class="mode-btn-sub">8 Multi-Layer Designs · 5×5 to 7×7</span>
+          </button>
+
+          <div class="mode-btn-grid">
+            <button id="btn-mode-daily" class="mode-btn mode-btn-gold" type="button">
+              <span class="mode-btn-badge">TODAY</span>
+              <span class="mode-btn-main">Daily Stitch</span>
+              <span id="menu-daily-meta" class="mode-btn-sub">Fresh mandala</span>
+            </button>
+            <button id="btn-mode-endless" class="mode-btn mode-btn-prism" type="button">
+              <span class="mode-btn-badge">ENDLESS</span>
+              <span class="mode-btn-main">Mandala</span>
+              <span id="menu-endless-meta" class="mode-btn-sub">Infinite 3-ring</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="start-theme-block">
+          <span class="section-micro-label">VISUAL STYLE · LIVE PREVIEW</span>
+          <div id="menu-theme-strip" class="theme-strip" role="radiogroup" aria-label="Visual Theme Selector"></div>
+        </div>
+
+        <div class="start-footer-row">
+          <button id="btn-menu-gallery" class="tactile-pill-btn" type="button">
+            <span aria-hidden="true">✦</span>
+            <span>Gallery</span>
+          </button>
+          <button id="btn-menu-open-settings" class="tactile-pill-btn" type="button">
+            <span aria-hidden="true">☀</span>
+            <span>Time &amp; Settings</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- GAMEPLAY HUD (Vibrant, Crisp, Safe-Area Compliant)              -->
+      <!-- =============================================================== -->
+      <header id="hud-top" class="hud-top hidden" aria-label="Pattern Status">
+        <div class="hud-row">
+          <div class="hud-group">
+            <button id="btn-home" class="pill pill-btn icon-pill" type="button" aria-label="Open Start Menu">
+              <span aria-hidden="true">☰</span>
+            </button>
+            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Open Pattern Gallery">
+              <span id="hud-pattern-name" class="pattern-name">Jewel Heart</span>
+              <span id="hud-progress" class="pill-value">0/21</span>
+              <span class="caret" aria-hidden="true">▾</span>
+            </button>
+          </div>
+
+          <div class="hud-group">
+            <div class="pill score-pill" aria-label="Luster Score and Multiplier">
+              <span id="hud-score" class="score-value">0</span>
+              <span id="hud-mult" class="mult-badge">×1</span>
+            </div>
+            <button id="btn-settings" class="pill pill-btn icon-pill" type="button" aria-label="Open Settings">
+              <span aria-hidden="true">⚙</span>
+            </button>
+            <button
+              id="btn-audio"
+              class="pill pill-btn icon-pill"
+              type="button"
+              aria-label="Toggle Sound"
+              aria-pressed="false"
+            >
+              <span id="audio-icon" aria-hidden="true">♪</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="hud-subrow">
           <div id="hud-active-swatches" class="pill swatch-pill" aria-label="Active Stitch Colors">
             <span id="swatch-caption" class="swatch-caption">STITCH</span>
             <div id="swatch-list" class="swatch-list"></div>
+            <span id="swatch-next-wrap" class="swatch-next-wrap hidden" title="Next queued color">
+              <span class="next-label">NEXT</span>
+              <span id="swatch-next-dot" class="swatch-dot swatch-dot-sm"></span>
+            </span>
           </div>
-          <button
-            id="btn-audio"
-            class="pill pill-btn icon-pill"
-            type="button"
-            aria-label="Toggle Sound"
-            aria-pressed="false"
-          >
-            <span id="audio-icon" aria-hidden="true">♪</span>
-          </button>
+          <div class="pill ring-pill" aria-label="Mandala Rings Progress">
+            <span class="ring-label">RING</span>
+            <span id="hud-layers" class="pill-value">0/3</span>
+          </div>
         </div>
       </header>
 
-      <footer class="hud-bottom" aria-label="Craft Controls">
-        <button id="btn-undo" class="pill pill-btn control-btn" type="button" aria-label="Undo last move" disabled>
+      <footer id="hud-bottom" class="hud-bottom hidden" aria-label="Craft Controls">
+        <button id="btn-undo" class="pill pill-btn control-btn control-undo" type="button" aria-label="Undo last move" disabled>
           <span class="btn-icon" aria-hidden="true">↶</span>
           <span>Undo</span>
         </button>
-        <button id="btn-hint" class="pill pill-btn control-btn" type="button" aria-label="Show gentle hint">
+        <button id="btn-hint" class="pill pill-btn control-btn control-hint" type="button" aria-label="Show gentle hint">
           <span class="btn-icon" aria-hidden="true">✦</span>
           <span>Hint</span>
         </button>
-        <button id="btn-reset" class="pill pill-btn control-btn" type="button" aria-label="Restart pattern">
+        <button id="btn-reset" class="pill pill-btn control-btn control-reset" type="button" aria-label="Restart pattern">
           <span class="btn-icon" aria-hidden="true">↻</span>
           <span>Restart</span>
         </button>
       </footer>
 
-      <section id="overlay-gallery" class="gallery-sheet hidden" role="dialog" aria-label="Atelier Pattern Gallery">
-        <div class="gallery-header">
+      <!-- =============================================================== -->
+      <!-- SETTINGS DRAWER (24h Solar Override, 5 Visual Themes, Feedback) -->
+      <!-- =============================================================== -->
+      <section id="overlay-settings" class="sheet-panel hidden" role="dialog" aria-label="Atelier Settings">
+        <div class="sheet-header">
+          <div>
+            <p class="modal-eyebrow">ATELIER CUSTOMIZATION</p>
+            <h2 class="sheet-title">Settings</h2>
+          </div>
+          <button id="btn-close-settings" class="pill pill-btn icon-pill" type="button" aria-label="Close Settings">
+            ✕
+          </button>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <div>
+              <h3 class="settings-heading">Day &amp; Night Solar Cycle</h3>
+              <p id="settings-solar-readout" class="settings-sub">Auto · Real-world time (12:30 · Noon)</p>
+            </div>
+            <button id="btn-solar-auto" class="toggle-chip is-on" type="button" aria-pressed="true">
+              Auto
+            </button>
+          </div>
+
+          <div class="solar-slider-row">
+            <span class="slider-end">00:00</span>
+            <input
+              id="input-solar-hour"
+              class="solar-slider"
+              type="range"
+              min="0"
+              max="23.75"
+              step="0.25"
+              value="12.5"
+              aria-label="Solar Time of Day Override"
+            />
+            <span class="slider-end">24:00</span>
+          </div>
+
+          <div class="solar-presets" role="group" aria-label="Time of Day Presets">
+            <button class="preset-chip" type="button" data-solar-preset="6.5">Dawn</button>
+            <button class="preset-chip" type="button" data-solar-preset="12.5">Noon</button>
+            <button class="preset-chip" type="button" data-solar-preset="18.25">Sunset</button>
+            <button class="preset-chip" type="button" data-solar-preset="23.0">Night</button>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <h3 class="settings-heading">Visual Design Theme</h3>
+          <p class="settings-sub">Transforms raytraced lighting, materials &amp; pearl surfaces live.</p>
+          <div id="settings-theme-grid" class="settings-theme-grid"></div>
+        </div>
+
+        <div class="settings-card settings-toggle-list">
+          <div class="settings-toggle-row">
+            <div>
+              <h3 class="settings-heading">Soundscape &amp; Chimes</h3>
+              <p class="settings-sub">Rising streak chimes &amp; solar ambient harp</p>
+            </div>
+            <button id="btn-settings-sound" class="toggle-chip is-on" type="button" aria-pressed="true">
+              On
+            </button>
+          </div>
+          <div class="settings-toggle-row">
+            <div>
+              <h3 class="settings-heading">Haptics &amp; Tactile Feedback</h3>
+              <p class="settings-sub">Subtle vibration pulses on stitches &amp; milestones</p>
+            </div>
+            <button id="btn-settings-haptics" class="toggle-chip is-on" type="button" aria-pressed="true">
+              On
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- PATTERN GALLERY DRAWER                                          -->
+      <!-- =============================================================== -->
+      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Atelier Pattern Gallery">
+        <div class="sheet-header">
           <div>
             <p class="modal-eyebrow">ATELIER COLLECTION</p>
-            <h2 class="gallery-title">Pearl Gallery</h2>
+            <h2 class="sheet-title">Pearl Gallery</h2>
           </div>
           <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Gallery">
             ✕
@@ -89,22 +255,44 @@
         <div id="gallery-grid" class="gallery-grid" aria-label="Curated Embroidery Patterns"></div>
       </section>
 
+      <!-- =============================================================== -->
+      <!-- SILK TRAY FULL MODAL                                            -->
+      <!-- =============================================================== -->
       <section id="overlay-tray-full" class="modal-card hidden" role="dialog" aria-label="Silk Tray Full">
-        <h2 class="modal-title">Silk tray is full</h2>
-        <p class="modal-copy">No rush — step back a move or start this pattern fresh.</p>
+        <p class="modal-eyebrow">HOLDING TRAY FULL</p>
+        <h2 class="modal-title">All 5 slots occupied</h2>
+        <p class="modal-copy">Step back a move to free a direct stitch, or try this pattern fresh.</p>
         <div class="modal-actions">
           <button id="btn-tray-undo" class="modal-btn modal-btn-primary" type="button">Undo Move</button>
           <button id="btn-tray-restart" class="modal-btn" type="button">Restart</button>
         </div>
       </section>
 
-      <section id="overlay-complete" class="modal-card hidden" role="dialog" aria-label="Pattern Complete">
-        <p class="modal-eyebrow">EMBROIDERY COMPLETE</p>
-        <h2 id="complete-title" class="modal-title">Rose Heart</h2>
-        <p id="complete-stats" class="modal-copy">Stitched calmly in 9 moves · Saved to Gallery.</p>
+      <!-- =============================================================== -->
+      <!-- CELEBRATORY COMPLETION MODAL (Score, Stars, Streak, Clean %)    -->
+      <!-- =============================================================== -->
+      <section id="overlay-complete" class="modal-card modal-complete hidden" role="dialog" aria-label="Pattern Complete">
+        <p class="modal-eyebrow">MASTERPIECE COMPLETE</p>
+        <div id="complete-stars" class="complete-stars" aria-label="Mastery Stars">★★★</div>
+        <h2 id="complete-title" class="modal-title">Jewel Heart</h2>
+        <div class="complete-metrics">
+          <div class="metric-tile">
+            <span class="metric-label">LUSTER SCORE</span>
+            <strong id="complete-score" class="metric-value">0</strong>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">PEAK STREAK</span>
+            <strong id="complete-streak" class="metric-value">0×</strong>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">DIRECT CRAFT</span>
+            <strong id="complete-clean" class="metric-value">100%</strong>
+          </div>
+        </div>
+        <p id="complete-bonus-line" class="modal-copy">Saved to Atelier Gallery.</p>
         <div class="modal-actions">
           <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
-          <button id="btn-replay-level" class="modal-btn" type="button">Stitch Again</button>
+          <button id="btn-replay-level" class="modal-btn" type="button">Replay</button>
         </div>
       </section>
 

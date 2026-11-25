@@ -1,87 +1,43 @@
-# Spec 01 — Game Vision & Mechanics: **Pearl Loom** (Living Spec)
+# Spec 01 — Game Vision & Mechanics: **Pearl Loom v2.0** (Living Spec)
 
 - **Title**: **Pearl Loom**
-- **Status**: `Locked` (Core Vision) · `Prototyping` (Vertical Slices)
+- **Status**: `Locked` (v2.0 Rework)
 - **Last Updated**: 2026-11-24
 
-> **Pearl Loom** is a relaxing, zero-timer, zero-stress tactile craft puzzle designed for iPhone 16 — blending the satisfying directional untangling of *Arrow Jam*, the calm deductive planning of *Sudoku*, and the luminous beauty of *Pearl Embroidery*, rendered in real time with **WebGPU raytracing** and **TinyGo WebAssembly**.
+> **Pearl Loom** is a vibrant, deeply satisfying, zero-timer tactile puzzle craft game for iPhone 16 — fusing the honest spatial deduction of *Arrow Jam* & *Sudoku*, the juicy escalating reward stack of *Balatro* & *Vampire Survivors*, and real-time **WebGPU raytraced** jewelry/embroidery art across 5 distinct visual themes and a continuous 24-hour real-world solar cycle.
 
 ---
 
-## 1. Core Experience & Design Pillars (`Status: Locked`)
+## 1. Core Design Pillars (`Status: Locked`)
 
-1. **Zero Stress, Zero Timers, Zero Ads**:
-   - Never real-time or time-critical. Playable with one thumb at your own pace over morning coffee or winding down in bed.
-   - No harsh red error flashes, no buzzers, no punishing "Game Over" screens.
-2. **Tactile Raytraced Craftsmanship**:
-   - Every pearl is a physically shaded, real-time raytraced glossy/iridescent bead with specular highlights, soft cast shadows, and subtle reflections on a warm woven linen & champagne-brass embroidery atelier.
-3. **Living Real-World Time of Day (Continuous Solar & Acoustic Flow)**:
-   - **Lighting**: No manual Day/Night toggle and no stepped theme jumps. The WebGPU raytracer reads the real-world local clock (`hour ∈ [0.0, 24.0)` continuously) and imperceptibly glides sun direction, shadow elongation, light warmth, linen tint, and candle/moonlight balance across the entire 24-hour cycle:
-     - **Dawn (~05:30–08:30)**: soft blush rose-gold low morning sun, long gentle shadows.
-     - **Midday (~09:30–15:30)**: airy sunlit cream-linen atelier, high soft window light, vivid pastel luster.
-     - **Golden Hour (~16:30–19:30)**: warm honey-amber raking sun, rich golden reflections on the brass hoop and pearls.
-     - **Evening & Night (~20:00–05:00)**: serene moonlit silver-indigo ambient fill balanced with a warm bedside candle/lamp glow so the pearls shimmer gently without bright white eye strain.
-   - **Procedural Generative Audio (Zero `.mp3`/`.wav` assets)**:
-     - 100% synthesized in real time using the **Web Audio API** (offline-capable, tiny footprint).
-     - Harmonic scale, chord density, filter warmth, and tempo drift continuously with the real-world clock (airy morning kalimba/harp → warm afternoon Rhodes/marimba → amber golden-hour pads → soft felt-piano / music-box lullaby at night).
-     - Tactile procedural foley: delicate porcelain/pearl clinks, soft wooden tap on blocked pieces, and gentle silk-stitch chimes tuned harmoniously to the active chord. Includes a quiet 1-tap audio mute toggle.
-
----
-
-## 2. Core Gameplay Loop (`Status: Locked`)
-
-### Single-Screen Portrait Layout (`393×852` iPhone 16)
-1. **Top (~38%) — The Embroidery Hoop**:
-   - A raytraced champagne-brass embroidery hoop stretching fine linen fabric with delicate stitch guide dots forming the current pearl artwork.
-   - Displays **2–3 active stitch color requests** (the pearl colors currently being embroidered onto the hoop).
-   - As each matching pearl arrives, it smoothly arcs onto its exact stitch point on the hoop with a soft pearlescent shimmer.
-2. **Middle (~10%) — The 5-Slot Silk Holding Tray**:
-   - Five recessed porcelain/silk pearl dimples.
-   - Freed pearls whose color is *not* currently requested rest calmly here.
-   - The instant a matching stitch color becomes active on the hoop, any waiting pearls of that color automatically glide up and stitch themselves onto the artwork!
-3. **Bottom (~46%) — The Pearl Untangle Board**:
-   - A clean grid holding directional pearl tiles / short pearl arrows (pointing `Up`, `Down`, `Left`, or `Right`), each colored to match pearls needed by the embroidery pattern.
-   - **Tap Rule**:
-     - If the ray in the tile's arrow direction is clear to the board edge, tapping it smoothly glides the tile off the board and releases its pearl(s) into either the **Embroidery Hoop** (if color matches an active stitch) or the **Silk Holding Tray** (otherwise).
-     - If blocked by another tile, tapping gives a gentle, soft tactile wobble + quiet wooden tap sound (no penalty).
-4. **Zero-Stress Comfort Helpers**:
-   - **Unlimited 1-Tap Undo**: cleanly rewinds the last move(s) without friction.
-   - **Calm Visual Hint**: softly pulses a subtle golden halo around a mathematically safe unblocked tile (computed deterministically by TinyGo WASM).
-   - **Tray-Full Recovery**: if all 5 silk slots fill with no auto-stitchable pearl, a calm gentle banner offers **Undo** or **Restart Pattern** — never a punishing "Game Over".
+1. **Honest Deduction — Zero Visual Spoilers**:
+   - Every tile on the untangle board renders with identical crispness and a permanent, sharp directional chevron arrow (`▲ ► ▼ ◄`). Free tiles are NEVER given away visually.
+   - Tapping a blocked tile clearly shows *why* via a physical recoil lunge + brief highlight pulse on the exact blocking neighbor.
+2. **Rich, Substantive Multi-Layer Puzzles (`5×5` → `7×7`, `21–45` Pearls)**:
+   - Upgraded 64-bit simulation (`MaxGridTiles = 49`, `MaxHoopPearls = 49`) supporting larger, deeper, genuinely engaging puzzles organized into **3 Embroidery Layers** (*Core*, *Mid Ring*, *Outer Crown*).
+3. **Balatro × Vampire Survivors Reward & Tension System**:
+   - **Direct-Stitch Clean Streak & Multiplier (`×1 → ×12`)**: Stitching directly without touching the 5-slot tray builds your multiplier, scales micro-screenshake & haptics, climbs harmonic audio pitch, and pops floating callouts (`+300 ×3!`).
+   - **Color Clear & Tray Cascade**: Completing an active color launches a luminous hoop shockwave, pulses the background lighting with that jewel's color, awards `+500`, and triggers a staggered Balatro-style cascade draining waiting tray pearls!
+   - **Layer / Ring Complete Bonus**: Completing a full embroidery ring triggers a golden wave across the desk, harp fanfare, and `+750 RING BONUS`.
+   - **Subtle Tray Tension**: Filling slots `3/5` → `4/5` → `5/5` escalates a rhythmic warm/crimson tension glow on the tray rim and subtle low harmonic pulse.
+   - **Meaningful Mastery (No Move Counter)**: Awards **Luster Score**, **Peak Streak**, **Clean %**, and **1–3 Stars (`★–★★★`)** saved in the Gallery.
+4. **High-Pop Jewel Graphics & 5 Distinct Visual Themes**:
+   - **0 — Jewel Atelier (Default)**: Rich warm espresso-walnut desk, luminous ivory hoop cloth, vivid jewel-enamel pearls (Ruby, Cobalt, Emerald, Solar Gold, Amethyst, Turquoise) with crisp specular highlights & shadows.
+   - **1 — Cyber Neon**: Deep midnight cyber-grid desk, glowing neon cyan/magenta tubes, chrome reflections, radiant emissive neon pearls.
+   - **2 — Noir Monochrome (B&W)**: High-contrast Art-Deco black & white with 6 distinct geometric pearl inlays (Solid White, Solid Black, Ring, Double Band, Split Half, Diamond) for 100% monochrome readability.
+   - **3 — Pop Art**: Vibrant comic halftone yellow/blue backdrop, bold ink-black borders, punchy Warhol primary colors.
+   - **4 — Stained Glass**: Cathedral midnight-teal desk with jewel-like glowing colored light pools.
+5. **Real-World 24-Hour Solar Day/Night Cycle (Default Auto + User Override)**:
+   - Syncs continuously to the local clock by default (`Auto`) across all themes, transforming sun/moon angle, light warmth, twilight dusk, starlight/candlelight, and procedural audio.
+   - Users can override or scrub any hour (`00:00 – 23:59`) live in **Settings** (or return to `Auto` real-time sync with one tap).
+6. **Living Start Menu, Mode Selector & Settings**:
+   - Vibrant tactile Start Menu floating over the live raytraced 3D scene with Mode Selector (**Journey**, **Daily Stitch**, **Endless Mandala**), instant **Visual Theme Switcher**, and **Settings** (24h Solar Override slider, Theme, Sound, Haptics/Screenshake).
 
 ---
 
-## 3. Artworks, Puzzle Generation & Gallery (`Status: Locked`)
+## 2. Iteration Log
 
-- **Hybrid Artwork System**:
-  1. **Curated Handcrafted Motifs**: charming recognizable pearl artworks (e.g., *Sakura Blossom*, *Crescent Moon*, *Butterfly*, *Cozy Cat*, *Wildflower*, *Seashell*, *Clover*, *Heart*) progressing gently in size and color richness.
-  2. **Endless Procedural Symmetrical Mandalas**: once past curated patterns (or selectable anytime, plus a calendar-seeded **Daily Stitch**), TinyGo WASM procedurally generates balanced 4-fold / 6-fold / 8-fold radial pearl mandalas so there is never a hard end.
-- **Guaranteed-Solvable TinyGo Generator**:
-  - Untangle boards are constructed deterministically in `sim/` (reverse-peeling / DAG solvability verification) so every single puzzle is **100% mathematically solvable** without guessing or dead-end traps.
-- **Local Embroidery Gallery**:
-  - Completed pearl artworks are saved locally (`localStorage`) so the player can revisit and admire her finished shimmering collection anytime, lit by the current real-world sun/moonlight.
-
----
-
-## 4. Vertical Slice Roadmap (`Status: Locked — All Slices Complete`)
-
-| Slice | Goal | Acceptance Checks |
-| :--- | :--- | :--- |
-| **Slice 0** *(Done)* | Proof-of-pipeline: TinyGo WASM + WebGPU raytracer + Safari PWA + GitHub Pages HTTPS + autonomous Playwright E2E | `42 KB` WASM, 0 WebGPU errors, live HTTPS PWA verified. |
-| **Slice 1** *(Done)* | **Pearl Loom Core Playable Puzzle + Continuous Solar Raytracing**: Real-world 24h sunlit/moonlit linen atelier shader, Top Embroidery Hoop + 5-slot Silk Tray + Bottom Directional Pearl Untangle Grid, starter artworks, unlimited Undo, gentle Hint, guaranteed-solvable TinyGo generator, and autonomous AI solver playtest (`timeOfDayOverride` visual checks for Noon, Golden Hour, Night). | Passed (`d0f20e4`). |
-| **Slice 2** *(Done)* | **Procedural Time-of-Day Web Audio & Tactile Polish**: Zero-asset generative Web Audio soundtrack adapting continuously to real-world hour, harmonious synthesized pearl clinks & stitch chimes, subtle mute pill, smooth pearl-flight arcs & completion shimmer celebration. | Passed (`fae5ff7`). |
-| **Slice 3** *(Done)* | **Curated Collection + Endless Procedural Mandalas + Local Embroidery Gallery**: 8 Kishōtenketsu motifs (9–24 pearls), TinyGo procedural symmetrical mandala generator + Daily Stitch, and calm single-screen Gallery drawer with `localStorage` persistence. | Passed (`c03c1a3`). |
-| **Slice 4** *(Done)* | **Performance, Battery, Initial Load Optimization & Live HTTPS Release**: Replaced Go `map` in solver with zero-alloc `fixedMaskSet` + `-opt=z -panic=trap` (**-39% WASM size**: `97 KB` → `59 KB` raw / `30.8 KB` gzip!), `WebAssembly.instantiateStreaming`, HTML `<link rel="preload">`, parallel WASM+WebGPU boot, 2-tier calm (`4 FPS`) → deep-idle (`1 FPS`) + Gallery/background `0 FPS` battery engine, empty-linen WGSL shadow early-out, bespoke Pearl Loom Home Screen icons, and live HTTPS release to GitHub Pages. | Verified locally & on live HTTPS GitHub Pages. |
-
----
-
-## 5. Iteration Log
-
-| Date | Slice / Experiment | Outcome | Notes |
+| Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
-| 2026-11-24 | Slice 0 — Hello Raytracer | **Verified (Pass)** | `42 KB` TinyGo WASM (`wasip1 c-shared`), 3-bounce WebGPU WGSL raytracer, 0 validation errors, live HTTPS GitHub Pages deployed & verified. |
-| 2026-11-24 | Design Interview (`/grill-me`) | **Locked Core Vision** | Defined **Pearl Loom**: relaxing Arrow-Jam untangle + 5-slot silk tray + Pearl Embroidery hoop, continuous 24h real-world solar raytracing, zero-asset procedural time-of-day Web Audio, curated motifs + endless procedural mandalas, unlimited gentle Undo + Hint. |
-| 2026-11-24 | Slice 1 — Core Puzzle & 24h Solar Raytracer | **Verified (Pass)** | `89 KB` WASM (`12.6 KB` gzip JS), 5/5 Go suites incl. 50-seed 5-slot-tray solvability fuzzer, WebGPU raytracer w/ spatial early-out & continuous solar+candle lighting (verified visually at Noon, Golden Hour, Night), full real-tap autonomous solve of *Rose Heart*, Hint/Undo/Blocked wobble, and idle battery throttle verified in `39.3s`. |
-| 2026-11-24 | Slice 2 — Procedural 24h Audio & Tactile Polish | **Verified (Pass)** | Zero-asset Web Audio API generative soundscape (`src/audio/soundscape.ts`) continuously morphing scale/filter/cadence with real-world solar time + harmonious pearl stitch chimes, tray taps, wood knock & completion arpeggio; persisted Mute pill; `✦ DONE` badge; fixed top-bar wrapping on `393px` width. |
-| 2026-11-24 | Slice 3 — 8 Curated Motifs, Mandalas, Daily & Gallery | **Verified (Pass)** | Expanded to 8 Kishōtenketsu motifs (9–24 pearls, 3×3→5×5) + procedural 4/5/6/8-fold Mandala generator (100/100 fuzz solvable in `0.06s`) + calendar-seeded Daily Stitch + frosted-glass Atelier Gallery with `localStorage` persistence verified across reload (`97 KB` WASM, `15.9 KB` gzip JS). |
-| 2026-11-24 | Slice 4 — Performance, Battery & Initial Load Pass | **Verified (Pass)** | Slashed `game.wasm` by **39%** (`97 KB` → `59 KB` raw / `30.8 KB` gzip) via zero-alloc `fixedMaskSet` + `-opt=z -panic=trap`; added streaming WASM compile, parallel WASM+WebGPU boot, `<link rel="preload">`, empty-linen WGSL shadow early-out, 2-tier deep-idle (`1 FPS`) + Gallery/background `0 FPS` battery pause, and bespoke Pearl Loom Home Screen icons. |
+| 2026-11-24 | Slices 0–4 (v1.0) | **Shipped & Playtested** | Real-device playtest revealed: pastel washout, unblocked tile spoilers, boards too small/easy (`3×3`/`4×4`), meaningless move counter, low reward juice, invisible day/night override, and missing Start Menu. |
+| 2026-11-24 | **Pearl Loom v2.0 Overhaul** | **In Progress** | Full redesign addressing every single playtest finding: `uint64` 5×5–7×7 boards, zero-spoiler tiles + blocker pulse, Balatro/VS score/mult/streak/layer/cascade/shake/haptics juice, 5 high-pop raytraced themes, visible 24h solar override slider, and vibrant Start Menu + Settings. |

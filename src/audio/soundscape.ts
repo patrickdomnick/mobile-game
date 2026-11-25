@@ -2,8 +2,8 @@ import type { AudioEventCounters } from '../wasmBridge';
 
 const MUTE_STORAGE_KEY = 'pearl-loom-muted-v1';
 
-// Pentatonic / Lydian degrees in semitones above root — always consonant, never dissonant
-const SOLAR_SCALE_SEMITONES = [0, 2, 4, 7, 9, 12, 14, 16, 19];
+// Pentatonic / Lydian degrees in semitones above root — always consonant, climbs dramatically with streak!
+const SOLAR_SCALE_SEMITONES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26];
 
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
@@ -28,10 +28,28 @@ export interface AudioDiagnostics {
   notesScheduled: number;
 }
 
+export interface SyncAudioContext {
+  streak: number;
+  trayTension: number;
+  hapticsEnabled: boolean;
+}
+
+function vibratePattern(enabled: boolean, pattern: number | number[]): void {
+  if (!enabled) return;
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    // Safari or desktop without vibration API — safely ignore
+  }
+}
+
 /**
- * Zero-asset procedural Web Audio soundscape & tactile foley engine.
- * Continuously morphs harmonic warmth, filter cutoff, root pitch, and droplet cadence
- * based on real-world solar time of day (hours in [0, 24)).
+ * Zero-asset procedural Web Audio soundscape & Balatro/Vampire-Survivors tactile foley engine.
+ * - Continuously morphs harmonic warmth & pitch across the 24-hour real-world solar cycle.
+ * - Escalates pitch & crystalline overtones on consecutive Direct-Stitch streaks!
+ * - Plays celebratory swells on Color Clear, Layer/Ring Complete, and Pattern Completion.
  */
 export class ProceduralSoundscape {
   private ctx: AudioContext | null = null;
@@ -70,18 +88,19 @@ export class ProceduralSoundscape {
 
   /** Must be called from a user gesture (pointerdown / click) to unlock iOS Safari Web Audio. */
   unlock(): void {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioCtx =
+      window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
 
     if (!this.ctx) {
       try {
         this.ctx = new AudioCtx();
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = this.muted ? 0 : 0.42;
+        this.masterGain.gain.value = this.muted ? 0 : 0.44;
 
         this.filter = this.ctx.createBiquadFilter();
         this.filter.type = 'lowpass';
-        this.filter.frequency.value = 1600;
+        this.filter.frequency.value = 1800;
         this.filter.Q.value = 0.7;
 
         this.filter.connect(this.masterGain);
@@ -104,14 +123,14 @@ export class ProceduralSoundscape {
   private setupWarmPad(): void {
     if (!this.ctx || !this.filter) return;
     this.padGain = this.ctx.createGain();
-    this.padGain.gain.value = 0.032;
+    this.padGain.gain.value = 0.028;
 
     this.padOscA = this.ctx.createOscillator();
     this.padOscB = this.ctx.createOscillator();
     this.padOscA.type = 'sine';
     this.padOscB.type = 'sine';
-    this.padOscA.frequency.value = midiToHz(50); // D3
-    this.padOscB.frequency.value = midiToHz(57); // A3 (warm fifth)
+    this.padOscA.frequency.value = midiToHz(50);
+    this.padOscB.frequency.value = midiToHz(57);
 
     this.padOscA.connect(this.padGain);
     this.padOscB.connect(this.padGain);
@@ -131,7 +150,7 @@ export class ProceduralSoundscape {
     if (this.ctx && this.masterGain) {
       const now = this.ctx.currentTime;
       this.masterGain.gain.cancelScheduledValues(now);
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.42, now, 0.06);
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.44, now, 0.06);
       if (!muted && this.ctx.state === 'suspended') {
         this.ctx.resume().catch(() => {});
       }
@@ -158,20 +177,16 @@ export class ProceduralSoundscape {
   private computeSolarParams(hours: number) {
     const h = ((hours % 24) + 24) % 24;
     const sinElev = Math.sin(((h - 7.0) / 24.0) * Math.PI * 2);
-    const daylight = smoothstep(-0.38, 0.48, sinElev);
-    const horizonWarmth = Math.exp(-Math.pow((sinElev - 0.04) / 0.34, 2));
+    const daylight = smoothstep(-0.36, 0.46, sinElev);
+    const horizonWarmth = Math.exp(-Math.pow((sinElev - 0.02) / 0.30, 2));
 
-    // Smooth root pitch drift: C4 (60) at cozy midnight -> D4 (62) at sunlit noon
     const rootMidi = lerp(60, 62, daylight);
-    // Lowpass warmth: 760 Hz lullaby felt-tone at night -> 2400 Hz airy morning/noon sparkle
-    const cutoffHz = lerp(760, 2400, daylight) - horizonWarmth * 350;
-    // Ambient droplet spacing: slower at night (3.6s), breezier in daylight (2.1s)
-    const intervalMs = lerp(3600, 2100, daylight);
+    const cutoffHz = lerp(880, 2800, daylight) - horizonWarmth * 300;
+    const intervalMs = lerp(3800, 2200, daylight);
 
     return { daylight, horizonWarmth, rootMidi, cutoffHz, intervalMs };
   }
 
-  /** Continuously glides filter warmth and ambient pad pitch with the real-world clock. */
   applySolarAtmosphere(hours: number): void {
     this.timeOfDayHours = hours;
     if (!this.ctx || !this.filter || !this.padOscA || !this.padOscB) return;
@@ -179,11 +194,11 @@ export class ProceduralSoundscape {
     const { rootMidi, cutoffHz, daylight } = this.computeSolarParams(hours);
     const now = this.ctx.currentTime;
 
-    this.filter.frequency.setTargetAtTime(Math.max(550, cutoffHz), now, 0.4);
+    this.filter.frequency.setTargetAtTime(Math.max(620, cutoffHz), now, 0.4);
     this.padOscA.frequency.setTargetAtTime(midiToHz(rootMidi - 12), now, 0.6);
     this.padOscB.frequency.setTargetAtTime(midiToHz(rootMidi - 5), now, 0.6);
     if (this.padGain) {
-      this.padGain.gain.setTargetAtTime(lerp(0.024, 0.036, daylight), now, 0.5);
+      this.padGain.gain.setTargetAtTime(lerp(0.020, 0.032, daylight), now, 0.5);
     }
   }
 
@@ -193,7 +208,7 @@ export class ProceduralSoundscape {
     peakGain: number,
     oscType: OscillatorType = 'sine',
     delaySec = 0,
-    attackSec = 0.014,
+    attackSec = 0.012,
   ): void {
     if (!this.ctx || !this.filter) return;
     const start = this.ctx.currentTime + delaySec;
@@ -215,6 +230,13 @@ export class ProceduralSoundscape {
     this.notesScheduled++;
   }
 
+  playUiTap(hapticsEnabled: boolean): void {
+    vibratePattern(hapticsEnabled, 8);
+    if (!this.ctx || this.muted) return;
+    const { rootMidi } = this.computeSolarParams(this.timeOfDayHours);
+    this.playTone(midiToHz(rootMidi + 12), 0.12, 0.06, 'sine', 0, 0.005);
+  }
+
   private scheduleNextAmbientDroplet(): void {
     if (this.ambientTimer !== null) {
       window.clearTimeout(this.ambientTimer);
@@ -224,18 +246,18 @@ export class ProceduralSoundscape {
 
     this.ambientTimer = window.setTimeout(() => {
       if (this.ctx && this.ctx.state === 'running' && !this.muted) {
-        const deg = SOLAR_SCALE_SEMITONES[this.melodyStep % SOLAR_SCALE_SEMITONES.length];
+        const deg = SOLAR_SCALE_SEMITONES[this.melodyStep % 7];
         const freq = midiToHz(rootMidi + deg);
         const type: OscillatorType = daylight > 0.55 ? 'triangle' : 'sine';
-        this.playTone(freq, lerp(3.4, 2.2, daylight), 0.048, type, 0, 0.045);
-        this.melodyStep = (this.melodyStep + 2) % SOLAR_SCALE_SEMITONES.length;
+        this.playTone(freq, lerp(3.4, 2.2, daylight), 0.04, type, 0, 0.045);
+        this.melodyStep = (this.melodyStep + 2) % 7;
       }
       this.scheduleNextAmbientDroplet();
     }, intervalMs + jitter);
   }
 
-  /** Consumes WASM simulation event counters and plays harmonious procedural foley. */
-  syncEvents(events: AudioEventCounters): void {
+  /** Consumes WASM simulation event counters and plays Balatro/VS escalating foley & haptics. */
+  syncEvents(events: AudioEventCounters, info: SyncAudioContext): void {
     if (!this.lastEvents) {
       this.lastEvents = { ...events };
       return;
@@ -244,58 +266,95 @@ export class ProceduralSoundscape {
     const prev = this.lastEvents;
     this.lastEvents = { ...events };
 
-    if (!this.ctx || this.muted) return;
-
     const { rootMidi, daylight } = this.computeSolarParams(this.timeOfDayHours);
 
     if (events.completeEvents > prev.completeEvents) {
-      // Luminous ascending harp/celesta completion bloom
-      const chord = [0, 4, 7, 12, 16];
-      chord.forEach((semi, idx) => {
-        this.playTone(midiToHz(rootMidi + semi), 1.8, 0.11, 'sine', idx * 0.085, 0.015);
-        this.playTone(midiToHz(rootMidi + semi + 12), 1.2, 0.035, 'triangle', idx * 0.085 + 0.01, 0.01);
-      });
+      vibratePattern(info.hapticsEnabled, [24, 40, 32, 40, 65]);
+      if (this.ctx && !this.muted) {
+        const chord = [0, 4, 7, 11, 12, 16, 19];
+        chord.forEach((semi, idx) => {
+          this.playTone(midiToHz(rootMidi + semi), 2.0, 0.12, 'sine', idx * 0.075, 0.012);
+          this.playTone(midiToHz(rootMidi + semi + 12), 1.3, 0.045, 'triangle', idx * 0.075 + 0.01, 0.008);
+        });
+      }
       return;
     }
 
+    if (events.layerClearEvents > prev.layerClearEvents) {
+      // Vampire Survivors / Nintendo triumphant golden ring milestone arpeggio!
+      vibratePattern(info.hapticsEnabled, [18, 28, 36]);
+      if (this.ctx && !this.muted) {
+        [0, 7, 12, 16, 19].forEach((semi, idx) => {
+          this.playTone(midiToHz(rootMidi + semi), 1.1, 0.11, 'triangle', idx * 0.055, 0.008);
+        });
+      }
+    }
+
+    if (events.colorClearEvents > prev.colorClearEvents) {
+      // Balatro Color Clear punchy harmonic burst!
+      vibratePattern(info.hapticsEnabled, [14, 22, 24]);
+      if (this.ctx && !this.muted) {
+        [4, 7, 11, 16].forEach((semi, idx) => {
+          this.playTone(midiToHz(rootMidi + semi), 0.78, 0.115, 'sine', idx * 0.045, 0.006);
+        });
+      }
+    }
+
     if (events.stitchEvents > prev.stitchEvents) {
-      // Porcelain-and-pearl harmonic chime tuned to the stitched pearl's color
-      const semi = SOLAR_SCALE_SEMITONES[events.lastStitchColor % SOLAR_SCALE_SEMITONES.length];
-      const baseHz = midiToHz(rootMidi + semi);
-      this.playTone(baseHz, 0.85, 0.14, 'sine', 0, 0.008);
-      this.playTone(baseHz * 2.0, 0.42, lerp(0.025, 0.055, daylight), 'triangle', 0.006, 0.006);
+      // Balatro-style RISING PITCH with Clean Direct-Stitch Streak!
+      const streakStep = Math.min(Math.max(0, info.streak - 1), SOLAR_SCALE_SEMITONES.length - 1);
+      const semi = SOLAR_SCALE_SEMITONES[streakStep];
+      vibratePattern(info.hapticsEnabled, Math.min(22, 9 + streakStep));
+      if (this.ctx && !this.muted) {
+        const baseHz = midiToHz(rootMidi + semi);
+        this.playTone(baseHz, 0.72, 0.145, 'sine', 0, 0.006);
+        this.playTone(baseHz * 2.0, 0.36, lerp(0.032, 0.075, clamp01(daylight * 0.6 + streakStep * 0.06)), 'triangle', 0.005, 0.005);
+        if (info.streak >= 5) {
+          // Sparkling fifth harmonic shimmer on high streaks!
+          this.playTone(baseHz * 1.5, 0.45, 0.048, 'sine', 0.025, 0.008);
+        }
+      }
     }
 
     if (events.trayEvents > prev.trayEvents) {
-      // Soft porcelain dimple tap
-      const freq = midiToHz(rootMidi - 5);
-      this.playTone(freq, 0.24, 0.09, 'triangle', 0, 0.006);
+      vibratePattern(info.hapticsEnabled, info.trayTension >= 0.7 ? [14, 24, 14] : 10);
+      if (this.ctx && !this.muted) {
+        // Subtle tension undertone as tray approaches full (4/5 or 5/5)
+        const base = midiToHz(rootMidi - 5);
+        this.playTone(base, 0.24, 0.095, 'triangle', 0, 0.006);
+        if (info.trayTension >= 0.65) {
+          this.playTone(midiToHz(rootMidi - 12), 0.38, 0.085, 'sine', 0.02, 0.01);
+        }
+      }
     }
 
     if (events.blockedEvents > prev.blockedEvents) {
-      // Warm gentle wood knock (non-punishing tactile feedback)
-      if (this.ctx && this.filter) {
+      // Crisp causal collision double-knock (clearly communicates "blocked by another tile!")
+      vibratePattern(info.hapticsEnabled, [14, 26, 10]);
+      if (this.ctx && this.filter && !this.muted) {
         const now = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
         const env = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(190, now);
-        osc.frequency.exponentialRampToValueAtTime(132, now + 0.065);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(220, now);
+        osc.frequency.exponentialRampToValueAtTime(118, now + 0.075);
         env.gain.setValueAtTime(0.001, now);
-        env.gain.linearRampToValueAtTime(0.09, now + 0.005);
-        env.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+        env.gain.linearRampToValueAtTime(0.11, now + 0.004);
+        env.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
         osc.connect(env);
         env.connect(this.filter);
         osc.start(now);
-        osc.stop(now + 0.09);
+        osc.stop(now + 0.1);
         this.notesScheduled++;
       }
     }
 
     if (events.undoEvents > prev.undoEvents) {
-      // Soft descending two-note sigh
-      this.playTone(midiToHz(rootMidi + 4), 0.22, 0.075, 'sine', 0, 0.008);
-      this.playTone(midiToHz(rootMidi), 0.28, 0.065, 'sine', 0.065, 0.008);
+      vibratePattern(info.hapticsEnabled, 8);
+      if (this.ctx && !this.muted) {
+        this.playTone(midiToHz(rootMidi + 4), 0.2, 0.075, 'sine', 0, 0.008);
+        this.playTone(midiToHz(rootMidi), 0.26, 0.065, 'sine', 0.06, 0.008);
+      }
     }
   }
 }

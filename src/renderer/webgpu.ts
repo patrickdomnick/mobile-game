@@ -136,7 +136,7 @@ export class WebGPURaytracer {
   }
 
   resize(maxDpr = 1.75): void {
-    const cap = this.isSoftwareAdapter ? 0.75 : maxDpr;
+    const cap = this.isSoftwareAdapter ? 0.45 : maxDpr;
     const dpr = Math.min(window.devicePixelRatio || 1, cap);
     const rect = this.canvas.getBoundingClientRect();
     const cssW = Math.max(1, Math.floor(rect.width || window.innerWidth));
