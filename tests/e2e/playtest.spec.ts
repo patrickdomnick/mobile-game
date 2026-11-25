@@ -277,6 +277,37 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       await page.screenshot({ path: path.join(RESULTS_DIR, 'blocker-feedback.png') });
     }
 
+    // 8b. Verify Zero-Spoiler Periodic Active-Color Pearl Wiggle & ACES-Matched 3D HUD Swatch Variables
+    const swatchVars = await page.evaluate(() => {
+      const dot = document.querySelector('#swatch-list .swatch-dot') as HTMLElement | null;
+      return dot
+        ? {
+            hi: dot.style.getPropertyValue('--sw-hi'),
+            mid: dot.style.getPropertyValue('--sw-mid'),
+            lo: dot.style.getPropertyValue('--sw-lo'),
+          }
+        : null;
+    });
+    expect(swatchVars).not.toBeNull();
+    expect(swatchVars!.hi).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(swatchVars!.mid).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(swatchVars!.lo).toMatch(/^#[0-9a-f]{6}$/i);
+
+    await page.evaluate(async () => {
+      await window.__GAME_TEST__!.stepTicks(230, true);
+    });
+    const wiggleIdx = await page.evaluate(() => window.__GAME_TEST__!.triggerActiveWiggle());
+    const afterWiggle = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(wiggleIdx).toBeGreaterThanOrEqual(0);
+    expect(afterWiggle.tiles[wiggleIdx]?.alive).toBe(true);
+    expect(afterWiggle.activeColors).toContain(afterWiggle.tiles[wiggleIdx]?.color);
+    expect(afterWiggle.isAnimating).toBe(true);
+    await page.evaluate(async () => {
+      await window.__GAME_TEST__!.stepTicks(40, true);
+    });
+    const afterWiggleSettle = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(afterWiggleSettle.isAnimating).toBe(false);
+
     // 9. Test Direct Stitches -> Hint (-250 score deduction) -> Undo (-150 score deduction)
     await page.evaluate(async () => {
       const st = window.__GAME_TEST__!.getState();

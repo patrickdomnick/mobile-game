@@ -21,6 +21,7 @@ type Tile struct {
 	Dir     uint8
 	Alive   bool
 	WobbleT float32
+	JiggleT float32
 }
 
 type prng struct {

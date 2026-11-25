@@ -317,6 +317,20 @@ fn intersectSphereAA(ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f3
   return res;
 }
 
+// Computes the exact 3D center of a board pearl, including pearl-only joyful wiggle & tiny hop
+// decoded from tl.posRad.y (0.22 + JiggleT * 0.10) while the tile card beneath stays rock-solid!
+fn boardPearlCenter(tl: PearlNode, pitch: f32) -> vec3<f32> {
+  let dir = u32(tl.props.y);
+  let backOff = -dirOffsetXZ(dir) * (pitch * 0.105);
+  let jT = clamp((tl.posRad.y - 0.22) * 10.0, 0.0, 1.0);
+  if (jT <= 0.002) {
+    return vec3<f32>(tl.posRad.x + backOff.x, 0.22, tl.posRad.z + backOff.y);
+  }
+  let wig = sin(jT * 21.991) * jT * (pitch * 0.095);
+  let hop = sin(jT * 3.14159) * 0.095;
+  return vec3<f32>(tl.posRad.x + backOff.x + wig, 0.22 + hop, tl.posRad.z + backOff.y);
+}
+
 fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
   var shadow: f32 = 1.0;
   let orig = p + vec3<f32>(0.0, 0.004, 0.0);
@@ -363,9 +377,7 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
       if (abs(p.x - tl.posRad.x) > pitch * 1.1 || abs(p.z - tl.posRad.z) > pitch * 1.1) {
         continue;
       }
-      let dir = u32(tl.props.y);
-      let backOff = -dirOffsetXZ(dir) * (pitch * 0.105);
-      let spCenter = vec3<f32>(tl.posRad.x + backOff.x, tl.posRad.y, tl.posRad.z + backOff.y);
+      let spCenter = boardPearlCenter(tl, pitch);
       if (intersectSphere(orig, sunDir, spCenter, tl.posRad.w) > 0.0) {
         shadow *= 0.46;
       }
@@ -814,11 +826,12 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
 
           tileCol = mix(tileCol * 0.80, tileCol, edgeBevel);
 
-          // Soft grounded contact AO directly under the seated pearl (ZERO cheap external halo!)
+          // Soft grounded contact AO directly under the seated/wiggling pearl (ZERO cheap external halo!)
           let dir = u32(tl.props.y);
-          let backOff = -dirOffsetXZ(dir) * (pitch * 0.105);
-          let distToPearl = length(dLocal - backOff);
-          let pearlAO = mix(0.60, 1.0, smoothstep(tl.posRad.w * 0.72, tl.posRad.w * 1.48, distToPearl));
+          let spC = boardPearlCenter(tl, pitch);
+          let distToPearl = length(p.xz - spC.xz);
+          let liftFade = clamp(1.0 - (spC.y - 0.22) * 4.0, 0.45, 1.0);
+          let pearlAO = mix(1.0 - 0.40 * liftFade, 1.0, smoothstep(tl.posRad.w * 0.72, tl.posRad.w * 1.48, distToPearl));
           tileCol *= pearlAO;
 
           let rimWidth = select(-0.022, -0.028, theme == 2u);
@@ -1028,9 +1041,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
       if (abs(pDesk.x - tl.posRad.x) > pitch * 0.70 || abs(pDesk.z - tl.posRad.z) > pitch * 0.70) {
         continue;
       }
-      let dir = u32(tl.props.y);
-      let backOff = -dirOffsetXZ(dir) * (pitch * 0.105);
-      let spCenter = vec3<f32>(tl.posRad.x + backOff.x, tl.posRad.y, tl.posRad.z + backOff.y);
+      let spCenter = boardPearlCenter(tl, pitch);
       let hit = intersectSphereAA(ro, rd, spCenter, tl.posRad.w, pixelScale);
       if (hit.cov > 0.002 && hit.t < bestT) {
         bestT = hit.t;

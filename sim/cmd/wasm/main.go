@@ -78,6 +78,11 @@ func simHint() int32 {
 	return int32(engine.ComputeHint())
 }
 
+//go:wasmexport sim_trigger_active_wiggle
+func simTriggerActiveWiggle() int32 {
+	return int32(engine.TriggerRandomActiveWiggle())
+}
+
 //go:wasmexport sim_scene_ptr
 func simScenePtr() uint32 {
 	return uint32(uintptr(unsafe.Pointer(&engine.Scene[0])))

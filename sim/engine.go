@@ -173,8 +173,10 @@ type Engine struct {
 	QueueLen   int
 	QueuePos   int
 	Remain     [NumColors]int
-	Active     [ActiveSlots]int
-	ColorGlowT [NumColors]float32
+	Active        [ActiveSlots]int
+	ColorGlowT    [NumColors]float32
+	wiggleRng     prng
+	lastWiggleIdx int
 
 	HintTileIdx int
 	HintPulse   float32
@@ -359,6 +361,8 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.ColorQueue = colorOrder
 	e.QueueLen = colorCount
 	e.QueuePos = 0
+	e.wiggleRng = newPRNG(art.Seed ^ 0x51C3D7A1)
+	e.lastWiggleIdx = -1
 	for i := 0; i < NumColors; i++ {
 		e.ColorGlowT[i] = 0
 	}
@@ -420,9 +424,53 @@ func (e *Engine) nextQueuedColor() int {
 	return -1
 }
 
+// triggerColorJiggle wiggles ONLY alive board pearls of color c (never non-active colors!).
+func (e *Engine) triggerColorJiggle(color uint8) {
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].Alive && e.Tiles[i].Color == color {
+			e.Tiles[i].JiggleT = 1.0
+		}
+	}
+}
+
+// TriggerRandomActiveWiggle picks 1 random alive pearl matching ANY currently active stitch color
+// (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a playful wiggle.
+func (e *Engine) TriggerRandomActiveWiggle() int {
+	if e.Phase != PhasePlaying {
+		return -1
+	}
+	var cands [MaxGridTiles]int
+	n := 0
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].Alive && e.isActiveColor(e.Tiles[i].Color) {
+			cands[n] = i
+			n++
+		}
+	}
+	if n == 0 {
+		return -1
+	}
+	pick := cands[e.wiggleRng.intn(n)]
+	if n > 1 && pick == e.lastWiggleIdx {
+		pick = cands[(e.wiggleRng.intn(n-1)+1)%n]
+		if pick == e.lastWiggleIdx {
+			for k := 0; k < n; k++ {
+				if cands[k] != e.lastWiggleIdx {
+					pick = cands[k]
+					break
+				}
+			}
+		}
+	}
+	e.lastWiggleIdx = pick
+	e.Tiles[pick].JiggleT = 1.0
+	e.syncBuffers()
+	return pick
+}
+
 // refillActiveColors fills up to 2 active stitch slots, EXCEPT the very last color in the queue
 // is held back until the penultimate color is 100% completed (so the final two colors unlock separately!).
-// Newly unlocked colors receive a gentle temporary 2.2s interior pearl glow (ColorGlowT = 1.0).
+// Newly unlocked colors receive a 3.5s interior jewel glow AND a playful pearl wiggle on all pearls of that color.
 func (e *Engine) refillActiveColors() {
 	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
@@ -450,6 +498,7 @@ func (e *Engine) refillActiveColors() {
 			e.QueuePos++
 			e.Active[i] = c
 			e.ColorGlowT[c] = 1.0
+			e.triggerColorJiggle(uint8(c))
 			activeAlive++
 			break
 		}
@@ -859,6 +908,7 @@ func (e *Engine) Undo() bool {
 	for i := 0; i < e.TileCount; i++ {
 		e.Tiles[i].Alive = (snap.aliveMask & (uint64(1) << uint(i))) != 0
 		e.Tiles[i].WobbleT = 0
+		e.Tiles[i].JiggleT = 0
 	}
 	for i := 0; i < e.HoopCount; i++ {
 		claimed := (snap.claimedMask & (uint64(1) << uint(i))) != 0
@@ -1010,7 +1060,7 @@ func (e *Engine) IsAnimating() bool {
 		}
 	}
 	for i := 0; i < e.TileCount; i++ {
-		if e.Tiles[i].WobbleT > 0.005 {
+		if e.Tiles[i].WobbleT > 0.005 || e.Tiles[i].JiggleT > 0.005 {
 			return true
 		}
 	}
@@ -1085,6 +1135,12 @@ func (e *Engine) Step(dt float32) {
 			e.Tiles[i].WobbleT -= dt * 3.2
 			if e.Tiles[i].WobbleT < 0 {
 				e.Tiles[i].WobbleT = 0
+			}
+		}
+		if e.Tiles[i].JiggleT > 0 {
+			e.Tiles[i].JiggleT -= dt * 2.1
+			if e.Tiles[i].JiggleT < 0 {
+				e.Tiles[i].JiggleT = 0
 			}
 		}
 	}
@@ -1347,7 +1403,7 @@ func (e *Engine) syncBuffers() {
 		}
 
 		e.Scene[sBase+0] = wx + ox
-		e.Scene[sBase+1] = 0.22
+		e.Scene[sBase+1] = 0.22 + t.JiggleT*0.10
 		e.Scene[sBase+2] = wz + oz
 		e.Scene[sBase+3] = pearlRad
 		e.Scene[sBase+4] = float32(t.Color)

@@ -115,7 +115,20 @@ Informed by real-device playtesting of v2.3:
 
 ---
 
-## 6. Iteration Log
+## 6. Pearl Loom v2.5 Design Delta (`Status: Locked`)
+
+Informed by real-device playtesting of v2.4:
+
+1. **Playful Active-Color Pearl Wiggles (Zero-Spoiler & Battery-Smart)**:
+   - **On Level Load & On New Color Unlock**: All alive board pearls matching the newly active color(s) perform a joyful, bouncy 3D wiggle + tiny hop right on their tile (the tile card stays still while only the pearl sphere itself shimmies!). Never wiggles non-active colors.
+   - **Periodic Ambient Active-Color Wiggle (~every 1.25s during play)**: Randomly chooses **1 alive pearl** of any currently active stitch color (completely independent of whether it is blocked or optimal — 100% zero-spoiler!) and gives it a charming ~0.48s wiggle + hop. Between wiggles (and on Start Menu / drawers / completion), the GPU still sleeps at **true 0 FPS** to protect iPhone 16 battery life.
+2. **1-to-1 Color-Matched 3D HUD Swatches & Distinct Palette Separation**:
+   - Sharpen hue separation across all 4 vibrant theme palettes (`sim/artworks.go`) — e.g. true Scarlet Ruby vs Amethyst in Jewel Atelier, vivid Flame Red vs Magenta/Amber in Cyber Arcade, crisp Green vs Cyan/Blue across all themes — so every color is unmistakable at a glance.
+   - Replace muddy dark-inset flat HUD dots with **ACES-matched miniature 3D radial-gradient pearl swatches** (`hiHex` / `hex` / `loHex` + theme-matched rims such as ink-black borders in Pop Studio) so every swatch in the top-left `STITCH` pill looks like an exact miniature copy of the raytraced 3D pearl on the board below.
+
+---
+
+## 7. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -124,5 +137,6 @@ Informed by real-device playtesting of v2.3:
 | 2026-11-24 | **Pearl Loom v2.1 — Chapters, Smart Hints & Active-Target Glow** | **Shipped & Playtested** | 40 patterns across 5 native Chapters, Daily/Endless theme rotation, pinch-rescue Hint (`-2` Undo beacon) + Hint/Undo score deductions, active-target glow. Playtest revealed: Noir mode was unenjoyable, permanent outer pearl glow looked cheap & hurt battery, binary ray-sphere/SDF edges looked jagged, and the final two colors were too easy when unlocked together. |
 | 2026-11-25 | **Pearl Loom v2.2 — Retina AA, Solo Finale, Interior Glow & 0-FPS Idle** | **Shipped & Playtested** | Cut Noir (4 vivid Chapters × 8 = 32 designs); interior-only temporary pearl glow; solo finale unlock; analytic 1-spp AA at 2.0x DPR; true 0-FPS idle. Playtest revealed: initial glow too short/subtle vs always-bright pearls, Neon pearls still looked flat/out-of-place, Pop Art pearls had white center dots, some puzzles lacked verified 3-star paths, and Endless/Daily needed richer procedural seed variety + custom seed input. |
 | 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Playtested** | Sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input. Playtest revealed: darkening non-target pearls felt reversed/off, completion result screen lagged ~2s waiting for `CelebrateT`, and `navigator.vibrate` is ignored on iOS Safari. |
-| 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Verified** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks verified via `pnpm verify` + screenshot audit. |
+| 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Playtested** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks. Playtest requested: playful pearl-only wiggles on load/unlock + periodic ~1.2s random active-color pearl wiggle, plus closer 1-to-1 color matching between top-left HUD swatches and 3D board pearls. |
+| 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Verified** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). |
 

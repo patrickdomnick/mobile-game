@@ -75,23 +75,38 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 	c2 := int(e.ColorQueue[2])
 	c3 := int(e.ColorQueue[3])
 
-	// At game start: C0 & C1 are active AND spotlighted (ColorGlowT == 1.0, Scene[63] == 1.0 for antipattern dim!)
+	// At game start: C0 & C1 are active, glowing, AND ONLY C0/C1 pearls wiggle (never locked colors!)
 	if e.Active[0] != c0 || e.Active[1] != c1 {
 		t.Fatalf("expected initial active [%d,%d], got [%d,%d]", c0, c1, e.Active[0], e.Active[1])
 	}
 	if e.ColorGlowT[c0] < 0.99 || e.ColorGlowT[c1] < 0.99 || e.ColorGlowT[c2] != 0 || e.ColorGlowT[c3] != 0 {
 		t.Fatalf("expected initial interior glow only on C0/C1, got %v", e.ColorGlowT)
 	}
+	for i := 0; i < e.TileCount; i++ {
+		c := int(e.Tiles[i].Color)
+		if c == c0 || c == c1 {
+			if e.Tiles[i].JiggleT < 0.99 {
+				t.Fatalf("expected active start tile %d (color %d) to wiggle on load", i, c)
+			}
+		} else if e.Tiles[i].JiggleT != 0 {
+			t.Fatalf("locked tile %d (color %d) must NOT wiggle on load", i, c)
+		}
+	}
 	if e.Scene[63] < 0.99 {
-		t.Fatalf("expected Scene[63] antipattern spotlight signal == 1.0 at start, got %v", e.Scene[63])
+		t.Fatalf("expected Scene[63] max glow signal == 1.0 at start, got %v", e.Scene[63])
 	}
 
-	// At 1.5s (90 ticks) the 3.5s interior pulse MUST still be active (>= 0.50)!
+	// At 1.5s (90 ticks) the 3.5s interior pulse MUST still be active (>= 0.50), while initial ~0.48s wiggle already settled!
 	for i := 0; i < 90; i++ {
 		e.Step(FixedDT)
 	}
 	if e.ColorGlowT[c0] < 0.50 || e.Scene[63] < 0.50 {
 		t.Fatalf("expected 3.5s interior glow still active at 1.5s, got glow=%v scene63=%v", e.ColorGlowT[c0], e.Scene[63])
+	}
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].JiggleT != 0 {
+			t.Fatalf("expected initial wiggle to finish before 1.5s, tile %d has JiggleT=%v", i, e.Tiles[i].JiggleT)
+		}
 	}
 
 	// Step another 2.25s (total 3.75s) -> temporary glow fades completely to 0 so GPU sleeps at 0 FPS!
@@ -105,7 +120,27 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 		t.Fatalf("expected IsAnimating() == false once start spotlight finishes (for 0-FPS battery idle)")
 	}
 
-	// Finish C0 -> C2 unlocks immediately (2 active colors: C2 & C1), C2 glows from inside!
+	// Periodic random active-color wiggle picks ONLY an alive active-color pearl and settles cleanly!
+	for k := 0; k < 8; k++ {
+		idx := e.TriggerRandomActiveWiggle()
+		if idx < 0 || !e.Tiles[idx].Alive || !e.isActiveColor(e.Tiles[idx].Color) {
+			t.Fatalf("TriggerRandomActiveWiggle picked invalid tile %d", idx)
+		}
+		if e.Tiles[idx].JiggleT < 0.99 || !e.IsAnimating() {
+			t.Fatalf("expected wiggling tile %d to trigger IsAnimating()", idx)
+		}
+		for s := 0; s < 35; s++ {
+			e.Step(FixedDT)
+		}
+		if e.Tiles[idx].JiggleT != 0 {
+			t.Fatalf("expected periodic wiggle on tile %d to settle within 0.6s, got %v", idx, e.Tiles[idx].JiggleT)
+		}
+	}
+	if e.IsAnimating() {
+		t.Fatalf("expected IsAnimating() == false after periodic wiggle settles")
+	}
+
+	// Finish C0 -> C2 unlocks immediately (2 active colors: C2 & C1), C2 glows AND wiggles (and NOT C1)!
 	e.Remain[c0] = 0
 	e.refillActiveColors()
 	if e.Active[0] != c2 || e.Active[1] != c1 {
@@ -113,6 +148,14 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 	}
 	if e.ColorGlowT[c2] < 0.99 || e.ColorGlowT[c1] != 0 {
 		t.Fatalf("expected newly unlocked C2 to trigger interior spotlight (and not C1), got %v", e.ColorGlowT)
+	}
+	for i := 0; i < e.TileCount; i++ {
+		if int(e.Tiles[i].Color) == c2 && e.Tiles[i].JiggleT < 0.99 {
+			t.Fatalf("expected newly unlocked C2 tile %d to wiggle", i)
+		}
+		if int(e.Tiles[i].Color) == c1 && e.Tiles[i].JiggleT != 0 {
+			t.Fatalf("already-active C1 tile %d should not bulk-wiggle on C2 unlock", i)
+		}
 	}
 
 	// Finish C1 -> C3 (FINAL color) MUST NOT unlock while C2 is still incomplete! Only C2 is active!

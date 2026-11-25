@@ -42,6 +42,7 @@ export interface GameTestBridge {
   tapTile(tileIndex: number): boolean;
   undo(): boolean;
   hint(): number;
+  triggerActiveWiggle(): number;
   reset(): void;
   loadLevel(levelIndex: number): void;
   loadMandala(seed: number): void;
@@ -597,6 +598,9 @@ async function bootstrap(): Promise<void> {
             const dot = document.createElement('span');
             dot.className = 'swatch-dot swatch-dot-active';
             dot.style.backgroundColor = info.hex;
+            dot.style.setProperty('--sw-hi', info.hiHex);
+            dot.style.setProperty('--sw-mid', info.hex);
+            dot.style.setProperty('--sw-lo', info.loHex);
 
             const count = document.createElement('span');
             count.className = 'swatch-count';
@@ -611,6 +615,9 @@ async function bootstrap(): Promise<void> {
             const nextInfo = pal[snap.nextQueuedColor];
             swatchNextWrap.classList.remove('hidden');
             swatchNextDot.style.backgroundColor = nextInfo.hex;
+            swatchNextDot.style.setProperty('--sw-hi', nextInfo.hiHex);
+            swatchNextDot.style.setProperty('--sw-mid', nextInfo.hex);
+            swatchNextDot.style.setProperty('--sw-lo', nextInfo.loHex);
           } else {
             swatchNextWrap.classList.add('hidden');
           }
@@ -976,6 +983,11 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
         return idx;
       },
+      triggerActiveWiggle: () => {
+        const idx = sim.triggerActiveWiggle();
+        if (idx >= 0) wakeRenderer();
+        return idx;
+      },
       reset: () => {
         recordedCompleteKey = '';
         displayedScore = 0;
@@ -1108,6 +1120,21 @@ async function bootstrap(): Promise<void> {
 
       requestAnimationFrame(frame);
     };
+
+    // Periodic zero-spoiler active-color pearl wiggle (~1.25s cadence during active play):
+    // Picks 1 random alive pearl of ANY active color (ignoring blocked/unblocked) and wakes GPU for ~0.48s,
+    // returning cleanly to 0 FPS between wiggles and staying 100% 0 FPS on Start Menu / drawers / completion!
+    window.setInterval(() => {
+      if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
+      const sheetOpen =
+        Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
+        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden'));
+      if (sheetOpen || sim.phase() !== 0 || sim.isAnimating()) return;
+      if (sim.triggerActiveWiggle() >= 0) {
+        wakeRenderer();
+      }
+    }, 1250);
+
     requestAnimationFrame(frame);
   } catch (err) {
     console.error('[boot] failed:', err);

@@ -21,44 +21,44 @@ const (
 	LevelsPerChapter = 8
 )
 
-// ThemePalettes defines 4 vibrant, unmistakable high-pop 6-color themes.
+// ThemePalettes defines 4 vibrant, unmistakable high-pop 6-color themes with maximum hue separation.
 // 4th channel encodes iridescence / emissive luster.
 var ThemePalettes = [NumThemes][NumColors][4]float32{
-	// 0: Jewel Atelier (Rich high-pop gemstones on deep sunlit slate-walnut)
+	// 0: Jewel Atelier (Rich, sharply separated gemstones on deep sunlit slate-walnut)
 	{
-		{0.96, 0.15, 0.36, 0.52}, // 0: Ruby Crimson
-		{0.12, 0.46, 0.98, 0.56}, // 1: Electric Cobalt
-		{0.05, 0.78, 0.45, 0.50}, // 2: Emerald Jade
-		{0.99, 0.72, 0.06, 0.58}, // 3: Solar Gold
-		{0.64, 0.24, 0.98, 0.62}, // 4: Royal Amethyst
-		{0.04, 0.82, 0.88, 0.55}, // 5: Bright Turquoise
+		{0.96, 0.08, 0.16, 0.50}, // 0: Scarlet Ruby (unmistakably RED, zero pink overlap with Amethyst)
+		{0.08, 0.36, 0.98, 0.56}, // 1: Royal Cobalt (deep royal blue)
+		{0.04, 0.80, 0.32, 0.50}, // 2: Emerald Jade (pure lush green)
+		{1.00, 0.78, 0.04, 0.56}, // 3: Sunbeam Gold (radiant yellow-gold)
+		{0.62, 0.16, 0.98, 0.60}, // 4: Vivid Amethyst (crisp royal purple)
+		{0.02, 0.86, 0.94, 0.55}, // 5: Aqua Cyan (bright sky-aqua)
 	},
-	// 1: Cyber Arcade (Radiant electric synthwave)
+	// 1: Cyber Arcade (Crisp electric synthwave spectrum)
 	{
-		{1.00, 0.10, 0.58, 0.95}, // 0: Hot Magenta
-		{0.04, 0.92, 1.00, 0.95}, // 1: Electric Cyan
-		{0.42, 1.00, 0.12, 0.92}, // 2: Acid Lime
-		{1.00, 0.70, 0.04, 0.92}, // 3: Laser Amber
-		{0.66, 0.22, 1.00, 0.95}, // 4: Ultraviolet
-		{1.00, 0.32, 0.16, 0.92}, // 5: Plasma Coral
+		{1.00, 0.08, 0.56, 0.95}, // 0: Hot Magenta
+		{0.02, 0.92, 1.00, 0.95}, // 1: Electric Cyan
+		{0.44, 1.00, 0.08, 0.92}, // 2: Acid Lime
+		{1.00, 0.64, 0.02, 0.92}, // 3: Laser Amber (distinct warm amber-gold)
+		{0.58, 0.18, 1.00, 0.95}, // 4: Ultraviolet
+		{1.00, 0.18, 0.10, 0.92}, // 5: Flame Red (distinct neon red-orange)
 	},
 	// 2: Pop Studio (Bold Warhol / Lichtenstein primaries)
 	{
-		{0.98, 0.14, 0.16, 0.30}, // 0: Pop Red
-		{0.10, 0.38, 0.98, 0.30}, // 1: Pop Cobalt
-		{0.04, 0.82, 0.54, 0.30}, // 2: Pop Mint
-		{1.00, 0.84, 0.04, 0.30}, // 3: Comic Yellow
-		{0.98, 0.22, 0.72, 0.30}, // 4: Hot Pink
-		{1.00, 0.46, 0.04, 0.30}, // 5: Tangerine
+		{0.98, 0.10, 0.12, 0.30}, // 0: Pop Red
+		{0.08, 0.34, 0.98, 0.30}, // 1: Royal Blue
+		{0.04, 0.82, 0.40, 0.30}, // 2: Pop Green
+		{1.00, 0.86, 0.02, 0.30}, // 3: Comic Yellow
+		{0.96, 0.14, 0.74, 0.30}, // 4: Hot Magenta
+		{1.00, 0.44, 0.02, 0.30}, // 5: Vivid Orange
 	},
-	// 3: Cathedral Glass (Translucent prism jewels)
+	// 3: Cathedral Glass (Crisp jewel stained-glass prisms)
 	{
-		{0.94, 0.14, 0.38, 0.82}, // 0: Garnet Rose
-		{0.14, 0.52, 0.98, 0.85}, // 1: Cathedral Sapphire
-		{0.08, 0.84, 0.56, 0.82}, // 2: Viridian Emerald
-		{0.98, 0.68, 0.10, 0.84}, // 3: Amber Sun
-		{0.70, 0.28, 0.98, 0.86}, // 4: Amethyst Prism
-		{0.88, 0.96, 1.00, 0.90}, // 5: Diamond Opal
+		{0.96, 0.08, 0.22, 0.82}, // 0: Crimson Rose
+		{0.10, 0.46, 0.98, 0.85}, // 1: Cathedral Sapphire
+		{0.04, 0.84, 0.44, 0.82}, // 2: Viridian Emerald
+		{1.00, 0.76, 0.04, 0.84}, // 3: Sun Gold
+		{0.64, 0.18, 0.98, 0.86}, // 4: Royal Violet
+		{0.94, 0.97, 1.00, 0.90}, // 5: Pearl White
 	},
 }
 

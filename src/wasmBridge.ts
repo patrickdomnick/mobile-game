@@ -7,7 +7,9 @@ export const HINT_NEEDS_UNDO = -2;
 
 export interface PearlColorInfo {
   name: string;
+  hiHex: string;
   hex: string;
+  loHex: string;
 }
 
 export interface VisualThemeDef {
@@ -20,21 +22,22 @@ export interface VisualThemeDef {
   colors: readonly PearlColorInfo[];
 }
 
+// ACES-calibrated miniature 3D pearl stops matching sim/artworks.go ThemePalettes + raytrace.wgsl 1-to-1!
 export const VISUAL_THEMES: readonly VisualThemeDef[] = [
   {
     id: 0,
     name: 'Jewel Atelier',
     shortName: 'Jewel',
     tagline: 'Sunlit gemstones on slate-walnut',
-    swatchGradient: 'linear-gradient(135deg, #f5265c, #fcb80f, #1f75fa)',
+    swatchGradient: 'linear-gradient(135deg, #ed263e, #eee120, #268fed)',
     accent: '#f5a623',
     colors: [
-      { name: 'Ruby Crimson', hex: '#f5265c' },
-      { name: 'Electric Cobalt', hex: '#1f75fa' },
-      { name: 'Emerald Jade', hex: '#0dc773' },
-      { name: 'Solar Gold', hex: '#fcb80f' },
-      { name: 'Royal Amethyst', hex: '#a33dfa' },
-      { name: 'Turquoise', hex: '#0ad1e0' },
+      { name: 'Scarlet Ruby', hiHex: '#f3babe', hex: '#ed263e', loHex: '#c80814' },
+      { name: 'Royal Cobalt', hiHex: '#bad0f3', hex: '#268fed', loHex: '#0846ca' },
+      { name: 'Emerald Jade', hiHex: '#b8eecd', hex: '#20e380', loHex: '#04b33a' },
+      { name: 'Sunbeam Gold', hiHex: '#f4edb8', hex: '#eee120', loHex: '#ccaf04' },
+      { name: 'Vivid Amethyst', hiHex: '#e5bef3', hex: '#cf3eed', loHex: '#8f14ca' },
+      { name: 'Aqua Cyan', hiHex: '#b8f0f2', hex: '#1ee7ec', loHex: '#02bcc6' },
     ],
   },
   {
@@ -42,31 +45,31 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
     name: 'Cyber Arcade',
     shortName: 'Neon',
     tagline: 'Electric synthwave grid & glowing orbs',
-    swatchGradient: 'linear-gradient(135deg, #ff1a94, #0aebff, #6bff1f)',
+    swatchGradient: 'linear-gradient(135deg, #ed26c2, #1ee9ed, #a6ed26)',
     accent: '#0aebff',
     colors: [
-      { name: 'Hot Magenta', hex: '#ff1a94' },
-      { name: 'Electric Cyan', hex: '#0aebff' },
-      { name: 'Acid Lime', hex: '#6bff1f' },
-      { name: 'Laser Amber', hex: '#ffb30a' },
-      { name: 'Ultraviolet', hex: '#a838ff' },
-      { name: 'Plasma Coral', hex: '#ff5229' },
+      { name: 'Hot Magenta', hiHex: '#f4bae1', hex: '#ed26c2', loHex: '#c80779' },
+      { name: 'Electric Cyan', hiHex: '#b8f2f4', hex: '#1ee9ed', loHex: '#02bec8' },
+      { name: 'Acid Lime', hiHex: '#d8f4ba', hex: '#a6ed26', loHex: '#58c807' },
+      { name: 'Laser Amber', hiHex: '#f4e6b8', hex: '#edd01e', loHex: '#c88d02' },
+      { name: 'Ultraviolet', hiHex: '#e2c0f4', hex: '#c644ed', loHex: '#7e16c8' },
+      { name: 'Flame Red', hiHex: '#f4c0bb', hex: '#ed442a', loHex: '#c8160a' },
     ],
   },
   {
     id: 2,
     name: 'Pop Studio',
     shortName: 'Pop Art',
-    tagline: 'Bold halftone comic ink & primaries',
-    swatchGradient: 'linear-gradient(135deg, #fa2429, #ffd60a, #1a61fa)',
+    tagline: 'Bold comic ink & vivid primaries',
+    swatchGradient: 'linear-gradient(135deg, #e9292e, #eae21e, #257ce9)',
     accent: '#ffd60a',
     colors: [
-      { name: 'Pop Red', hex: '#fa2429' },
-      { name: 'Pop Cobalt', hex: '#1a61fa' },
-      { name: 'Pop Mint', hex: '#0ad18a' },
-      { name: 'Comic Yellow', hex: '#ffd60a' },
-      { name: 'Hot Pink', hex: '#fa38b8' },
-      { name: 'Tangerine', hex: '#ff750a' },
+      { name: 'Pop Red', hiHex: '#ee797c', hex: '#e9292e', loHex: '#d40c0f' },
+      { name: 'Royal Blue', hiHex: '#77a9ee', hex: '#257ce9', loHex: '#094ad4' },
+      { name: 'Pop Green', hiHex: '#73e7b6', hex: '#20df91', loHex: '#04c25e' },
+      { name: 'Comic Yellow', hiHex: '#efe972', hex: '#eae21e', loHex: '#d6c702' },
+      { name: 'Hot Magenta', hiHex: '#ee7fe1', hex: '#e833d7', loHex: '#d213b5' },
+      { name: 'Vivid Orange', hiHex: '#efbd72', hex: '#ea9e1e', loHex: '#d66b02' },
     ],
   },
   {
@@ -74,15 +77,15 @@ export const VISUAL_THEMES: readonly VisualThemeDef[] = [
     name: 'Cathedral Glass',
     shortName: 'Prism',
     tagline: 'Glowing stained-glass prisms & caustics',
-    swatchGradient: 'linear-gradient(135deg, #f02461, #b347fa, #2485fa)',
+    swatchGradient: 'linear-gradient(135deg, #eb2652, #ce43eb, #2aaaeb)',
     accent: '#d99bff',
     colors: [
-      { name: 'Garnet Rose', hex: '#f02461' },
-      { name: 'Sapphire', hex: '#2485fa' },
-      { name: 'Viridian', hex: '#14d68f' },
-      { name: 'Amber Sun', hex: '#faad1a' },
-      { name: 'Amethyst', hex: '#b347fa' },
-      { name: 'Diamond Opal', hex: '#e0f5ff' },
+      { name: 'Crimson Rose', hiHex: '#f3bac3', hex: '#eb2652', loHex: '#c80820' },
+      { name: 'Cathedral Sapphire', hiHex: '#bbd9f3', hex: '#2aaaeb', loHex: '#0a64ca' },
+      { name: 'Viridian Emerald', hiHex: '#b8efd8', hex: '#20e3a4', loHex: '#04b95e' },
+      { name: 'Sun Gold', hiHex: '#f4ecb8', hex: '#ecdd20', loHex: '#ccac04' },
+      { name: 'Royal Violet', hiHex: '#e6c0f3', hex: '#ce43eb', loHex: '#9318ca' },
+      { name: 'Pearl White', hiHex: '#f2f3f4', hex: '#e9ebec', loHex: '#c6c9cc' },
     ],
   },
 ] as const;
@@ -285,6 +288,7 @@ interface SimExports {
   sim_tap_tile: (idx: number) => number;
   sim_undo: () => number;
   sim_hint: () => number;
+  sim_trigger_active_wiggle: () => number;
   sim_scene_ptr: () => number;
   sim_scene_len: () => number;
   sim_state_ptr: () => number;
@@ -428,11 +432,21 @@ export class WasmSimulation {
     return this.exports.sim_hint();
   }
 
+  triggerActiveWiggle(): number {
+    return this.exports.sim_trigger_active_wiggle();
+  }
+
   sceneView(): Float32Array {
     return new Float32Array(this.exports.memory.buffer, this.scenePtr, this.sceneLen);
   }
 
-  /** Zero-allocation check for whether any 3D motion or temporary unlock glow is active. */
+  /** Zero-allocation read of current simulation phase (0=playing, 1=tray_full, 2=complete). */
+  phase(): number {
+    const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 4 * 4, 1);
+    return Math.round(view[0]);
+  }
+
+  /** Zero-allocation check for whether any 3D motion, wiggle, or temporary unlock glow is active. */
   isAnimating(): boolean {
     const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 6 * 4, 1);
     return view[0] > 0.5;
