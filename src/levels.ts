@@ -1,6 +1,6 @@
 import { CHAPTERS, CURATED_LEVELS, type ChapterDef } from './wasmBridge';
 
-const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v2';
+const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v3';
 
 export function getLevelTierLabel(lvl: { noBlockers?: boolean; difficulty: number }): string {
   if (lvl.noBlockers || lvl.difficulty <= 0) return 'Warm-Up';
@@ -26,6 +26,9 @@ export interface RemoteLevelDef {
   seed: number;
   noBlockers?: boolean;
   maxHearts?: number;
+  maxRainbows?: number;
+  maxHidden?: number;
+  maxLocked?: number;
   stitches?: readonly RemoteStitchTuple[];
   // Derived UI summary fields
   grid: string;
@@ -65,6 +68,9 @@ interface RawLevelsPayload {
     seed: number;
     noBlockers?: boolean;
     maxHearts?: number;
+    maxRainbows?: number;
+    maxHidden?: number;
+    maxLocked?: number;
     stitches: RemoteStitchTuple[];
   }>;
 }
@@ -104,6 +110,9 @@ function normalizePayload(raw: RawLevelsPayload, source: 'network' | 'cache'): L
       seed: (item.seed >>> 0) || (item.id + 1) * 1009,
       noBlockers: Boolean(item.noBlockers),
       maxHearts: typeof item.maxHearts === 'number' ? item.maxHearts : 0,
+      maxRainbows: typeof item.maxRainbows === 'number' ? item.maxRainbows : 0,
+      maxHidden: typeof item.maxHidden === 'number' ? item.maxHidden : 0,
+      maxLocked: typeof item.maxLocked === 'number' ? item.maxLocked : 0,
       stitches: item.stitches,
       grid: `${item.cols}×${item.rows}`,
       pearls: item.stitches.length,
@@ -149,6 +158,10 @@ export function getBuiltinLevelsCatalog(): LevelsCatalog {
       rows: Number(rStr) || 5,
       difficulty: l.difficulty,
       noBlockers: l.noBlockers,
+      maxHearts: l.maxHearts,
+      maxRainbows: l.maxRainbows,
+      maxHidden: l.maxHidden,
+      maxLocked: l.maxLocked,
       seed: (l.id + 1) * 1001,
       grid: l.grid,
       pearls: l.pearls,
@@ -166,7 +179,7 @@ export function getBuiltinLevelsCatalog(): LevelsCatalog {
   });
 
   return {
-    version: 1,
+    version: 3,
     source: 'builtin',
     chapters,
     levels,

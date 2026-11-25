@@ -43,14 +43,45 @@ func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.
 			}
 		}
 
-		hearts := 0
+		hearts, rainbows, hidden, locked := 0, 0, 0, 0
 		for i := 0; i < e.TileCount; i++ {
-			if e.Tiles[i].IsHeart {
+			switch e.Tiles[i].Special {
+			case SpecialHeart:
 				hearts++
+			case SpecialRainbow:
+				rainbows++
+			case SpecialHidden:
+				hidden++
+			case SpecialLocked:
+				locked++
 			}
 		}
-		if hearts < 1 || hearts > MaxHeartsPerLevel {
-			t.Fatalf("level %d (%s): expected 1..%d Heart Pearls, got %d", lvlIdx, art.Name, MaxHeartsPerLevel, hearts)
+		if tierIdx < 2 {
+			if hearts != 0 || rainbows != 0 || hidden != 0 || locked != 0 {
+				t.Fatalf("level %d (%s) warm-up must have 0 specials, got H=%d R=%d ?= %d L=%d", lvlIdx, art.Name, hearts, rainbows, hidden, locked)
+			}
+		} else {
+			if hearts < 1 || hearts > MaxHeartsPerLevel {
+				t.Fatalf("level %d (%s): expected 1..%d Heart Pearls, got %d", lvlIdx, art.Name, MaxHeartsPerLevel, hearts)
+			}
+			if tierIdx < 4 && rainbows != 0 {
+				t.Fatalf("level %d (%s): Rainbows should not appear before L5, got %d", lvlIdx, art.Name, rainbows)
+			}
+			if tierIdx >= 4 && rainbows < 1 {
+				t.Fatalf("level %d (%s): expected >=1 Rainbow Pearl from L5+, got %d", lvlIdx, art.Name, rainbows)
+			}
+			if tierIdx < 6 && hidden != 0 {
+				t.Fatalf("level %d (%s): Hidden pearls should not appear before L7, got %d", lvlIdx, art.Name, hidden)
+			}
+			if tierIdx >= 6 && hidden < 1 {
+				t.Fatalf("level %d (%s): expected >=1 Hidden Pearl from L7+, got %d", lvlIdx, art.Name, hidden)
+			}
+			if tierIdx < 8 && locked != 0 {
+				t.Fatalf("level %d (%s): Locked pearls should not appear before L9, got %d", lvlIdx, art.Name, locked)
+			}
+			if tierIdx >= 8 && locked < 1 {
+				t.Fatalf("level %d (%s): expected >=1 Locked Pearl from L9+, got %d", lvlIdx, art.Name, locked)
+			}
 		}
 
 		starLimit := ThreeStarTrayLimit(e.HoopCount)
@@ -418,8 +449,8 @@ func TestSolar24hContinuity(t *testing.T) {
 func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	var e Engine
 
-	// 1. Verify 64-tile 8x8 Grand Masterpiece loads cleanly via CustomLevelBuf (remote levels.json ABI!)
-	art64 := CuratedArtworks[12] // 8x8 Grand Jewel Rose (64 stitches)
+	// 1. Verify 64-tile 8x8 Grand Masterpiece (62 stitches + 2 Rainbows = 64 tiles) loads cleanly via CustomLevelBuf!
+	art64 := CuratedArtworks[12] // 8x8 Grand Jewel Rose (62 stitches + 2 Rainbows = 64 tiles)
 	e.CustomLevelBuf[0] = 64
 	e.CustomLevelBuf[1] = 0
 	e.CustomLevelBuf[2] = 0
@@ -429,16 +460,20 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	e.CustomLevelBuf[6] = float32(art64.Seed & 0xFFFF)
 	e.CustomLevelBuf[7] = float32((art64.Seed >> 16) & 0xFFFF)
 	e.CustomLevelBuf[8] = 0
-	e.CustomLevelBuf[9] = 3
+	e.CustomLevelBuf[9] = float32(art64.MaxHearts)
+	e.CustomLevelBuf[10] = float32(art64.MaxRainbows)
+	e.CustomLevelBuf[11] = float32(art64.MaxHidden)
+	e.CustomLevelBuf[12] = float32(art64.MaxLocked)
+	e.CustomLevelBuf[13] = 0
 	for i, sp := range art64.Stitches {
-		off := 10 + i*4
+		off := CustomLevelHeaderLen + i*4
 		e.CustomLevelBuf[off+0] = sp.X
 		e.CustomLevelBuf[off+1] = sp.Z
 		e.CustomLevelBuf[off+2] = float32(sp.Color)
 		e.CustomLevelBuf[off+3] = float32(sp.Layer)
 	}
-	if !e.LoadCustomLevel(len(art64.Stitches)) || e.TileCount != 64 || e.HoopCount != 64 {
-		t.Fatalf("expected 64-tile 8x8 custom JSON load, got tiles=%d hoop=%d", e.TileCount, e.HoopCount)
+	if !e.LoadCustomLevel(len(art64.Stitches)) || e.TileCount != 64 || e.HoopCount != 62 {
+		t.Fatalf("expected 64-tile (62 hoop + 2 rainbow) 8x8 custom JSON load, got tiles=%d hoop=%d", e.TileCount, e.HoopCount)
 	}
 
 	// 2. Load a custom JSON-staged zero-blocker level (NoBlockers=true, MaxHearts=2) via CustomLevelBuf
@@ -453,10 +488,14 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	e.CustomLevelBuf[7] = 0
 	e.CustomLevelBuf[8] = 1 // bit 0 = NoBlockers
 	e.CustomLevelBuf[9] = 2 // 2 hearts
-	count := 16             // 16 perimeter tiles on 5x5 -> 100% zero blockers!
+	e.CustomLevelBuf[10] = 0
+	e.CustomLevelBuf[11] = 0
+	e.CustomLevelBuf[12] = 0
+	e.CustomLevelBuf[13] = 0
+	count := 16 // 16 perimeter tiles on 5x5 -> 100% zero blockers!
 	for i := 0; i < count; i++ {
 		sp := art.Stitches[i]
-		off := 10 + i*4
+		off := CustomLevelHeaderLen + i*4
 		e.CustomLevelBuf[off+0] = sp.X
 		e.CustomLevelBuf[off+1] = sp.Z
 		e.CustomLevelBuf[off+2] = float32(sp.Color)
@@ -484,7 +523,6 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	if len(heartIndices) != 2 {
 		t.Fatalf("expected 2 Heart Pearls, got %d", len(heartIndices))
 	}
-	// Tap an active-color Heart Pearl first (early)
 	earlyIdx := -1
 	for _, hi := range heartIndices {
 		if e.isActiveColor(e.Tiles[hi].Color) {
@@ -503,7 +541,6 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 		t.Fatalf("expected early Heart bonus >= 500 & HeartClearEvents==1, got bonus=%d ev=%d", earlyBonus, e.HeartClearEvents)
 	}
 
-	// Solve the rest of the level and confirm the second (later) Heart Pearl yields strictly fewer bonus points
 	for step := 0; step < 30 && e.Phase != PhaseComplete; step++ {
 		h := e.ComputeHint()
 		if h < 0 {
@@ -517,5 +554,136 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	if e.LastHeartBonus >= earlyBonus {
 		t.Fatalf("expected later Heart bonus (%d) < early Heart bonus (%d)", e.LastHeartBonus, earlyBonus)
 	}
+}
+
+func TestSeeded4DifficultiesAndSpecialPearlRules(t *testing.T) {
+	var e Engine
+	e.SetTimeOfDayHours(12.5)
+
+	// 1. Verify all 4 seeded difficulty tiers (Easy 5x5 -> Extreme 8x8) are 100% 3-star solvable with exact special rules!
+	type diffExpect struct {
+		tier     int
+		dim      int
+		rainbows bool
+		hidden   bool
+		locked   bool
+	}
+	specs := []diffExpect{
+		{SeedDiffEasy, 5, false, false, false},
+		{SeedDiffMedium, 6, true, false, false},
+		{SeedDiffHard, 7, true, true, false},
+		{SeedDiffExtreme, 8, true, true, true},
+	}
+
+	for _, sp := range specs {
+		for _, seed := range []uint32{20261125, 482913} {
+			e.LoadMandalaWithDifficulty(seed, sp.tier)
+			if e.GridCols != sp.dim || e.GridRows != sp.dim {
+				t.Fatalf("seed %d tier %d: expected %dx%d, got %dx%d", seed, sp.tier, sp.dim, sp.dim, e.GridCols, e.GridRows)
+			}
+			hearts, rainbows, hidden, locked := 0, 0, 0, 0
+			for i := 0; i < e.TileCount; i++ {
+				switch e.Tiles[i].Special {
+				case SpecialHeart:
+					hearts++
+				case SpecialRainbow:
+					rainbows++
+				case SpecialHidden:
+					hidden++
+				case SpecialLocked:
+					locked++
+				}
+			}
+			if hearts < 1 {
+				t.Fatalf("seed %d tier %d: expected >=1 Heart Pearl", seed, sp.tier)
+			}
+			if sp.rainbows != (rainbows > 0) {
+				t.Fatalf("seed %d tier %d: expected rainbows=%v, got %d", seed, sp.tier, sp.rainbows, rainbows)
+			}
+			if sp.hidden != (hidden > 0) {
+				t.Fatalf("seed %d tier %d: expected hidden=%v, got %d", seed, sp.tier, sp.hidden, hidden)
+			}
+			if sp.locked != (locked > 0) {
+				t.Fatalf("seed %d tier %d: expected locked=%v, got %d", seed, sp.tier, sp.locked, locked)
+			}
+
+			// Verify independent Rainbow wiggle on Medium/Hard/Extreme
+			if sp.rainbows {
+				rw := e.TriggerRandomRainbowWiggle()
+				if rw < 0 || e.Tiles[rw].Special != SpecialRainbow {
+					t.Fatalf("seed %d tier %d: TriggerRandomRainbowWiggle returned invalid tile %d", seed, sp.tier, rw)
+				}
+			}
+
+			// Verify Locked pearl rejects tap while adjacent pearls exist & sets directional lock bits!
+			if sp.locked {
+				lockedIdx := -1
+				for i := 0; i < e.TileCount; i++ {
+					if e.Tiles[i].Special == SpecialLocked {
+						lockedIdx = i
+						break
+					}
+				}
+				if lockedIdx < 0 {
+					t.Fatalf("expected locked tile")
+				}
+				flags := uint32(e.Scene[SceneTileOffset+lockedIdx*8+6])
+				if (flags&256) == 0 || ((flags>>10)&15) == 0 {
+					t.Fatalf("locked tile %d missing lock overlay or directional neighbor bits (flags=%d)", lockedIdx, flags)
+				}
+				prevLockedTap := e.LockedTapEvents
+				if e.TapTile(lockedIdx) {
+					t.Fatalf("locked tile %d must reject tap while orthogonal neighbors remain", lockedIdx)
+				}
+				if e.LockedTapEvents != prevLockedTap+1 {
+					t.Fatalf("expected LockedTapEvents to increment")
+				}
+			}
+
+			// Solve entire board within 3-star tray limit!
+			starLimit := ThreeStarTrayLimit(e.HoopCount)
+			for step := 0; step < 96 && e.Phase != PhaseComplete; step++ {
+				var aliveMask uint64
+				for i := 0; i < e.TileCount; i++ {
+					if e.Tiles[i].Alive {
+						aliveMask |= (uint64(1) << uint(i))
+					}
+				}
+				st := solverState{
+					aliveMask: aliveMask,
+					tray:      e.Tray,
+					trayLen:   e.TrayLen,
+					trayUses:  e.TrayUses,
+					remain:    e.Remain,
+					active:    e.Active,
+					queue:     e.ColorQueue,
+					queueLen:  e.QueueLen,
+					queuePos:  e.QueuePos,
+				}
+				ok, mv := solveWithTrayBudget(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st, starLimit, 20000)
+				if !ok || mv < 0 {
+					t.Fatalf("seed %d tier %d: no 3-star move at step %d", seed, sp.tier, step)
+				}
+				if !e.TapTile(mv) {
+					t.Fatalf("seed %d tier %d: TapTile(%d) failed", seed, sp.tier, mv)
+				}
+			}
+			for i := 0; i < 120; i++ {
+				e.Step(FixedDT)
+			}
+			if e.Phase != PhaseComplete || e.Stars != 3 {
+				t.Fatalf("seed %d tier %d: expected 3-star completion, got phase=%d stars=%d", seed, sp.tier, e.Phase, e.Stars)
+			}
+		}
+	}
+
+	// 2. Verify live config.json SetTuning immediately updates lighting & penalties
+	e.LoadCuratedLevel(2)
+	baseLight := e.Scene[11]
+	e.SetTuning(TuningTopLight, 1.5)
+	if math.Abs(float64(e.Scene[11]-baseLight*1.5)) > 0.02 {
+		t.Fatalf("expected SetTuning(TopLight, 1.5) to scale Scene[11] from %v to %v, got %v", baseLight, baseLight*1.5, e.Scene[11])
+	}
+	e.SetTuning(TuningTopLight, 1.0)
 }
 

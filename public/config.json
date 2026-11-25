@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Pearl Loom live tuning settings — edit on the server without rebuilding the app (cached offline on iPhone).",
+  "jiggle": {
+    "intervalMs": 1250,
+    "quietHandMs": 1050,
+    "rainbowIntervalMs": 2200,
+    "loadDelaySec": 0.7,
+    "unlockDelaySec": 0.85,
+    "intensity": 1.0
+  },
+  "lighting": {
+    "topLightIntensity": 1.0,
+    "glowIntensity": 1.0
+  },
+  "feedback": {
+    "shakeIntensity": 1.0,
+    "rumbleIntensity": 1.0
+  },
+  "scoring": {
+    "heartBonusMax": 600,
+    "heartBonusMin": 150,
+    "hintPenalty": 250,
+    "undoPenalty": 150
+  }
+}

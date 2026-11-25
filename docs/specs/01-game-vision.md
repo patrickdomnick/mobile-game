@@ -192,7 +192,29 @@ Validating the core **4-Campaign Progressive Philosophy** before generating the 
 
 ---
 
-## 10. Iteration Log
+## 10. Pearl Loom v2.9 Design Delta — Special Pearls, Live `config.json` & Seeded Difficulties (`Status: Locked`)
+
+Finalizing the full gameplay feature suite before mass-producing the 200-level campaign (`8×8` locked as absolute maximum board size for iPhone 16 touch comfort):
+
+1. **Remote-Fetchable & Offline-Cached Live Tuning (`public/config.json`)**:
+   - Network-first fetch with Service Worker + `localStorage` offline cache and compiled defaults.
+   - Exposes live tuning knobs without rebuilding the app: `jiggle` (`intervalMs`, `quietHandMs`, `rainbowIntervalMs`, `loadDelaySec`, `unlockDelaySec`, `intensity`), `lighting` (`topLightIntensity`, `glowIntensity`), `feedback` (`shakeIntensity`, `rumbleIntensity`), and `scoring` (`heartBonusMax`, `heartBonusMin`, `hintPenalty`, `undoPenalty`).
+2. **True 3D Sculpted Heart-Shaped Pearl**:
+   - Heart Pearls are raymarched as real plump 3D sculpted heart gemstones (`sdHeartPearl3D` + 4-tap normals + subpixel silhouette AA inside a fast bounding-sphere reject), lit with full theme PBR shading — not a flat icon pasted on a sphere.
+3. **Full Special Pearl Suite (Gradual Campaign Rollout + Individual Audio)**:
+   - **Campaign Rollout (zero overwhelm)**: L1–L2 no specials → L3–L4 Hearts (`♥`) → L5–L6 + Rainbow (`🌈`) → L7–L8 + Hidden (`?`) → L9–L13 + Locked (`🔒`).
+   - **Rainbow Wild Pearl (`🌈`)**: Matches any currently active hoop color (direct stitch, never takes a tray slot); spawns as an extra board tile so 1 surplus pearl of that color either stays on the field or lands in the tray; level completes as soon as all hoop stitches are filled; has its own independent jiggle timer (`rainbowIntervalMs`) and prismatic arpeggio sound effect.
+   - **Hidden Pearl (`?`)**: Concealed as a glossy obsidian-black pearl until it can be stitched (`unblocked && activeColor`), then permanently flips to its true color with a glassy reveal chime.
+   - **Locked Pearl (`🔒`)**: Cannot be used while any of its 4 orthogonal adjacent tiles (`N/E/S/W`) holds an alive pearl; displays a crisp 4-side directional clasp overlay showing only the remaining active neighbor links that snap off one-by-one until all 4 are clear, triggering a metallic latch-release chime.
+4. **4 Seeded / Endless Difficulty Tiers (100% Solvable & 3-Star Guaranteed On the Fly)**:
+   - **Easy**: `5×5` — Hearts only
+   - **Medium**: `6×6` — Hearts + Rainbows
+   - **Hard**: `7×7` — Hearts + Rainbows + Hidden
+   - **Extreme**: `8×8` — All pearl types (Hearts + Rainbows + Hidden + Locked)
+
+---
+
+## 11. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -205,5 +227,6 @@ Validating the core **4-Campaign Progressive Philosophy** before generating the 
 | 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Playtested** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). Playtest revealed: iOS 26.5 blocked programmatic switch `.click()` haptics, Safari audio needed `audioSession='playback'` + `'interrupted'`/frozen-clock self-healing, wiggles fired too immediately/frequently, and iOS 26 Safari hides *Add to Home Screen* behind `•••` → Share. |
 | 2026-11-25 | **Pearl Loom v2.6 — iOS 26.5 Direct-Tap Haptics, Bulletproof Audio, Delayed Wiggles & Install Guide** | **Shipped & Playtested** | Direct-tap transparent switch/label overlay haptics + Settings Test Haptic; `audioSession='playback'` + interrupted/frozen-clock self-healing audio; `+0.70s`/`+0.85s` delayed calm wiggles + `3.0s` quiet-hand ambient cadence; in-app iOS 26 Safari PWA Install Guide (`pearl-loom-v10`). Playtest revealed: standalone PWA had a bottom black chin (`100dvh` WebKit quirk), Start Menu had duplicate Time & unnecessary Install buttons, UI copy felt too technical; requested Heart Pearls (max 3/level with early-placement bonus & chime), remote-cached `levels.json`, and a 200-level 4-campaign roadmap plan. |
 | 2026-11-25 | **Pearl Loom v2.7 — Full-Screen Standalone Fix, Cozy UI, Heart Pearls & Remote Cached `levels.json`** | **Shipped & Playtested** | Edge-to-edge standalone PWA height fix (confirmed working on iPhone!); clean non-technical UI without redundant Time/Install buttons; 1–3 Bonus Heart Pearls with contrast-adaptive ♥ inlay, early-placement score scaling, periodic wiggle & crystalline chime; remote-fetched + offline-cached `public/levels.json` loaded dynamically into WASM (`pearl-loom-v11`). |
-| 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Verified** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). |
+| 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Playtested** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). Confirmed `8×8` is ideal upper bound on iPhone 16 and ramp feels great! |
+| 2026-11-25 | **Pearl Loom v2.9 — Special Pearls Suite (3D Heart, Rainbow, Hidden, Locked), Live `config.json` & Seeded Difficulties** | **Shipped & Verified** | True 3D raymarched heart pearl; Rainbow wild pearls (surplus pearl + independent jiggle + shimmer arp); Obsidian Hidden pearls (reveal when stitchable + chime); 4-neighbor Locked pearls (directional clasp overlay + latch-release audio); remote-cached `public/config.json`; 4 seeded difficulty tiers (`Easy 5×5` → `Extreme 8×8`) (`pearl-loom-v13`). |
 

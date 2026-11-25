@@ -1695,3 +1695,93 @@ html.is-standalone #app {
   background: var(--hud-border);
 }
 
+/* v2.9: 4-Tier Endless & Custom Seed Difficulty Selector */
+.seed-diff-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.seed-diff-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border-radius: 13px;
+  border: 1.5px solid var(--hud-border);
+  background: var(--hud-bg);
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.seed-diff-pill:active {
+  transform: scale(0.95);
+}
+
+.seed-diff-pill.is-active {
+  border-color: var(--accent);
+  background: var(--hud-bg-elevated);
+  box-shadow: 0 0 0 1px var(--accent), 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.seed-diff-name {
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.seed-diff-grid {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.seed-diff-icons {
+  font-size: 9px;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+
+.gallery-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.gallery-special-icons {
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  opacity: 0.92;
+}
+
+.fx-callout-rainbow {
+  background: linear-gradient(135deg, #ff3b8d, #ffd83d, #2ce8a2, #29b6ff);
+  color: #14101f;
+  box-shadow: 0 6px 20px rgba(255, 112, 180, 0.45);
+}
+
+.fx-callout-reveal {
+  background: linear-gradient(135deg, #2b2f45, #58648e);
+  color: #f4f7ff;
+  border: 1px solid rgba(220, 232, 255, 0.55);
+  box-shadow: 0 6px 18px rgba(40, 50, 95, 0.48);
+}
+
+.fx-callout-unlock {
+  background: linear-gradient(135deg, #f7c948, #d98218);
+  color: #1c1204;
+  box-shadow: 0 6px 18px rgba(245, 180, 42, 0.46);
+}
+
+

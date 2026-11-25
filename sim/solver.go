@@ -8,7 +8,15 @@ const (
 )
 
 const (
-	MaxGridTiles = 64 // Up to full 8x8 campaign boards!
+	SpecialNone    uint8 = 0
+	SpecialHeart   uint8 = 1 // True 3D sculpted heart pearl (early-placement bonus)
+	SpecialRainbow uint8 = 2 // Wild pearl matching any active color (leaves 1 surplus pearl)
+	SpecialHidden  uint8 = 3 // Concealed obsidian-black pearl until stitchable (unblocked + active color)
+	SpecialLocked  uint8 = 4 // Locked pearl until all 4 orthogonal adjacent cells are cleared
+)
+
+const (
+	MaxGridTiles = 64 // Up to full 8x8 campaign boards (absolute iPhone 16 limit)
 	TrayCapacity = 5
 	ActiveSlots  = 2
 )
@@ -31,6 +39,9 @@ type Tile struct {
 	Dir         uint8
 	Alive       bool
 	IsHeart     bool
+	Special     uint8
+	Revealed    bool // Used by SpecialHidden (false = concealed black, true = revealed true color)
+	Unlocked    bool // Used by SpecialLocked (false = locked by adjacent pearls, true = unlocked)
 	WobbleT     float32
 	JiggleT     float32
 	JiggleDelay float32
@@ -61,6 +72,13 @@ func (p *prng) intn(n int) int {
 		return 0
 	}
 	return int(p.next() % uint32(n))
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // findFirstBlocker returns the exact index of the nearest alive tile blocking tile idx along its arrow ray,
@@ -103,6 +121,76 @@ func isTileUnblocked(tiles []Tile, idx int, cols, rows int) bool {
 	return findFirstBlocker(tiles, idx, cols, rows) < 0
 }
 
+// adjacentAliveDirMask returns a 4-bit N/E/S/W bitmask of alive orthogonal adjacent tiles around idx:
+// bit 0 (1)=North (row-1), bit 1 (2)=East (col+1), bit 2 (4)=South (row+1), bit 3 (8)=West (col-1).
+func adjacentAliveDirMask(tiles []Tile, idx int) uint32 {
+	if idx < 0 || idx >= len(tiles) || !tiles[idx].Alive {
+		return 0
+	}
+	tc := tiles[idx].Col
+	tr := tiles[idx].Row
+	var mask uint32
+	for j := range tiles {
+		if j == idx || !tiles[j].Alive {
+			continue
+		}
+		dc := tiles[j].Col - tc
+		dr := tiles[j].Row - tr
+		if dc == 0 && dr == -1 {
+			mask |= 1
+		} else if dc == 1 && dr == 0 {
+			mask |= 2
+		} else if dc == 0 && dr == 1 {
+			mask |= 4
+		} else if dc == -1 && dr == 0 {
+			mask |= 8
+		}
+	}
+	return mask
+}
+
+// findFirstAdjacentAlive returns the index of an alive orthogonal neighbor around idx, or -1 if none exist.
+func findFirstAdjacentAlive(tiles []Tile, idx int) int {
+	if idx < 0 || idx >= len(tiles) || !tiles[idx].Alive {
+		return -1
+	}
+	tc := tiles[idx].Col
+	tr := tiles[idx].Row
+	for j := range tiles {
+		if j == idx || !tiles[j].Alive {
+			continue
+		}
+		if absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
+			return j
+		}
+	}
+	return -1
+}
+
+func hasAdjacentAliveMask(tiles []Tile, mask uint64, idx int) bool {
+	tc := tiles[idx].Col
+	tr := tiles[idx].Row
+	for j := range tiles {
+		if j == idx || (mask&(uint64(1)<<uint(j))) == 0 {
+			continue
+		}
+		if absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func isTileLockedNow(tiles []Tile, idx int) bool {
+	if idx < 0 || idx >= len(tiles) || !tiles[idx].Alive {
+		return false
+	}
+	if tiles[idx].Special != SpecialLocked || tiles[idx].Unlocked {
+		return false
+	}
+	return adjacentAliveDirMask(tiles, idx) != 0
+}
+
 // ThreeStarTrayLimit returns the maximum number of tray drops allowed for a 3-star rating.
 func ThreeStarTrayLimit(totalPearls int) int {
 	return totalPearls / 6
@@ -120,8 +208,29 @@ type solverState struct {
 	queuePos  int
 }
 
+func (s *solverState) isComplete() bool {
+	for c := 0; c < NumColors; c++ {
+		if s.remain[c] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *solverState) pickRainbowColor() int {
+	best := -1
+	bestRem := 0
+	for i := 0; i < ActiveSlots; i++ {
+		c := s.active[i]
+		if c >= 0 && s.remain[c] > bestRem {
+			best = c
+			bestRem = s.remain[c]
+		}
+	}
+	return best
+}
+
 func (s *solverState) refillActive() {
-	// First clear any finished active slots and count how many colors remain active.
 	activeAlive := 0
 	for i := 0; i < ActiveSlots; i++ {
 		if s.active[i] >= 0 && s.remain[s.active[i]] > 0 {
@@ -197,8 +306,18 @@ func (s *solverState) drainTray() {
 	}
 }
 
-func (s *solverState) applyTap(tileIdx int, color uint8) bool {
+func (s *solverState) applyTap(tileIdx int, color uint8, isRainbow bool) bool {
 	s.aliveMask &^= (uint64(1) << uint(tileIdx))
+	if isRainbow {
+		rc := s.pickRainbowColor()
+		if rc >= 0 {
+			s.remain[rc]--
+			s.refillActive()
+			s.drainTray()
+			return true
+		}
+		return false
+	}
 	if s.isActiveColor(color) {
 		s.remain[color]--
 		s.refillActive()
@@ -245,8 +364,19 @@ func isUnblockedMask(tiles []Tile, mask uint64, idx int, cols, rows int) bool {
 	return true
 }
 
-// scoreTrayCandidate prioritizes tray moves that directly unblock active-color pearls
-// or hold the next-up color so DFS finds winning pinch-escapes rapidly!
+// isPlayableMask checks BOTH arrow-lane clearance AND Locked-Pearl 4-neighbor clearance!
+func isPlayableMask(tiles []Tile, mask uint64, idx int, cols, rows int) bool {
+	if !isUnblockedMask(tiles, mask, idx, cols, rows) {
+		return false
+	}
+	if tiles[idx].Special == SpecialLocked && !tiles[idx].Unlocked && hasAdjacentAliveMask(tiles, mask, idx) {
+		return false
+	}
+	return true
+}
+
+// scoreTrayCandidate prioritizes tray moves that directly unblock active-color pearls,
+// free Locked Pearls, or hold the next-up color so DFS finds winning escapes rapidly!
 func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) int {
 	score := 0
 	if int(tiles[idx].Color) == st.nextQueuedColor() {
@@ -259,12 +389,15 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 		if j == idx || (nextMask&(uint64(1)<<uint(j))) == 0 {
 			continue
 		}
-		// Only tiles on the same row or column could possibly be unblocked by removing idx
+		// Bonus for peeling a neighbor off a Locked Pearl!
+		if tiles[j].Special == SpecialLocked && absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
+			score += 9
+		}
 		if tiles[j].Col != tc && tiles[j].Row != tr {
 			continue
 		}
 		if !isUnblockedMask(tiles, st.aliveMask, j, cols, rows) && isUnblockedMask(tiles, nextMask, j, cols, rows) {
-			if st.isActiveColor(tiles[j].Color) {
+			if tiles[j].Special == SpecialRainbow || st.isActiveColor(tiles[j].Color) {
 				score += 14
 			} else {
 				score += 3
@@ -346,8 +479,8 @@ func (s *fixedMaskSet) add(k uint64, tag uint8) {
 // solveWithTrayBudgetDetailed returns (solved, firstMove, exhausted) while enforcing an optional
 // cumulative trayUses <= maxTrayUses budget (pass maxTrayUses < 0 for unrestricted search).
 func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState, maxTrayUses int, nodeBudget int) (bool, int, bool) {
-	if start.aliveMask == 0 {
-		return start.trayLen == 0 && (maxTrayUses < 0 || start.trayUses <= maxTrayUses), -1, true
+	if start.isComplete() {
+		return maxTrayUses < 0 || start.trayUses <= maxTrayUses, -1, true
 	}
 
 	nodes := 0
@@ -356,8 +489,11 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 
 	var dfs func(st solverState, depth int) (bool, int)
 	dfs = func(st solverState, depth int) (bool, int) {
+		if st.isComplete() {
+			return maxTrayUses < 0 || st.trayUses <= maxTrayUses, -1
+		}
 		if st.aliveMask == 0 {
-			return st.trayLen == 0 && (maxTrayUses < 0 || st.trayUses <= maxTrayUses), -1
+			return false, -1
 		}
 		if nodes >= nodeBudget || depth >= len(solverFrames) {
 			hitBudget = true
@@ -379,8 +515,9 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 		canUseTray := st.trayLen < TrayCapacity && (maxTrayUses < 0 || st.trayUses < maxTrayUses)
 
 		for i := range tiles {
-			if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) {
-				if st.isActiveColor(tiles[i].Color) {
+			if isPlayableMask(tiles, st.aliveMask, i, cols, rows) {
+				isRain := tiles[i].Special == SpecialRainbow
+				if isRain || st.isActiveColor(tiles[i].Color) {
 					frame.directMoves[directN] = uint8(i)
 					directN++
 				} else if canUseTray {
@@ -391,18 +528,18 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 			}
 		}
 
-		// Try direct-stitch moves first (preserve tray space & build streak!)
+		// Try direct-stitch & Rainbow moves first (preserve tray space & build streak!)
 		for k := 0; k < directN; k++ {
 			mv := int(frame.directMoves[k])
 			next := st
-			if next.applyTap(mv, tiles[mv].Color) {
+			if next.applyTap(mv, tiles[mv].Color, tiles[mv].Special == SpecialRainbow) {
 				if ok, _ := dfs(next, depth+1); ok {
 					return true, mv
 				}
 			}
 		}
 
-		// Sort tray candidates descending by pinch-escape heuristic (unblocks active colors first!)
+		// Sort tray candidates descending by pinch-escape heuristic
 		for a := 1; a < trayN; a++ {
 			mv := frame.trayMoves[a]
 			sc := frame.trayScores[a]
@@ -419,7 +556,7 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 		for k := 0; k < trayN; k++ {
 			mv := int(frame.trayMoves[k])
 			next := st
-			if next.applyTap(mv, tiles[mv].Color) {
+			if next.applyTap(mv, tiles[mv].Color, false) {
 				if ok, _ := dfs(next, depth+1); ok {
 					return true, mv
 				}
@@ -435,7 +572,6 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 }
 
 // solveFromStateDetailed returns (solved, firstMove, exhausted).
-// When !solved && exhausted, the state is provably a dead-end pinch requiring Undo!
 func solveFromStateDetailed(tiles []Tile, cols, rows int, start solverState, nodeBudget int) (bool, int, bool) {
 	return solveWithTrayBudgetDetailed(tiles, cols, rows, start, -1, nodeBudget)
 }
@@ -452,10 +588,11 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 	return ok, mv
 }
 
-// pickBestHeuristicMove selects the smartest legal unblocked move if a very deep board hits search budget.
+// pickBestHeuristicMove selects the smartest legal playable move if a very deep board hits search budget.
 func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
 	for i := range tiles {
-		if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) && st.isActiveColor(tiles[i].Color) {
+		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) &&
+			(tiles[i].Special == SpecialRainbow || st.isActiveColor(tiles[i].Color)) {
 			return i
 		}
 	}
@@ -465,7 +602,7 @@ func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
 	bestIdx := -1
 	bestScore := -1
 	for i := range tiles {
-		if isUnblockedMask(tiles, st.aliveMask, i, cols, rows) {
+		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) {
 			sc := scoreTrayCandidate(tiles, &st, i, cols, rows)
 			if sc > bestScore {
 				bestScore = sc
@@ -505,15 +642,177 @@ func distToEdge(c, r, cols, rows int, dir uint8) int {
 	}
 }
 
+// assignSpecialPearls stamps Rainbow, Locked, Hidden, and Heart pearls onto a freshly peeled board
+// so every Locked pearl is structurally unlockable (all orthogonal neighbors peeled earlier) and
+// every Hidden pearl begins genuinely hidden whenever possible.
+func assignSpecialPearls(tiles []Tile, peelOrder []int, art ArtworkDef, colorOrder [NumColors]uint8, colorCount int, rng *prng) {
+	n := len(tiles)
+	if n == 0 {
+		return
+	}
+	// Map tileIdx -> position in peelOrder
+	var peelRank [MaxGridTiles]int
+	for pos, tidx := range peelOrder {
+		peelRank[tidx] = pos
+	}
+
+	// 1. Place Locked Pearls on tiles whose 4 orthogonal neighbors ALL peel strictly earlier (guaranteed deadlock-free!)
+	if art.MaxLocked > 0 {
+		var lockCands [MaxGridTiles]int
+		nLock := 0
+		for i := 0; i < n; i++ {
+			if tiles[i].Special != SpecialNone {
+				continue
+			}
+			adjCount := 0
+			allEarlier := true
+			for j := 0; j < n; j++ {
+				if i == j {
+					continue
+				}
+				if absInt(tiles[j].Col-tiles[i].Col)+absInt(tiles[j].Row-tiles[i].Row) == 1 {
+					adjCount++
+					if peelRank[j] >= peelRank[i] {
+						allEarlier = false
+						break
+					}
+				}
+			}
+			// Must have at least 2 orthogonal neighbors at start so clearing neighbors is genuinely fun!
+			if allEarlier && adjCount >= 2 {
+				lockCands[nLock] = i
+				nLock++
+			}
+		}
+		// Shuffle candidates & place up to art.MaxLocked (avoiding placing 2 Locked pearls adjacent to each other!)
+		for i := nLock - 1; i > 0; i-- {
+			j := rng.intn(i + 1)
+			lockCands[i], lockCands[j] = lockCands[j], lockCands[i]
+		}
+		placed := 0
+		for k := 0; k < nLock && placed < art.MaxLocked; k++ {
+			idx := lockCands[k]
+			adjLocked := false
+			for j := 0; j < n; j++ {
+				if tiles[j].Special == SpecialLocked && absInt(tiles[j].Col-tiles[idx].Col)+absInt(tiles[j].Row-tiles[idx].Row) == 1 {
+					adjLocked = true
+					break
+				}
+			}
+			if adjLocked {
+				continue
+			}
+			tiles[idx].Special = SpecialLocked
+			tiles[idx].Unlocked = false
+			placed++
+		}
+	}
+
+	// Determine starting active colors (first 2 colors in queue)
+	c0 := -1
+	c1 := -1
+	if colorCount >= 1 {
+		c0 = int(colorOrder[0])
+	}
+	if colorCount >= 2 {
+		c1 = int(colorOrder[1])
+	}
+	isStartActive := func(c uint8) bool {
+		return int(c) == c0 || int(c) == c1
+	}
+
+	// 2. Place Hidden Pearls on normal tiles that begin blocked OR non-active color (so they start black!)
+	if art.MaxHidden > 0 {
+		allMask := fullMask(n)
+		var hiddenCands [MaxGridTiles]int
+		nHid := 0
+		for i := 0; i < n; i++ {
+			if tiles[i].Special != SpecialNone {
+				continue
+			}
+			unblocked := isUnblockedMask(tiles, allMask, i, art.Cols, art.Rows)
+			if !unblocked || !isStartActive(tiles[i].Color) {
+				hiddenCands[nHid] = i
+				nHid++
+			}
+		}
+		for i := nHid - 1; i > 0; i-- {
+			j := rng.intn(i + 1)
+			hiddenCands[i], hiddenCands[j] = hiddenCands[j], hiddenCands[i]
+		}
+		placed := 0
+		for k := 0; k < nHid && placed < art.MaxHidden; k++ {
+			idx := hiddenCands[k]
+			tiles[idx].Special = SpecialHidden
+			tiles[idx].Revealed = false
+			placed++
+		}
+	}
+
+	// 3. Place Heart Pearls (capped strictly at 3; 0 = NO hearts!)
+	targetHearts := art.MaxHearts
+	if targetHearts > MaxHeartsPerLevel {
+		targetHearts = MaxHeartsPerLevel
+	}
+	if targetHearts > 0 {
+		var order [MaxGridTiles]int
+		for i := 0; i < n; i++ {
+			order[i] = i
+		}
+		for i := n - 1; i > 0; i-- {
+			j := rng.intn(i + 1)
+			order[i], order[j] = order[j], order[i]
+		}
+		placed := 0
+		// Prefer 1 Heart on a starting active color so players immediately feel the early-placement rush
+		for k := 0; k < n && placed == 0 && placed < targetHearts; k++ {
+			idx := order[k]
+			if tiles[idx].Special == SpecialNone && isStartActive(tiles[idx].Color) {
+				tiles[idx].Special = SpecialHeart
+				tiles[idx].IsHeart = true
+				placed++
+			}
+		}
+		for k := 0; k < n && placed < targetHearts; k++ {
+			idx := order[k]
+			if tiles[idx].Special != SpecialNone {
+				continue
+			}
+			tiles[idx].Special = SpecialHeart
+			tiles[idx].IsHeart = true
+			placed++
+		}
+	}
+}
+
 // generateSolvableBoard constructs an engaging, interlocking, 100%-solvable untangle board
-// that is ALSO mathematically verified to have a 3-star winning path (TrayUses <= n/6)!
+// supporting Heart, Rainbow (extra board tile!), Hidden, and Locked pearls, AND mathematically
+// verified to have a 3-star winning path (TrayUses <= hoopCount/6)!
 func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 	colorOrder, colorCount, colorCounts := buildColorOrder(art.Stitches)
-	n := len(art.Stitches)
-	if n > MaxGridTiles {
-		n = MaxGridTiles
+	hoopN := len(art.Stitches)
+	if hoopN > MaxGridTiles {
+		hoopN = MaxGridTiles
 	}
-	starLimit := ThreeStarTrayLimit(n)
+	rainbowN := art.MaxRainbows
+	if rainbowN < 0 {
+		rainbowN = 0
+	}
+	if rainbowN > 2 {
+		rainbowN = 2
+	}
+	maxBoardCells := art.Cols * art.Rows
+	if maxBoardCells > MaxGridTiles {
+		maxBoardCells = MaxGridTiles
+	}
+	if hoopN+rainbowN > maxBoardCells {
+		rainbowN = maxBoardCells - hoopN
+		if rainbowN < 0 {
+			rainbowN = 0
+		}
+	}
+	n := hoopN + rainbowN
+	starLimit := ThreeStarTrayLimit(hoopN)
 
 	type cell struct{ c, r int }
 	allCells := make([]cell, 0, art.Cols*art.Rows)
@@ -565,8 +864,10 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 		tiles := make([]Tile, n)
+		peelOrder := make([]int, n)
 		for i, cl := range perim {
 			tiles[i] = Tile{Col: cl.c, Row: cl.r, Alive: true}
+			peelOrder[i] = i
 		}
 		allMask := fullMask(n)
 		for i := 0; i < n; i++ {
@@ -587,20 +888,19 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		idx := 0
 		for qi := 0; qi < colorCount; qi++ {
 			c := colorOrder[qi]
-			for k := 0; k < colorCounts[c]; k++ {
+			for k := 0; k < colorCounts[c] && idx < n; k++ {
 				tiles[idx].Color = c
 				idx++
 			}
 		}
-		// Gently shuffle colors so active colors are scattered pleasantly across the zero-blocker board
-		for i := n - 1; i > 0; i-- {
+		for i := hoopN - 1; i > 0; i-- {
 			j := rng.intn(i + 1)
 			tiles[i].Color, tiles[j].Color = tiles[j].Color, tiles[i].Color
 		}
+		assignSpecialPearls(tiles, peelOrder, art, colorOrder, colorCount, &rng)
 		return tiles, colorOrder, colorCount
 	}
 
-	// Normalize difficulty level (1..11) so difficulty rises monotonically as grid size grows!
 	diff := art.Difficulty
 	if diff < 1 {
 		diff = 1
@@ -608,8 +908,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 	if diff > 11 {
 		diff = 11
 	}
-	// Minimum fraction of starting tiles that must be blocked (strictly rising with difficulty!)
-	// Diff 1 -> ~26%, Diff 5 -> ~48%, Diff 11 -> ~64%
 	targetMinBlocked := (n * (22 + diff*4)) / 100
 	maxCap := (n * 66) / 100
 	if targetMinBlocked > maxCap {
@@ -631,7 +929,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		alive := allMask
 		peelOrder := make([]int, 0, n)
 
-		// Monotonic inward bias (out of 100): Diff 1 = 44%, Diff 6 = 74%, Diff 11 = 92%
 		inwardBiasPct := 38 + diff*6
 		if inwardBiasPct > 92 {
 			inwardBiasPct = 92
@@ -697,7 +994,6 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			continue
 		}
 
-		// Verify starting interlocking blocker density meets this tier's escalating difficulty floor
 		if attempt < 56 {
 			blockedCount := 0
 			for i := 0; i < n; i++ {
@@ -710,7 +1006,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		colorSeq := make([]uint8, 0, n)
+		colorSeq := make([]uint8, 0, hoopN)
 		for qi := 0; qi < colorCount; qi++ {
 			c := colorOrder[qi]
 			for k := 0; k < colorCounts[c]; k++ {
@@ -718,30 +1014,75 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 			}
 		}
 
-		// Monotonic color-order scramble (scales cleanly with diff 1..11, gently eases on late retries)
 		window := 2 + diff
 		if window > 10 {
 			window = 10
 		}
-		swaps := n * (1 + (diff+1)/2)
+		swaps := hoopN * (1 + (diff+1)/2)
 		if attempt >= 48 {
 			window = 2 + diff/2
-			swaps = n * 2
+			swaps = hoopN * 2
 		}
 		if attempt >= 76 {
 			window = 2
-			swaps = n
+			swaps = hoopN
 		}
 		for s := 0; s < swaps; s++ {
-			a := rng.intn(n)
+			a := rng.intn(hoopN)
 			b := a + rng.intn(window*2+1) - window
-			if b >= 0 && b < n && a != b {
+			if b >= 0 && b < hoopN && a != b {
 				colorSeq[a], colorSeq[b] = colorSeq[b], colorSeq[a]
 			}
 		}
 
+		// Pick rainbowN well-spaced peel positions in the first 65% of peelOrder for Rainbow Wild Pearls!
+		var isRainStep [MaxGridTiles]bool
+		if rainbowN > 0 {
+			span := (n * 65) / 100
+			if span < rainbowN+1 {
+				span = n
+			}
+			for r := 0; r < rainbowN; r++ {
+				pos := (span*(r+1))/(rainbowN+1) + rng.intn(3) - 1
+				if pos < 0 {
+					pos = 0
+				}
+				if pos >= n {
+					pos = n - 1
+				}
+				for isRainStep[pos] {
+					pos = (pos + 1) % n
+				}
+				isRainStep[pos] = true
+			}
+		}
+
+		colCursor := 0
 		for stepIdx, tileIdx := range peelOrder {
-			tiles[tileIdx].Color = colorSeq[stepIdx]
+			if isRainStep[stepIdx] {
+				tiles[tileIdx].Special = SpecialRainbow
+				tiles[tileIdx].Color = colorOrder[0]
+			} else {
+				tiles[tileIdx].Color = colorSeq[colCursor]
+				colCursor++
+			}
+		}
+
+		// Stamp Locked, Hidden, and Heart pearls onto the board
+		assignSpecialPearls(tiles, peelOrder, art, colorOrder, colorCount, &rng)
+
+		// If Locked pearls were requested, ensure at least 1 actually placed on early attempts
+		if art.MaxLocked > 0 && attempt < 48 {
+			hasLocked := false
+			for i := 0; i < n; i++ {
+				if tiles[i].Special == SpecialLocked {
+					hasLocked = true
+					break
+				}
+			}
+			if !hasLocked {
+				continue
+			}
 		}
 
 		st := solverState{
@@ -754,24 +1095,32 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		}
 		st.refillActive()
 
-		// Provably verify BOTH 100% solvability AND 3-star achievability (TrayUses <= n/6)!
-		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 12000); ok {
+		// Provably verify BOTH 100% solvability AND 3-star achievability with ALL special pearl rules!
+		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 16000); ok {
 			return tiles, colorOrder, colorCount
 		}
 	}
 
-	// Deterministic guaranteed 0-tray-use 3-star fallback
+	// Deterministic guaranteed 0-tray-use 3-star fallback (respecting Rainbow extra tiles!)
 	tiles := make([]Tile, n)
+	peelOrder := make([]int, n)
 	for i, cl := range chosen {
 		tiles[i] = Tile{Col: cl.c, Row: cl.r, Dir: DirUp, Alive: true}
+		peelOrder[i] = i
 	}
 	idx := 0
 	for qi := 0; qi < colorCount; qi++ {
 		c := colorOrder[qi]
-		for k := 0; k < colorCounts[c]; k++ {
+		for k := 0; k < colorCounts[c] && idx < hoopN; k++ {
 			tiles[idx].Color = c
 			idx++
 		}
 	}
+	for r := 0; r < rainbowN && idx < n; r++ {
+		tiles[idx].Special = SpecialRainbow
+		tiles[idx].Color = colorOrder[0]
+		idx++
+	}
+	assignSpecialPearls(tiles, peelOrder, art, colorOrder, colorCount, &rng)
 	return tiles, colorOrder, colorCount
 }

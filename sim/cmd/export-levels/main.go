@@ -19,17 +19,20 @@ type chapterJSON struct {
 }
 
 type levelJSON struct {
-	ID         int          `json:"id"`
-	Chapter    int          `json:"chapter"`
-	Theme      int          `json:"theme"`
-	Name       string       `json:"name"`
-	Cols       int          `json:"cols"`
-	Rows       int          `json:"rows"`
-	Difficulty int          `json:"difficulty"`
-	Seed       uint32       `json:"seed"`
-	NoBlockers bool         `json:"noBlockers,omitempty"`
-	MaxHearts  int          `json:"maxHearts,omitempty"`
-	Stitches   [][4]float64 `json:"stitches"`
+	ID          int          `json:"id"`
+	Chapter     int          `json:"chapter"`
+	Theme       int          `json:"theme"`
+	Name        string       `json:"name"`
+	Cols        int          `json:"cols"`
+	Rows        int          `json:"rows"`
+	Difficulty  int          `json:"difficulty"`
+	Seed        uint32       `json:"seed"`
+	NoBlockers  bool         `json:"noBlockers,omitempty"`
+	MaxHearts   int          `json:"maxHearts,omitempty"`
+	MaxRainbows int          `json:"maxRainbows,omitempty"`
+	MaxHidden   int          `json:"maxHidden,omitempty"`
+	MaxLocked   int          `json:"maxLocked,omitempty"`
+	Stitches    [][4]float64 `json:"stitches"`
 }
 
 type catalogJSON struct {
@@ -44,7 +47,7 @@ func round3(v float32) float64 {
 
 func main() {
 	cat := catalogJSON{
-		Version: 2,
+		Version: 3,
 		Chapters: []chapterJSON{
 			{ID: 0, Roman: "I", Name: "Jewel Atelier", ShortName: "Jewel", ThemeID: 0, Subtitle: "Sunlit gemstones & artisan brooches"},
 			{ID: 1, Roman: "II", Name: "Cyber Arcade", ShortName: "Neon", ThemeID: 1, Subtitle: "Electric synthwave grids & pulses"},
@@ -60,17 +63,20 @@ func main() {
 			st[i] = [4]float64{round3(sp.X), round3(sp.Z), float64(sp.Color), float64(sp.Layer)}
 		}
 		cat.Levels = append(cat.Levels, levelJSON{
-			ID:         art.ID,
-			Chapter:    art.Chapter,
-			Theme:      art.Theme,
-			Name:       art.Name,
-			Cols:       art.Cols,
-			Rows:       art.Rows,
-			Difficulty: art.Difficulty,
-			Seed:       art.Seed,
-			NoBlockers: art.NoBlockers,
-			MaxHearts:  art.MaxHearts,
-			Stitches:   st,
+			ID:          art.ID,
+			Chapter:     art.Chapter,
+			Theme:       art.Theme,
+			Name:        art.Name,
+			Cols:        art.Cols,
+			Rows:        art.Rows,
+			Difficulty:  art.Difficulty,
+			Seed:        art.Seed,
+			NoBlockers:  art.NoBlockers,
+			MaxHearts:   art.MaxHearts,
+			MaxRainbows: art.MaxRainbows,
+			MaxHidden:   art.MaxHidden,
+			MaxLocked:   art.MaxLocked,
+			Stitches:    st,
 		})
 	}
 

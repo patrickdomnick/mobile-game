@@ -29,9 +29,19 @@ func simLoadMandala(seed uint32) {
 	engine.LoadMandala(seed)
 }
 
+//go:wasmexport sim_load_mandala_diff
+func simLoadMandalaDiff(seed uint32, diff uint32) {
+	engine.LoadMandalaWithDifficulty(seed, int(diff))
+}
+
 //go:wasmexport sim_load_daily
 func simLoadDaily(dateKey uint32) {
 	engine.LoadDaily(dateKey)
+}
+
+//go:wasmexport sim_set_tuning
+func simSetTuning(paramID uint32, val float32) {
+	engine.SetTuning(int(paramID), val)
 }
 
 //go:wasmexport sim_step
@@ -81,6 +91,11 @@ func simHint() int32 {
 //go:wasmexport sim_trigger_active_wiggle
 func simTriggerActiveWiggle() int32 {
 	return int32(engine.TriggerRandomActiveWiggle())
+}
+
+//go:wasmexport sim_trigger_rainbow_wiggle
+func simTriggerRainbowWiggle() int32 {
+	return int32(engine.TriggerRandomRainbowWiggle())
 }
 
 //go:wasmexport sim_scene_ptr

@@ -146,6 +146,38 @@ export function generateRandomSeed(): number {
   return 100000 + (buf[0] % 900000);
 }
 
+export type SeedDifficultyTier = 0 | 1 | 2 | 3;
+
+export interface SeedDifficultyDef {
+  id: SeedDifficultyTier;
+  name: string;
+  grid: string;
+  specials: string;
+  tagline: string;
+}
+
+export const SEED_DIFFICULTIES: readonly SeedDifficultyDef[] = [
+  { id: 0, name: 'Easy', grid: '5×5', specials: '♥', tagline: '5×5 · Hearts' },
+  { id: 1, name: 'Medium', grid: '6×6', specials: '♥ 🌈', tagline: '6×6 · Hearts + Rainbow' },
+  { id: 2, name: 'Hard', grid: '7×7', specials: '♥ 🌈 ?', tagline: '7×7 · + Hidden' },
+  { id: 3, name: 'Extreme', grid: '8×8', specials: '♥ 🌈 ? 🔒', tagline: '8×8 · All Specials' },
+] as const;
+
+export const TUNING_PARAM = {
+  LOAD_DELAY: 0,
+  UNLOCK_DELAY: 1,
+  JIGGLE_INTENSITY: 2,
+  TOP_LIGHT: 3,
+  GLOW_INTENSITY: 4,
+  SHAKE_INTENSITY: 5,
+  HEART_BONUS_MAX: 6,
+  HEART_BONUS_MIN: 7,
+  HINT_PENALTY: 8,
+  UNDO_PENALTY: 9,
+} as const;
+
+export type SpecialPearlKind = 'none' | 'heart' | 'rainbow' | 'hidden' | 'locked';
+
 export interface CuratedLevelDef {
   id: number;
   chapter: number;
@@ -155,23 +187,27 @@ export interface CuratedLevelDef {
   pearls: number;
   difficulty: number;
   noBlockers: boolean;
+  maxHearts: number;
+  maxRainbows: number;
+  maxHidden: number;
+  maxLocked: number;
   colors: readonly number[];
 }
 
 const CAMPAIGN_LADDER_META = [
-  { grid: '5×5', pearls: 14, difficulty: 0, noBlockers: true, colorCount: 3 },
-  { grid: '5×5', pearls: 16, difficulty: 0, noBlockers: true, colorCount: 4 },
-  { grid: '5×5', pearls: 21, difficulty: 1, noBlockers: false, colorCount: 4 },
-  { grid: '6×5', pearls: 26, difficulty: 2, noBlockers: false, colorCount: 4 },
-  { grid: '6×6', pearls: 32, difficulty: 3, noBlockers: false, colorCount: 5 },
-  { grid: '7×6', pearls: 37, difficulty: 4, noBlockers: false, colorCount: 5 },
-  { grid: '7×7', pearls: 43, difficulty: 5, noBlockers: false, colorCount: 5 },
-  { grid: '8×6', pearls: 45, difficulty: 6, noBlockers: false, colorCount: 6 },
-  { grid: '8×7', pearls: 51, difficulty: 7, noBlockers: false, colorCount: 6 },
-  { grid: '8×8', pearls: 54, difficulty: 8, noBlockers: false, colorCount: 6 },
-  { grid: '8×8', pearls: 58, difficulty: 9, noBlockers: false, colorCount: 6 },
-  { grid: '8×8', pearls: 61, difficulty: 10, noBlockers: false, colorCount: 6 },
-  { grid: '8×8', pearls: 64, difficulty: 11, noBlockers: false, colorCount: 6 },
+  { grid: '5×5', pearls: 14, difficulty: 0, noBlockers: true, colorCount: 3, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
+  { grid: '5×5', pearls: 16, difficulty: 0, noBlockers: true, colorCount: 4, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
+  { grid: '5×5', pearls: 21, difficulty: 1, noBlockers: false, colorCount: 4, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
+  { grid: '6×5', pearls: 26, difficulty: 2, noBlockers: false, colorCount: 4, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
+  { grid: '6×6', pearls: 32, difficulty: 3, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0 },
+  { grid: '7×6', pearls: 37, difficulty: 4, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0 },
+  { grid: '7×7', pearls: 43, difficulty: 5, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0 },
+  { grid: '8×6', pearls: 45, difficulty: 6, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0 },
+  { grid: '8×7', pearls: 51, difficulty: 7, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1 },
+  { grid: '8×8', pearls: 54, difficulty: 8, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1 },
+  { grid: '8×8', pearls: 58, difficulty: 9, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2 },
+  { grid: '8×8', pearls: 61, difficulty: 10, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2 },
+  { grid: '8×8', pearls: 62, difficulty: 11, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 3 },
 ] as const;
 
 const CAMPAIGN_LEVEL_NAMES: readonly (readonly string[])[] = [
@@ -221,6 +257,10 @@ export const CURATED_LEVELS: readonly CuratedLevelDef[] = CAMPAIGN_LEVEL_NAMES.f
       pearls: meta.pearls,
       difficulty: meta.difficulty,
       noBlockers: meta.noBlockers,
+      maxHearts: meta.maxHearts,
+      maxRainbows: meta.maxRainbows,
+      maxHidden: meta.maxHidden,
+      maxLocked: meta.maxLocked,
       colors: [...pal.slice(0, meta.colorCount)].sort((a, b) => a - b),
     };
   }),
@@ -236,6 +276,9 @@ export interface TileSnapshot {
   dir: number;
   alive: boolean;
   isHeart: boolean;
+  special: SpecialPearlKind;
+  hiddenConcealed: boolean;
+  lockedNow: boolean;
   unblocked: boolean;
   worldX: number;
   worldZ: number;
@@ -253,6 +296,10 @@ export interface AudioEventCounters {
   colorClearEvents: number;
   layerClearEvents: number;
   heartClearEvents: number;
+  rainbowClearEvents: number;
+  hiddenRevealEvents: number;
+  lockBreakEvents: number;
+  lockedTapEvents: number;
   completeEvents: number;
 }
 
@@ -262,6 +309,7 @@ export interface SimSnapshot {
   levelIndex: number;
   chapterIndex: number;
   seed: number;
+  seedDifficulty: SeedDifficultyTier;
   levelName: string;
   mode: GameMode;
   phase: GamePhase;
@@ -316,6 +364,9 @@ export interface CustomLevelPayload {
   seed: number;
   noBlockers?: boolean;
   maxHearts?: number;
+  maxRainbows?: number;
+  maxHidden?: number;
+  maxLocked?: number;
   stitches?: readonly (readonly [number, number, number, number])[];
 }
 
@@ -325,15 +376,18 @@ interface SimExports {
   sim_reset: () => void;
   sim_load_level: (idx: number) => void;
   sim_load_mandala: (seed: number) => void;
+  sim_load_mandala_diff?: (seed: number, diffTier: number) => void;
   sim_load_daily: (dateKey: number) => void;
   sim_step: (dt: number) => void;
   sim_set_time_of_day: (hours: number) => void;
   sim_set_theme: (themeIdx: number) => void;
+  sim_set_tuning?: (paramId: number, val: number) => void;
   sim_tap_world: (wx: number, wz: number) => number;
   sim_tap_tile: (idx: number) => number;
   sim_undo: () => number;
   sim_hint: () => number;
   sim_trigger_active_wiggle: () => number;
+  sim_trigger_rainbow_wiggle?: () => number;
   sim_scene_ptr: () => number;
   sim_scene_len: () => number;
   sim_state_ptr: () => number;
@@ -453,12 +507,13 @@ export class WasmSimulation {
   /** Loads a remote/cached JSON level directly into WASM memory via zero-alloc flat staging buffer. */
   loadCustomLevel(def: CustomLevelPayload): boolean {
     const stitches = def.stitches;
+    const HEADER_LEN = 14;
     if (
       !stitches ||
       stitches.length === 0 ||
       !this.exports.sim_load_custom_level ||
       this.customLevelPtr === 0 ||
-      10 + stitches.length * 4 > this.customLevelLen
+      HEADER_LEN + stitches.length * 4 > this.customLevelLen
     ) {
       this.activeCustomName = def.name || null;
       this.exports.sim_load_level(Math.max(0, Math.floor(def.id)));
@@ -477,9 +532,13 @@ export class WasmSimulation {
     buf[7] = (seed >>> 16) & 0xffff;
     buf[8] = def.noBlockers ? 1 : 0;
     buf[9] = def.maxHearts ?? 0;
+    buf[10] = def.maxRainbows ?? 0;
+    buf[11] = def.maxHidden ?? 0;
+    buf[12] = def.maxLocked ?? 0;
+    buf[13] = 0;
 
     for (let i = 0; i < stitches.length; i++) {
-      const off = 10 + i * 4;
+      const off = HEADER_LEN + i * 4;
       const st = stitches[i];
       buf[off + 0] = st[0];
       buf[off + 1] = st[1];
@@ -492,9 +551,14 @@ export class WasmSimulation {
     return ok;
   }
 
-  loadMandala(seed: number): void {
+  loadMandala(seed: number, diffTier?: SeedDifficultyTier): void {
     this.activeCustomName = null;
-    this.exports.sim_load_mandala(Math.max(1, Math.floor(seed)) >>> 0);
+    const s = Math.max(1, Math.floor(seed)) >>> 0;
+    if (typeof diffTier === 'number' && this.exports.sim_load_mandala_diff) {
+      this.exports.sim_load_mandala_diff(s, Math.max(0, Math.min(3, Math.floor(diffTier))));
+    } else {
+      this.exports.sim_load_mandala(s);
+    }
   }
 
   loadDaily(dateKey: number): void {
@@ -512,6 +576,10 @@ export class WasmSimulation {
 
   setTheme(themeIndex: number): void {
     this.exports.sim_set_theme(Math.max(0, Math.min(VISUAL_THEMES.length - 1, Math.floor(themeIndex))));
+  }
+
+  setTuning(paramId: number, value: number): void {
+    this.exports.sim_set_tuning?.(paramId, value);
   }
 
   tapWorld(wx: number, wz: number): boolean {
@@ -532,6 +600,10 @@ export class WasmSimulation {
 
   triggerActiveWiggle(): number {
     return this.exports.sim_trigger_active_wiggle();
+  }
+
+  triggerRainbowWiggle(): number {
+    return this.exports.sim_trigger_rainbow_wiggle?.() ?? -1;
   }
 
   sceneView(): Float32Array {
@@ -570,6 +642,8 @@ export class WasmSimulation {
       s.length > 53
         ? (((Math.round(s[52]) & 0xffff) | ((Math.round(s[53]) & 0xffff) << 16)) >>> 0)
         : 0;
+    const rawDiff = s.length > 60 ? Math.round(s[60]) : 1;
+    const seedDifficulty = Math.max(0, Math.min(3, rawDiff)) as SeedDifficultyTier;
 
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
@@ -598,7 +672,12 @@ export class WasmSimulation {
       const off = i * 8;
       const wx = tBuf[off + 6];
       const wz = tBuf[off + 7];
-      const aliveVal = tBuf[off + 4];
+      const stCode = Math.round(tBuf[off + 4]);
+      let special: SpecialPearlKind = 'none';
+      if (stCode === 2) special = 'heart';
+      else if (stCode === 3) special = 'rainbow';
+      else if (stCode === 4 || stCode === 5) special = 'hidden';
+      else if (stCode === 6 || stCode === 7) special = 'locked';
       const proj = projectWorldToScreen(wx, 0.14, wz, aspect);
       tiles.push({
         index: i,
@@ -606,8 +685,11 @@ export class WasmSimulation {
         row: Math.round(tBuf[off + 1]),
         color: Math.round(tBuf[off + 2]),
         dir: Math.round(tBuf[off + 3]),
-        alive: aliveVal > 0.5,
-        isHeart: aliveVal > 1.5,
+        alive: stCode > 0,
+        isHeart: stCode === 2,
+        special,
+        hiddenConcealed: stCode === 4,
+        lockedNow: stCode === 6,
         unblocked: tBuf[off + 5] > 0.5,
         worldX: wx,
         worldZ: wz,
@@ -617,12 +699,13 @@ export class WasmSimulation {
     }
 
     const mode = MODE_MAP[modeIdx] ?? 'curated';
+    const diffLabel = SEED_DIFFICULTIES[seedDifficulty]?.name ?? 'Medium';
     const levelName =
       mode === 'curated'
         ? (this.activeCustomName ?? CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
         : mode === 'daily'
           ? `Daily #${seed || levelIndex}`
-          : `Pattern #${seed || levelIndex}`;
+          : `${diffLabel} #${seed || levelIndex}`;
 
     const hintTileIndex = Math.round(s[21]);
 
@@ -632,6 +715,7 @@ export class WasmSimulation {
       levelIndex,
       chapterIndex,
       seed,
+      seedDifficulty,
       levelName,
       mode,
       phase: PHASE_MAP[phaseIdx] ?? 'playing',
@@ -682,6 +766,10 @@ export class WasmSimulation {
         colorClearEvents: Math.round(s[42]),
         layerClearEvents: Math.round(s[43]),
         heartClearEvents: s.length > 54 ? Math.round(s[54]) : 0,
+        rainbowClearEvents: s.length > 56 ? Math.round(s[56]) : 0,
+        hiddenRevealEvents: s.length > 57 ? Math.round(s[57]) : 0,
+        lockBreakEvents: s.length > 58 ? Math.round(s[58]) : 0,
+        lockedTapEvents: s.length > 59 ? Math.round(s[59]) : 0,
         completeEvents: Math.round(s[30]),
       },
     };

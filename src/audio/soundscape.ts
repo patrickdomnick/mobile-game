@@ -63,11 +63,14 @@ export interface SyncAudioContext {
  * On iOS 26.5+ Safari, native Taptic Engine clicks are delivered by direct-tap
  * transparent `<label for="ios-haptic-switch">` overlays on the board and buttons.
  */
-function vibratePattern(enabled: boolean, pattern: number | number[]): void {
-  if (!enabled) return;
+function vibratePattern(enabled: boolean, pattern: number | number[], scale = 1.0): void {
+  if (!enabled || scale <= 0.01) return;
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(pattern);
+      const scaled = Array.isArray(pattern)
+        ? pattern.map((ms) => Math.max(1, Math.round(ms * scale)))
+        : Math.max(1, Math.round(pattern * scale));
+      navigator.vibrate(scaled);
     }
   } catch {
     // Non-fatal on browsers without Vibration API
@@ -91,6 +94,7 @@ export class ProceduralSoundscape {
   private silentEl: HTMLAudioElement | null = null;
 
   private muted = false;
+  private rumbleScale = 1.0;
   private timeOfDayHours = 12.0;
   private notesScheduled = 0;
   private ambientTimer: number | null = null;
@@ -110,6 +114,10 @@ export class ProceduralSoundscape {
       this.muted = false;
     }
     configureIosAudioSession();
+  }
+
+  setRumbleIntensity(scale: number): void {
+    this.rumbleScale = Math.max(0, Math.min(2.5, Number.isFinite(scale) ? scale : 1.0));
   }
 
   isMuted(): boolean {
@@ -448,7 +456,7 @@ export class ProceduralSoundscape {
   }
 
   playUiTap(hapticsEnabled: boolean): void {
-    vibratePattern(hapticsEnabled, 8);
+    vibratePattern(hapticsEnabled, 8, this.rumbleScale);
     if (!this.ctx || this.muted) return;
     const { rootMidi } = this.computeSolarParams(this.timeOfDayHours);
     this.playTone(midiToHz(rootMidi + 12), 0.12, 0.06, 'sine', 0, 0.005);
@@ -484,9 +492,10 @@ export class ProceduralSoundscape {
     this.lastEvents = { ...events };
 
     const { rootMidi, daylight } = this.computeSolarParams(this.timeOfDayHours);
+    const rScale = this.rumbleScale;
 
     if (events.completeEvents > prev.completeEvents) {
-      vibratePattern(info.hapticsEnabled, [24, 40, 32, 40, 65]);
+      vibratePattern(info.hapticsEnabled, [24, 40, 32, 40, 65], rScale);
       if (this.ctx && !this.muted) {
         const chord = [0, 4, 7, 11, 12, 16, 19];
         chord.forEach((semi, idx) => {
@@ -498,7 +507,7 @@ export class ProceduralSoundscape {
     }
 
     if (events.layerClearEvents > prev.layerClearEvents) {
-      vibratePattern(info.hapticsEnabled, [18, 28, 36]);
+      vibratePattern(info.hapticsEnabled, [18, 28, 36], rScale);
       if (this.ctx && !this.muted) {
         [0, 7, 12, 16, 19].forEach((semi, idx) => {
           this.playTone(midiToHz(rootMidi + semi), 1.1, 0.11, 'triangle', idx * 0.055, 0.008);
@@ -507,7 +516,7 @@ export class ProceduralSoundscape {
     }
 
     if (events.colorClearEvents > prev.colorClearEvents) {
-      vibratePattern(info.hapticsEnabled, [14, 22, 24]);
+      vibratePattern(info.hapticsEnabled, [14, 22, 24], rScale);
       if (this.ctx && !this.muted) {
         [4, 7, 11, 16].forEach((semi, idx) => {
           this.playTone(midiToHz(rootMidi + semi), 0.78, 0.115, 'sine', idx * 0.045, 0.006);
@@ -516,8 +525,8 @@ export class ProceduralSoundscape {
     }
 
     if (events.heartClearEvents > prev.heartClearEvents) {
-      // Brand-new warm crystalline Heart Chime: shimmering major-9th harp bloom + bell sparkle!
-      vibratePattern(info.hapticsEnabled, [16, 20, 26]);
+      // Warm crystalline 3D Heart Chime: shimmering major-9th harp bloom + bell sparkle
+      vibratePattern(info.hapticsEnabled, [16, 20, 26], rScale);
       if (this.ctx && !this.muted) {
         [0, 4, 7, 11, 14, 19].forEach((semi, idx) => {
           this.playTone(midiToHz(rootMidi + 12 + semi), 0.85, 0.105, 'sine', idx * 0.038, 0.005);
@@ -528,10 +537,54 @@ export class ProceduralSoundscape {
       }
     }
 
+    if (events.rainbowClearEvents > prev.rainbowClearEvents) {
+      // Prismatic Rainbow Wild Glissando: rapid luminous Lydian cascade across 2 octaves!
+      vibratePattern(info.hapticsEnabled, [14, 16, 18, 16, 28], rScale);
+      if (this.ctx && !this.muted) {
+        [0, 2, 4, 6, 7, 11, 14, 18].forEach((semi, idx) => {
+          this.playTone(midiToHz(rootMidi + 12 + semi), 0.62, 0.092, 'triangle', idx * 0.028, 0.004);
+          this.playTone(midiToHz(rootMidi + 24 + semi), 0.42, 0.038, 'sine', idx * 0.028 + 0.01, 0.004);
+        });
+      }
+    }
+
+    if (events.hiddenRevealEvents > prev.hiddenRevealEvents) {
+      // Hidden Pearl Reveal: mysterious velvet low fifth opening into a crystal star shimmer!
+      vibratePattern(info.hapticsEnabled, [10, 18, 14], rScale);
+      if (this.ctx && !this.muted) {
+        this.playTone(midiToHz(rootMidi - 5), 0.48, 0.075, 'sine', 0.0, 0.022);
+        this.playTone(midiToHz(rootMidi + 6), 0.42, 0.070, 'triangle', 0.055, 0.012);
+        this.playTone(midiToHz(rootMidi + 14), 0.65, 0.088, 'sine', 0.11, 0.006);
+        this.playTone(midiToHz(rootMidi + 26), 0.45, 0.042, 'sine', 0.15, 0.005);
+      }
+    }
+
+    if (events.lockBreakEvents > prev.lockBreakEvents) {
+      // Locked Pearl Unlock: crisp metallic latch snap + bright brass release triad!
+      vibratePattern(info.hapticsEnabled, [12, 16, 22], rScale);
+      if (this.ctx && !this.muted) {
+        this.playTone(980, 0.065, 0.085, 'square', 0.0, 0.002);
+        this.playTone(1480, 0.09, 0.075, 'triangle', 0.032, 0.003);
+        this.playTone(midiToHz(rootMidi + 7), 0.36, 0.095, 'triangle', 0.065, 0.005);
+        this.playTone(midiToHz(rootMidi + 16), 0.52, 0.090, 'sine', 0.105, 0.006);
+      }
+    }
+
+    if (events.lockedTapEvents > prev.lockedTapEvents) {
+      // Locked Pearl Guard: muted bronze metallic double-clink (distinct from wood blocker thud!)
+      vibratePattern(info.hapticsEnabled, [18, 22, 18], rScale);
+      if (this.ctx && !this.muted) {
+        this.playTone(540, 0.075, 0.085, 'triangle', 0.0, 0.002);
+        this.playTone(392, 0.095, 0.080, 'square', 0.012, 0.002);
+        this.playTone(485, 0.08, 0.070, 'triangle', 0.075, 0.002);
+        this.playTone(348, 0.11, 0.065, 'sine', 0.085, 0.003);
+      }
+    }
+
     if (events.stitchEvents > prev.stitchEvents) {
       const streakStep = Math.min(Math.max(0, info.streak - 1), SOLAR_SCALE_SEMITONES.length - 1);
       const semi = SOLAR_SCALE_SEMITONES[streakStep];
-      vibratePattern(info.hapticsEnabled, Math.min(22, 9 + streakStep));
+      vibratePattern(info.hapticsEnabled, Math.min(22, 9 + streakStep), rScale);
       if (this.ctx && !this.muted) {
         const baseHz = midiToHz(rootMidi + semi);
         this.playTone(baseHz, 0.72, 0.145, 'sine', 0, 0.006);
@@ -550,7 +603,7 @@ export class ProceduralSoundscape {
     }
 
     if (events.trayEvents > prev.trayEvents) {
-      vibratePattern(info.hapticsEnabled, info.trayTension >= 0.75 ? [14, 24, 18] : 10);
+      vibratePattern(info.hapticsEnabled, info.trayTension >= 0.75 ? [14, 24, 18] : 10, rScale);
       if (this.ctx && !this.muted) {
         const tensionPitch = info.trayTension >= 0.75 ? -5 : -2;
         this.playTone(midiToHz(rootMidi + tensionPitch), 0.24, 0.09, 'triangle', 0, 0.006);
@@ -558,7 +611,7 @@ export class ProceduralSoundscape {
     }
 
     if (events.blockedEvents > prev.blockedEvents) {
-      vibratePattern(info.hapticsEnabled, [16, 26, 16]);
+      vibratePattern(info.hapticsEnabled, [16, 26, 16], rScale);
       if (this.ctx && !this.muted) {
         this.playTone(170, 0.13, 0.09, 'triangle', 0, 0.004);
         this.playTone(128, 0.14, 0.07, 'sine', 0.035, 0.004);
@@ -566,7 +619,7 @@ export class ProceduralSoundscape {
     }
 
     if (events.undoEvents > prev.undoEvents) {
-      vibratePattern(info.hapticsEnabled, 10);
+      vibratePattern(info.hapticsEnabled, 10, rScale);
       if (this.ctx && !this.muted) {
         this.playTone(midiToHz(rootMidi + 7), 0.18, 0.075, 'sine', 0, 0.008);
         this.playTone(midiToHz(rootMidi + 2), 0.24, 0.07, 'sine', 0.065, 0.008);

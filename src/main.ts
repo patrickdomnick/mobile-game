@@ -1,16 +1,20 @@
 import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
+import { loadGameConfig, type GameConfig } from './config';
 import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
 import { getLevelTierLabel, loadLevelsCatalog, type RemoteLevelDef } from './levels';
 import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import {
+  SEED_DIFFICULTIES,
+  TUNING_PARAM,
   VISUAL_THEMES,
   WasmSimulation,
   getDailyThemeForDateKey,
   getThemePalette,
   parseSeedInput,
+  type SeedDifficultyTier,
   type SimSnapshot,
 } from './wasmBridge';
 
@@ -21,6 +25,8 @@ export interface GameTestState extends SimSnapshot {
   screen: ScreenMode;
   timeMode: 'auto' | 'manual';
   hapticsEnabled: boolean;
+  configSource: 'network' | 'cache' | 'defaults';
+  config: GameConfig;
   levelsCatalog: {
     source: 'network' | 'cache' | 'builtin';
     version: number;
@@ -37,6 +43,7 @@ export interface GameTestState extends SimSnapshot {
     completedCuratedIds: number[];
     mandalasCompleted: number;
     dailyCompletedToday: boolean;
+    seedDifficulty: SeedDifficultyTier;
   };
   renderer: RendererDiagnostics;
 }
@@ -49,10 +56,12 @@ export interface GameTestBridge {
   undo(): boolean;
   hint(): number;
   triggerActiveWiggle(): number;
+  triggerRainbowWiggle(): number;
+  setTuning(paramId: number, value: number): void;
   reset(): void;
   loadLevel(levelIndex: number): void;
-  loadMandala(seed: number): void;
-  loadCustomSeed(raw: string): number;
+  loadMandala(seed: number, diffTier?: SeedDifficultyTier): void;
+  loadCustomSeed(raw: string, diffTier?: SeedDifficultyTier): number;
   loadDaily(dateKey?: number): void;
   setTimeOfDayOverride(hours: number | null): void;
   setTheme(themeIndex: number): void;
@@ -156,10 +165,12 @@ async function bootstrap(): Promise<void> {
   const gallerySheet = document.getElementById('overlay-gallery');
   const galleryEyebrowEl = document.getElementById('gallery-eyebrow');
   const closeGalleryBtn = document.getElementById('btn-close-gallery');
+  const seedDiffPickerEl = document.getElementById('seed-diff-picker');
   const dailyBtn = document.getElementById('btn-daily-stitch');
   const galleryDailyTag = document.getElementById('gallery-daily-tag');
   const dailyStatusEl = document.getElementById('daily-status');
   const endlessBtn = document.getElementById('btn-endless-mandala');
+  const galleryEndlessTag = document.getElementById('gallery-endless-tag');
   const mandalaStatusEl = document.getElementById('mandala-status');
   const seedForm = document.getElementById('seed-form') as HTMLFormElement | null;
   const customSeedInput = document.getElementById('input-custom-seed') as HTMLInputElement | null;
@@ -205,14 +216,32 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    const [sim, renderer, levelsCatalog] = await Promise.all([
+    const [sim, renderer, levelsCatalog, loadedConfig] = await Promise.all([
       WasmSimulation.load('./game.wasm'),
       WebGPURaytracer.create(canvas, SCENE_BUFFER_BYTES),
       loadLevelsCatalog('./levels.json'),
+      loadGameConfig('./config.json'),
     ]);
+    const gameConfig = loadedConfig.config;
     const soundscape = new ProceduralSoundscape();
     const gallery = new EmbroideryGalleryStore();
     let settings = gallery.getSettings();
+
+    // Stream live remote-configurable tuning parameters from public/config.json into WASM + audio
+    const applyTuningConfig = (cfg: GameConfig): void => {
+      sim.setTuning(TUNING_PARAM.LOAD_DELAY, cfg.jiggle.loadDelaySec);
+      sim.setTuning(TUNING_PARAM.UNLOCK_DELAY, cfg.jiggle.unlockDelaySec);
+      sim.setTuning(TUNING_PARAM.JIGGLE_INTENSITY, cfg.jiggle.intensity);
+      sim.setTuning(TUNING_PARAM.TOP_LIGHT, cfg.lighting.topLightIntensity);
+      sim.setTuning(TUNING_PARAM.GLOW_INTENSITY, cfg.lighting.glowIntensity);
+      sim.setTuning(TUNING_PARAM.SHAKE_INTENSITY, cfg.feedback.shakeIntensity);
+      sim.setTuning(TUNING_PARAM.HEART_BONUS_MAX, cfg.scoring.heartBonusMax);
+      sim.setTuning(TUNING_PARAM.HEART_BONUS_MIN, cfg.scoring.heartBonusMin);
+      sim.setTuning(TUNING_PARAM.HINT_PENALTY, cfg.scoring.hintPenalty);
+      sim.setTuning(TUNING_PARAM.UNDO_PENALTY, cfg.scoring.undoPenalty);
+      soundscape.setRumbleIntensity(cfg.feedback.rumbleIntensity);
+    };
+    applyTuningConfig(gameConfig);
 
     let isReady = false;
     let screenMode: ScreenMode = 'menu';
@@ -232,6 +261,10 @@ async function bootstrap(): Promise<void> {
     let prevColorClearEvents = 0;
     let prevLayerClearEvents = 0;
     let prevHeartClearEvents = 0;
+    let prevRainbowClearEvents = 0;
+    let prevHiddenRevealEvents = 0;
+    let prevLockBreakEvents = 0;
+    let prevLockedTapEvents = 0;
     let prevBlockedEvents = 0;
     let prevHintEvents = 0;
     let prevUndoEvents = 0;
@@ -291,7 +324,7 @@ async function bootstrap(): Promise<void> {
 
     const spawnCallout = (
       text: string,
-      variant: 'score' | 'streak' | 'heart' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
+      variant: 'score' | 'streak' | 'heart' | 'rainbow' | 'reveal' | 'unlock' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
       screenX: number,
       screenY: number,
     ): void => {
@@ -304,7 +337,7 @@ async function bootstrap(): Promise<void> {
       fxLayer.append(el);
       window.setTimeout(
         () => el.remove(),
-        variant === 'rescue' || variant === 'milestone' || variant === 'heart' ? 1650 : 1020,
+        variant === 'rescue' || variant === 'milestone' || variant === 'heart' || variant === 'rainbow' ? 1650 : 1080,
       );
     };
 
@@ -403,6 +436,7 @@ async function bootstrap(): Promise<void> {
       const today = getTodayDateKey();
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
       const dailyDone = prog.completedDailyDates.includes(today.label);
+      const diffDef = SEED_DIFFICULTIES[prog.seedDifficulty] ?? SEED_DIFFICULTIES[1];
 
       if (menuChapterLabel) {
         menuChapterLabel.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${totalDone}/${levelsCatalog.levels.length} MASTERED`;
@@ -432,8 +466,7 @@ async function bootstrap(): Promise<void> {
         menuDailyMeta.textContent = dailyDone ? `✦ Completed (${today.label})` : today.label;
       }
       if (menuEndlessMeta) {
-        menuEndlessMeta.textContent =
-          prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} completed · Infinite` : 'Fresh pattern every time';
+        menuEndlessMeta.textContent = `${diffDef.name} · ${diffDef.grid} ${diffDef.specials}`;
       }
 
       if (menuCampaignStrip) {
@@ -520,6 +553,7 @@ async function bootstrap(): Promise<void> {
       const today = getTodayDateKey();
       const dailyDone = prog.completedDailyDates.includes(today.label);
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
+      const diffDef = SEED_DIFFICULTIES[prog.seedDifficulty] ?? SEED_DIFFICULTIES[1];
 
       if (galleryEyebrowEl) {
         galleryEyebrowEl.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${levelsCatalog.levels.length} LEVELS`;
@@ -530,8 +564,46 @@ async function bootstrap(): Promise<void> {
       if (dailyStatusEl) {
         dailyStatusEl.textContent = dailyDone ? `★★★ Completed (${today.label})` : today.label;
       }
+      if (galleryEndlessTag) {
+        galleryEndlessTag.textContent = `${diffDef.name.toUpperCase()} · ${diffDef.grid}`;
+      }
       if (mandalaStatusEl) {
-        mandalaStatusEl.textContent = `${prog.mandalasCompleted} completed`;
+        mandalaStatusEl.textContent = `${diffDef.specials} · ${prog.mandalasCompleted} done`;
+      }
+
+      if (seedDiffPickerEl) {
+        seedDiffPickerEl.innerHTML = '';
+        SEED_DIFFICULTIES.forEach((tier) => {
+          const isAct = tier.id === prog.seedDifficulty;
+          const pill = document.createElement('button');
+          pill.type = 'button';
+          pill.className = `seed-diff-pill${isAct ? ' is-active' : ''}`;
+          pill.dataset.seedDifficulty = String(tier.id);
+          pill.setAttribute('role', 'radio');
+          pill.setAttribute('aria-checked', isAct ? 'true' : 'false');
+
+          const nSpan = document.createElement('span');
+          nSpan.className = 'seed-diff-name';
+          nSpan.textContent = tier.name;
+
+          const gSpan = document.createElement('span');
+          gSpan.className = 'seed-diff-grid';
+          gSpan.textContent = tier.grid;
+
+          const iSpan = document.createElement('span');
+          iSpan.className = 'seed-diff-icons';
+          iSpan.textContent = tier.specials;
+
+          pill.append(nSpan, gSpan, iSpan);
+          pill.addEventListener('click', () => {
+            soundscape.unlock();
+            soundscape.playUiTap(settings.hapticsEnabled);
+            gallery.setSeedDifficulty(tier.id);
+            refreshStartMenuCopy();
+            renderGalleryUi();
+          });
+          seedDiffPickerEl.append(pill);
+        });
       }
 
       if (chapterTabsEl) {
@@ -645,6 +717,9 @@ async function bootstrap(): Promise<void> {
           metaEl.textContent = `Complete #${idxInCamp} to unlock`;
         }
 
+        const footerRow = document.createElement('div');
+        footerRow.className = 'gallery-footer-row';
+
         const dots = document.createElement('div');
         dots.className = 'gallery-dots';
         for (const cIdx of lvl.colors) {
@@ -653,8 +728,21 @@ async function bootstrap(): Promise<void> {
           d.style.backgroundColor = (pal[cIdx] ?? pal[0]).hex;
           dots.append(d);
         }
+        footerRow.append(dots);
 
-        btn.append(head, nameEl, metaEl, dots);
+        const specIcons: string[] = [];
+        if ((lvl.maxHearts ?? 0) > 0) specIcons.push('♥');
+        if ((lvl.maxRainbows ?? 0) > 0) specIcons.push('🌈');
+        if ((lvl.maxHidden ?? 0) > 0) specIcons.push('?');
+        if ((lvl.maxLocked ?? 0) > 0) specIcons.push('🔒');
+        if (specIcons.length > 0) {
+          const spEl = document.createElement('span');
+          spEl.className = 'gallery-special-icons';
+          spEl.textContent = specIcons.join('');
+          footerRow.append(spEl);
+        }
+
+        btn.append(head, nameEl, metaEl, footerRow);
         btn.addEventListener('click', () => {
           soundscape.unlock();
           if (!unlocked) {
@@ -683,6 +771,10 @@ async function bootstrap(): Promise<void> {
       prevColorClearEvents = snap.events.colorClearEvents;
       prevLayerClearEvents = snap.events.layerClearEvents;
       prevHeartClearEvents = snap.events.heartClearEvents;
+      prevRainbowClearEvents = snap.events.rainbowClearEvents;
+      prevHiddenRevealEvents = snap.events.hiddenRevealEvents;
+      prevLockBreakEvents = snap.events.lockBreakEvents;
+      prevLockedTapEvents = snap.events.lockedTapEvents;
       prevBlockedEvents = snap.events.blockedEvents;
       prevHintEvents = snap.events.hintEvents;
       prevUndoEvents = snap.events.undoEvents;
@@ -703,9 +795,21 @@ async function bootstrap(): Promise<void> {
         lastSwatchKey = '';
       }
 
-      // Floating callouts for Heart bonuses, milestones, streaks, blocker impacts, and Hint/Undo
+      // Floating callouts for Special Pearls, milestones, streaks, blocker impacts, and Hint/Undo
       if (snap.events.heartClearEvents > prevHeartClearEvents && snap.lastHeartBonus > 0) {
         spawnCallout(`♥ HEART +${snap.lastHeartBonus}!`, 'heart', 0.5, 0.23);
+      }
+
+      if (snap.events.rainbowClearEvents > prevRainbowClearEvents) {
+        spawnCallout(`🌈 WILD +250!`, 'rainbow', 0.5, 0.27);
+      }
+
+      if (snap.events.hiddenRevealEvents > prevHiddenRevealEvents) {
+        spawnCallout(`✨ REVEALED!`, 'reveal', 0.5, 0.54);
+      }
+
+      if (snap.events.lockBreakEvents > prevLockBreakEvents) {
+        spawnCallout(`🔓 UNLOCKED!`, 'unlock', 0.5, 0.58);
       }
 
       if (snap.events.layerClearEvents > prevLayerClearEvents) {
@@ -723,7 +827,9 @@ async function bootstrap(): Promise<void> {
         );
       }
 
-      if (snap.events.blockedEvents > prevBlockedEvents) {
+      if (snap.events.lockedTapEvents > prevLockedTapEvents) {
+        spawnCallout('🔒 Clear 4 adjacent!', 'blocked', 0.5, 0.64);
+      } else if (snap.events.blockedEvents > prevBlockedEvents) {
         const proj =
           snap.lastBlockerIdx >= 0 && snap.tiles[snap.lastBlockerIdx]
             ? snap.tiles[snap.lastBlockerIdx]
@@ -1012,7 +1118,7 @@ async function bootstrap(): Promise<void> {
       lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
-      sim.loadMandala(gallery.nextMandalaSeed());
+      sim.loadMandala(gallery.nextMandalaSeed(), gallery.getSeedDifficulty());
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
     });
@@ -1120,7 +1226,7 @@ async function bootstrap(): Promise<void> {
           loadCatalogLevelById(nextFront);
         }
       } else {
-        sim.loadMandala(gallery.nextMandalaSeed());
+        sim.loadMandala(gallery.nextMandalaSeed(), gallery.getSeedDifficulty());
       }
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
@@ -1150,7 +1256,7 @@ async function bootstrap(): Promise<void> {
       soundscape.playUiTap(settings.hapticsEnabled);
       recordedCompleteKey = '';
       displayedScore = 0;
-      sim.loadMandala(gallery.nextMandalaSeed());
+      sim.loadMandala(gallery.nextMandalaSeed(), gallery.getSeedDifficulty());
       closeGallery();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
@@ -1165,7 +1271,7 @@ async function bootstrap(): Promise<void> {
       if (customSeedInput) customSeedInput.value = String(parsedSeed);
       recordedCompleteKey = '';
       displayedScore = 0;
-      sim.loadMandala(parsedSeed);
+      sim.loadMandala(parsedSeed, gallery.getSeedDifficulty());
       closeGallery();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
@@ -1217,6 +1323,8 @@ async function bootstrap(): Promise<void> {
           screen: screenMode,
           timeMode: settings.timeMode,
           hapticsEnabled: settings.hapticsEnabled,
+          configSource: loadedConfig.source,
+          config: gameConfig,
           levelsCatalog: {
             source: levelsCatalog.source,
             version: levelsCatalog.version,
@@ -1229,6 +1337,7 @@ async function bootstrap(): Promise<void> {
             completedCuratedIds: Object.keys(prog.completedCurated).map((k) => Number(k)),
             mandalasCompleted: prog.mandalasCompleted,
             dailyCompletedToday: prog.completedDailyDates.includes(today),
+            seedDifficulty: prog.seedDifficulty,
           },
           renderer: renderer.getDiagnostics(),
         };
@@ -1285,6 +1394,16 @@ async function bootstrap(): Promise<void> {
         if (idx >= 0) wakeRenderer();
         return idx;
       },
+      triggerRainbowWiggle: () => {
+        const idx = sim.triggerRainbowWiggle();
+        if (idx >= 0) wakeRenderer();
+        return idx;
+      },
+      setTuning: (paramId: number, value: number) => {
+        sim.setTuning(paramId, value);
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
       reset: () => {
         lastUserTapAt = performance.now();
         recordedCompleteKey = '';
@@ -1301,20 +1420,22 @@ async function bootstrap(): Promise<void> {
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
-      loadMandala: (seed: number) => {
+      loadMandala: (seed: number, diffTier?: SeedDifficultyTier) => {
         lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
-        sim.loadMandala(seed);
+        const tier = typeof diffTier === 'number' ? gallery.setSeedDifficulty(diffTier) : gallery.getSeedDifficulty();
+        sim.loadMandala(seed, tier);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
-      loadCustomSeed: (raw: string) => {
+      loadCustomSeed: (raw: string, diffTier?: SeedDifficultyTier) => {
         lastUserTapAt = performance.now();
         const seed = parseSeedInput(raw);
         recordedCompleteKey = '';
         displayedScore = 0;
-        sim.loadMandala(seed);
+        const tier = typeof diffTier === 'number' ? gallery.setSeedDifficulty(diffTier) : gallery.getSeedDifficulty();
+        sim.loadMandala(seed, tier);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
         return seed;
@@ -1426,12 +1547,10 @@ async function bootstrap(): Promise<void> {
       requestAnimationFrame(frame);
     };
 
-    // Calm periodic zero-spoiler active-color pearl wiggle (~3.0s cadence + 2.5s quiet-hand cooldown after taps):
-    // Picks 1 random alive pearl of ANY active color (ignoring blocked/unblocked) ONLY when the player pauses
-    // to scan the board, returning cleanly to 0 FPS between wiggles and staying 100% 0 FPS on Start Menu / drawers!
+    // Live-configurable periodic zero-spoiler active-color pearl wiggle (driven by public/config.json)
     window.setInterval(() => {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
-      if (performance.now() - lastUserTapAt < 2500) return;
+      if (performance.now() - lastUserTapAt < gameConfig.jiggle.quietHandMs) return;
       const sheetOpen =
         Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
         Boolean(settingsSheet && !settingsSheet.classList.contains('hidden')) ||
@@ -1440,7 +1559,20 @@ async function bootstrap(): Promise<void> {
       if (sim.triggerActiveWiggle() >= 0) {
         wakeRenderer();
       }
-    }, 3000);
+    }, gameConfig.jiggle.intervalMs);
+
+    // Independent periodic Rainbow Wild Pearl wiggle (always gently shimmers on its own cadence!)
+    window.setInterval(() => {
+      if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
+      const sheetOpen =
+        Boolean(gallerySheet && !gallerySheet.classList.contains('hidden')) ||
+        Boolean(settingsSheet && !settingsSheet.classList.contains('hidden')) ||
+        Boolean(installModal && !installModal.classList.contains('hidden'));
+      if (sheetOpen || sim.phase() !== 0) return;
+      if (sim.triggerRainbowWiggle() >= 0) {
+        wakeRenderer();
+      }
+    }, gameConfig.jiggle.rainbowIntervalMs);
 
     requestAnimationFrame(frame);
   } catch (err) {

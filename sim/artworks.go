@@ -73,17 +73,20 @@ type StitchPoint struct {
 
 // ArtworkDef defines a theme-matched, multi-layer embroidery pattern and paired untangle board.
 type ArtworkDef struct {
-	ID         int
-	Chapter    int // 0..3 (4 independent Day-1 Campaigns)
-	Theme      int // Visual theme natively bound to this campaign
-	Name       string
-	Cols       int
-	Rows       int
-	Difficulty int // 0 = zero-blocker warm-up, 1..11 = strictly escalating difficulty
-	Seed       uint32
-	NoBlockers bool // When true, every starting tile has an unobstructed outward lane
-	MaxHearts  int  // 1..3 bonus Heart Pearls
-	Stitches   []StitchPoint
+	ID          int
+	Chapter     int // 0..3 (4 independent Day-1 Campaigns)
+	Theme       int // Visual theme natively bound to this campaign
+	Name        string
+	Cols        int
+	Rows        int
+	Difficulty  int // 0 = zero-blocker warm-up, 1..11 = strictly escalating difficulty
+	Seed        uint32
+	NoBlockers  bool // When true, every starting tile has an unobstructed outward lane
+	MaxHearts   int  // 0..3 sculpted 3D Heart Pearls
+	MaxRainbows int  // 0..2 extra Rainbow Wild Pearls on board
+	MaxHidden   int  // 0..4 Hidden (obsidian-black) Pearls
+	MaxLocked   int  // 0..3 Locked (clear-4-neighbors) Pearls
+	Stitches    []StitchPoint
 }
 
 func waveRingPoints(count int, baseR, waveAmp float64, waveFreq int, offsetRad float64, colors []uint8, layer uint8) []StitchPoint {
@@ -285,40 +288,43 @@ func buildCampaignPattern(campaignIdx, tierIdx int, pal []uint8) []StitchPoint {
 			{count: 18, radius: 0.63, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/18, layer: 1, cA: 4, cB: 5},
 			{count: 22, radius: 0.83, waveAmp: petalAmp * 0.45, freq: 6 + freqShift, offset: baseOffset, layer: 2, cA: 3, cB: 5},
 		})
-	default: // L13 (8x8 Grand Masterpiece, 64 pearls, 6 colors, Diff 11)
+	default: // L13 (8x8 Grand Masterpiece, 62 hoop stitches + 2 Rainbows = 64 board tiles, Diff 11)
 		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
 			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 14, radius: 0.42, waveAmp: 0.018, freq: 7, offset: baseOffset + math.Pi/14, layer: 1, cA: 2, cB: 3},
+			{count: 13, radius: 0.42, waveAmp: 0.018, freq: 7, offset: baseOffset + math.Pi/13, layer: 1, cA: 2, cB: 3},
 			{count: 19, radius: 0.63, waveAmp: 0.018, freq: 6, offset: baseOffset, layer: 1, cA: 4, cB: 5},
-			{count: 23, radius: 0.84, waveAmp: petalAmp * 0.35, freq: 8, offset: baseOffset + math.Pi/23, layer: 2, cA: 5, cB: 1},
+			{count: 22, radius: 0.84, waveAmp: petalAmp * 0.35, freq: 8, offset: baseOffset + math.Pi/22, layer: 2, cA: 5, cB: 1},
 		})
 	}
 }
 
 type tierTemplate struct {
-	cols       int
-	rows       int
-	difficulty int
-	noBlockers bool
-	maxHearts  int
+	cols        int
+	rows        int
+	difficulty  int
+	noBlockers  bool
+	maxHearts   int
+	maxRainbows int
+	maxHidden   int
+	maxLocked   int
 }
 
-// Option A Campaign Testrun Ladder (13 escalating levels per theme: 5x5 warmups -> 8x8 64-pearl finale).
-// Difficulty increases monotonically across every size step without ever resetting!
+// Option A Campaign Testrun Ladder (13 escalating levels per theme: 5x5 warmups -> 8x8 64-tile finale).
+// Gradual Special Pearl introduction: L1-2 pure basics -> L3-4 Hearts -> L5-6 +Rainbow -> L7-8 +Hidden -> L9-13 +Locked!
 var campaignLadder = [LevelsPerChapter]tierTemplate{
-	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 1},   // L1: Warm-Up I (14 pearls, 0 blockers)
-	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 2},   // L2: Warm-Up II (16 pearls, 0 blockers)
-	{cols: 5, rows: 5, difficulty: 1, noBlockers: false, maxHearts: 2},  // L3: First Weave (21 pearls)
-	{cols: 6, rows: 5, difficulty: 2, noBlockers: false, maxHearts: 2},  // L4: Gentle Knot (26 pearls)
-	{cols: 6, rows: 6, difficulty: 3, noBlockers: false, maxHearts: 2},  // L5: Rising Loom (32 pearls)
-	{cols: 7, rows: 6, difficulty: 4, noBlockers: false, maxHearts: 2},  // L6: Woven Cross (37 pearls)
-	{cols: 7, rows: 7, difficulty: 5, noBlockers: false, maxHearts: 3},  // L7: Deep Tapestry (43 pearls)
-	{cols: 8, rows: 6, difficulty: 6, noBlockers: false, maxHearts: 3},  // L8: Wide Corridor (45 pearls)
-	{cols: 8, rows: 7, difficulty: 7, noBlockers: false, maxHearts: 3},  // L9: Grand Braid (51 pearls)
-	{cols: 8, rows: 8, difficulty: 8, noBlockers: false, maxHearts: 3},  // L10: Artisan (54 pearls)
-	{cols: 8, rows: 8, difficulty: 9, noBlockers: false, maxHearts: 3},  // L11: Virtuoso (58 pearls)
-	{cols: 8, rows: 8, difficulty: 10, noBlockers: false, maxHearts: 3}, // L12: Expert (61 pearls)
-	{cols: 8, rows: 8, difficulty: 11, noBlockers: false, maxHearts: 3}, // L13: Masterpiece (64 pearls)
+	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0},  // L1: Warm-Up I (no specials)
+	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0},  // L2: Warm-Up II (no specials)
+	{cols: 5, rows: 5, difficulty: 1, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0}, // L3: Hearts introduced!
+	{cols: 6, rows: 5, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0}, // L4: Hearts
+	{cols: 6, rows: 6, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0}, // L5: + Rainbow introduced!
+	{cols: 7, rows: 6, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0}, // L6: Hearts + Rainbow
+	{cols: 7, rows: 7, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0}, // L7: + Hidden introduced!
+	{cols: 8, rows: 6, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0}, // L8: Hearts + Rainbow + Hidden
+	{cols: 8, rows: 7, difficulty: 7, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1}, // L9: + Locked introduced!
+	{cols: 8, rows: 8, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 3, maxLocked: 2}, // L10: Full Suite (Artisan)
+	{cols: 8, rows: 8, difficulty: 9, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 3, maxLocked: 2}, // L11: Full Suite (Virtuoso)
+	{cols: 8, rows: 8, difficulty: 10, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2}, // L12: Full Suite (Expert)
+	{cols: 8, rows: 8, difficulty: 11, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 3}, // L13: Full Suite (Masterpiece 64 tiles)
 }
 
 var campaignNames = [NumChapters][LevelsPerChapter]string{
@@ -368,17 +374,20 @@ func buildCuratedArtworks() []ArtworkDef {
 			seed := uint32((ch+1)*10000 + (tIdx+1)*137 + 41)
 			st := buildCampaignPattern(ch, tIdx, pal)
 			arts = append(arts, ArtworkDef{
-				ID:         len(arts),
-				Chapter:    ch,
-				Theme:      ch,
-				Name:       campaignNames[ch][tIdx],
-				Cols:       tpl.cols,
-				Rows:       tpl.rows,
-				Difficulty: tpl.difficulty,
-				Seed:       seed,
-				NoBlockers: tpl.noBlockers,
-				MaxHearts:  tpl.maxHearts,
-				Stitches:   st,
+				ID:          len(arts),
+				Chapter:     ch,
+				Theme:       ch,
+				Name:        campaignNames[ch][tIdx],
+				Cols:        tpl.cols,
+				Rows:        tpl.rows,
+				Difficulty:  tpl.difficulty,
+				Seed:        seed,
+				NoBlockers:  tpl.noBlockers,
+				MaxHearts:   tpl.maxHearts,
+				MaxRainbows: tpl.maxRainbows,
+				MaxHidden:   tpl.maxHidden,
+				MaxLocked:   tpl.maxLocked,
+				Stitches:    st,
 			})
 		}
 	}

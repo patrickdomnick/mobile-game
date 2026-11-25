@@ -23,13 +23,26 @@ const (
 	SceneFlyingOffset  = SceneTrayOffset + TrayCapacity*8
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
-	// Telemetry / state buffer layout for JS & E2E bridge (56 floats incl. seed halves + Heart events)
-	StateFloats          = 56
+	// Telemetry / state buffer layout for JS & E2E bridge (64 floats incl. seed halves + all Special Pearl events)
+	StateFloats          = 64
 	MaxHeartsPerLevel    = 3
-	CustomLevelBufFloats = 10 + MaxHoopPearls*4
+	CustomLevelHeaderLen = 14
+	CustomLevelBufFloats = CustomLevelHeaderLen + MaxHoopPearls*4
+
+	// Live remote config.json tuning parameter indices (updated via sim_set_tuning without rebuilding!)
+	TuningLoadDelay       = 0
+	TuningUnlockDelay     = 1
+	TuningJiggleIntensity = 2
+	TuningTopLight        = 3
+	TuningGlowIntensity   = 4
+	TuningShakeIntensity  = 5
+	TuningHeartBonusMax   = 6
+	TuningHeartBonusMin   = 7
+	TuningHintPenalty     = 8
+	TuningUndoPenalty     = 9
 
 	// Per-tile telemetry layout (64 * 8 = 512 floats):
-	// [col, row, color, dir, alive(1=normal,2=heart), unblocked, worldX, worldZ]
+	// [col, row, color, dir, state(0=dead,1=normal,2=heart,3=rainbow,4=hidden,5=revealed,6=locked,7=unlocked), playable, worldX, worldZ]
 	TileTelemetryStride = 8
 	TileTelemetryFloats = MaxGridTiles * TileTelemetryStride
 
@@ -64,6 +77,21 @@ const (
 	FixedDT = float32(1.0 / 60.0)
 )
 
+// Tuning holds live-configurable feel, lighting, and scoring multipliers loaded from public/config.json.
+type Tuning struct {
+	Initialized     bool
+	LoadDelaySec    float32
+	UnlockDelaySec  float32
+	JiggleIntensity float32
+	TopLight        float32
+	GlowIntensity   float32
+	ShakeIntensity  float32
+	HeartBonusMax   uint32
+	HeartBonusMin   uint32
+	HintPenalty     uint32
+	UndoPenalty     uint32
+}
+
 // HoopPearl tracks one embroidery stitch slot on the top hoop.
 type HoopPearl struct {
 	WorldX       float32
@@ -80,6 +108,7 @@ type HoopPearl struct {
 type FlyingPearl struct {
 	Active      bool
 	Color       uint8
+	Special     uint8
 	StartX      float32
 	StartY      float32
 	StartZ      float32
@@ -97,24 +126,26 @@ type FlyingPearl struct {
 }
 
 type undoSnapshot struct {
-	aliveMask   uint64
-	claimedMask uint64
-	tray        [TrayCapacity]uint8
-	trayHeart   [TrayCapacity]bool
-	trayLen     int
-	remain      [NumColors]int
-	active      [ActiveSlots]int
-	queuePos    int
-	score       uint32
-	streak      uint32
-	directCount int
-	trayUses    int
-	layerDone   [MaxLayers]bool
-	phase       int
+	aliveMask    uint64
+	claimedMask  uint64
+	revealedMask uint64
+	unlockedMask uint64
+	tray         [TrayCapacity]uint8
+	trayHeart    [TrayCapacity]bool
+	trayLen      int
+	remain       [NumColors]int
+	active       [ActiveSlots]int
+	queuePos     int
+	score        uint32
+	streak       uint32
+	directCount  int
+	trayUses     int
+	layerDone    [MaxLayers]bool
+	phase        int
 }
 
-// Engine holds all deterministic Pearl Loom state, scoring, Heart Pearls,
-// 4 vivid visual themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
+// Engine holds all deterministic Pearl Loom state, scoring, Special Pearls,
+// live config.json tuning, 4 vivid themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
 type Engine struct {
 	FrameCount     uint32
 	ElapsedSec     float32
@@ -124,10 +155,12 @@ type Engine struct {
 	LevelIndex     int
 	ChapterIndex   int
 	Mode           int // 0=curated, 1=mandala, 2=daily
+	SeedDifficulty int // 0=Easy 5x5, 1=Medium 6x6, 2=Hard 7x7, 3=Extreme 8x8
 	Phase          int
 	LastSeed       uint32
 	hasCustomLevel bool
 	lastCustomArt  ArtworkDef
+	Tuning         Tuning
 
 	// Meaningful Balatro-style mastery & scoring state
 	Score            uint32
@@ -176,31 +209,36 @@ type Engine struct {
 	TrayPulse  [TrayCapacity]float32
 	Flying     [MaxFlying]FlyingPearl
 
-	ColorQueue    [NumColors]uint8
-	QueueLen      int
-	QueuePos      int
-	Remain        [NumColors]int
-	Active        [ActiveSlots]int
-	ColorGlowT    [NumColors]float32
-	wiggleRng     prng
-	lastWiggleIdx int
+	ColorQueue           [NumColors]uint8
+	QueueLen             int
+	QueuePos             int
+	Remain               [NumColors]int
+	Active               [ActiveSlots]int
+	ColorGlowT           [NumColors]float32
+	wiggleRng            prng
+	lastWiggleIdx        int
+	lastRainbowWiggleIdx int
 
 	HintTileIdx int
 	HintPulse   float32
 
 	// Event counters consumed by procedural Web Audio + floating score popups + haptics
-	StitchEvents     uint32
-	LastStitchCol    uint32
-	CascadeEvents    uint32
-	TrayEvents       uint32
-	BlockedEvents    uint32
-	UndoEvents       uint32
-	HintEvents       uint32
-	ColorClearEvents uint32
-	LastColorCleared uint32
-	LayerClearEvents uint32
-	HeartClearEvents uint32
-	CompleteEvents   uint32
+	StitchEvents       uint32
+	LastStitchCol      uint32
+	CascadeEvents      uint32
+	TrayEvents         uint32
+	BlockedEvents      uint32
+	UndoEvents         uint32
+	HintEvents         uint32
+	ColorClearEvents   uint32
+	LastColorCleared   uint32
+	LayerClearEvents   uint32
+	HeartClearEvents   uint32
+	RainbowClearEvents uint32
+	HiddenRevealEvents uint32
+	LockBreakEvents    uint32
+	LockedTapEvents    uint32
+	CompleteEvents     uint32
 
 	undoStack []undoSnapshot
 
@@ -210,13 +248,78 @@ type Engine struct {
 	CustomLevelBuf [CustomLevelBufFloats]float32
 }
 
+func (e *Engine) ensureTuningDefaults() {
+	if e.Tuning.Initialized {
+		return
+	}
+	e.Tuning = Tuning{
+		Initialized:     true,
+		LoadDelaySec:    0.70,
+		UnlockDelaySec:  0.85,
+		JiggleIntensity: 1.0,
+		TopLight:        1.0,
+		GlowIntensity:   1.0,
+		ShakeIntensity:  1.0,
+		HeartBonusMax:   600,
+		HeartBonusMin:   150,
+		HintPenalty:     HintScorePenalty,
+		UndoPenalty:     UndoScorePenalty,
+	}
+}
+
+// SetTuning updates one live-configurable parameter from public/config.json without rebuilding WASM!
+func (e *Engine) SetTuning(paramID int, val float32) {
+	e.ensureTuningDefaults()
+	clampF := func(v, lo, hi float32) float32 {
+		if v < lo {
+			return lo
+		}
+		if v > hi {
+			return hi
+		}
+		return v
+	}
+	switch paramID {
+	case TuningLoadDelay:
+		e.Tuning.LoadDelaySec = clampF(val, 0.0, 4.0)
+	case TuningUnlockDelay:
+		e.Tuning.UnlockDelaySec = clampF(val, 0.0, 4.0)
+	case TuningJiggleIntensity:
+		e.Tuning.JiggleIntensity = clampF(val, 0.0, 2.5)
+	case TuningTopLight:
+		e.Tuning.TopLight = clampF(val, 0.25, 2.5)
+	case TuningGlowIntensity:
+		e.Tuning.GlowIntensity = clampF(val, 0.0, 2.5)
+	case TuningShakeIntensity:
+		e.Tuning.ShakeIntensity = clampF(val, 0.0, 2.5)
+	case TuningHeartBonusMax:
+		if val >= 50 && val <= 5000 {
+			e.Tuning.HeartBonusMax = uint32(val)
+		}
+	case TuningHeartBonusMin:
+		if val >= 0 && val <= 2000 {
+			e.Tuning.HeartBonusMin = uint32(val)
+		}
+	case TuningHintPenalty:
+		if val >= 0 && val <= 2000 {
+			e.Tuning.HintPenalty = uint32(val)
+		}
+	case TuningUndoPenalty:
+		if val >= 0 && val <= 2000 {
+			e.Tuning.UndoPenalty = uint32(val)
+		}
+	}
+	e.syncBuffers()
+}
+
 // Reset reloads the current level/mode cleanly (replaying the same Daily/Mandala/Custom JSON level if active).
 func (e *Engine) Reset() {
+	e.ensureTuningDefaults()
 	if e.TimeOfDayHours <= 0 {
 		e.TimeOfDayHours = 12.5
 	}
 	if e.Mode == 1 && e.LastSeed > 0 {
-		e.LoadMandala(e.LastSeed)
+		e.LoadMandalaWithDifficulty(e.LastSeed, e.SeedDifficulty)
 		return
 	}
 	if e.Mode == 2 && e.LastSeed > 0 {
@@ -259,7 +362,8 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 }
 
 // LoadCustomLevel loads a curated level parsed from remote/cached levels.json via CustomLevelBuf.
-// Staging layout: [id, chapter, theme, cols, rows, difficulty, seedLo, seedHi, flags(bit0=noBlockers), maxHearts, ...stitches(x,z,color,layer)].
+// Staging layout (14-float header):
+// [id, chapter, theme, cols, rows, difficulty, seedLo, seedHi, flags(bit0=noBlockers), maxHearts, maxRainbows, maxHidden, maxLocked, reserved, ...stitches(x,z,color,layer)].
 func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	if stitchCount < 1 || stitchCount > MaxHoopPearls {
 		return false
@@ -274,6 +378,9 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	seedHi := uint32(e.CustomLevelBuf[7]) & 0xFFFF
 	flags := uint32(e.CustomLevelBuf[8])
 	maxHearts := int(e.CustomLevelBuf[9])
+	maxRainbows := int(e.CustomLevelBuf[10])
+	maxHidden := int(e.CustomLevelBuf[11])
+	maxLocked := int(e.CustomLevelBuf[12])
 
 	if cols < 2 || rows < 2 || cols*rows < stitchCount || cols*rows > MaxGridTiles {
 		return false
@@ -284,8 +391,8 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	if theme < 0 {
 		theme = 0
 	}
-	if difficulty < 1 {
-		difficulty = 1
+	if difficulty < 0 {
+		difficulty = 0
 	}
 	seed := seedLo | (seedHi << 16)
 	if seed == 0 {
@@ -294,7 +401,7 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 
 	stitches := make([]StitchPoint, stitchCount)
 	for i := 0; i < stitchCount; i++ {
-		off := 10 + i*4
+		off := CustomLevelHeaderLen + i*4
 		col := int(e.CustomLevelBuf[off+2])
 		if col < 0 || col >= NumColors {
 			col = 0
@@ -315,16 +422,19 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	}
 
 	art := ArtworkDef{
-		ID:         id,
-		Chapter:    chapter,
-		Theme:      theme % NumThemes,
-		Cols:       cols,
-		Rows:       rows,
-		Difficulty: difficulty,
-		Seed:       seed,
-		NoBlockers: (flags & 1) != 0,
-		MaxHearts:  maxHearts,
-		Stitches:   stitches,
+		ID:          id,
+		Chapter:     chapter,
+		Theme:       theme % NumThemes,
+		Cols:        cols,
+		Rows:        rows,
+		Difficulty:  difficulty,
+		Seed:        seed,
+		NoBlockers:  (flags & 1) != 0,
+		MaxHearts:   maxHearts,
+		MaxRainbows: maxRainbows,
+		MaxHidden:   maxHidden,
+		MaxLocked:   maxLocked,
+		Stitches:    stitches,
 	}
 	e.LevelIndex = id
 	e.Mode = 0
@@ -335,30 +445,43 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	return true
 }
 
-// LoadMandala procedurally generates and loads a verified 3-star puzzle purely from any uint32 seed.
-func (e *Engine) LoadMandala(seed uint32) {
+// LoadMandalaWithDifficulty procedurally generates a verified 3-star puzzle for any uint32 seed and difficulty tier (0..3).
+func (e *Engine) LoadMandalaWithDifficulty(seed uint32, diffTier int) {
 	if seed == 0 {
 		seed = 1
 	}
+	if diffTier < SeedDiffEasy {
+		diffTier = SeedDiffEasy
+	}
+	if diffTier > SeedDiffExtreme {
+		diffTier = SeedDiffExtreme
+	}
 	e.LevelIndex = int(seed & 0x7FFF)
 	e.Mode = 1
+	e.SeedDifficulty = diffTier
 	e.LastSeed = seed
 	e.hasCustomLevel = false
 	theme := ThemeForMandala(seed)
-	e.loadArtwork(GenerateMandalaArtwork(seed, theme))
+	e.loadArtwork(GenerateMandalaArtworkWithDifficulty(seed, theme, diffTier))
 }
 
-// LoadDaily loads the deterministic calendar-seeded Daily Stitch (literally just seed = YYYYMMDD!).
+// LoadMandala procedurally generates a default Medium (6x6) seeded puzzle (backward compatible).
+func (e *Engine) LoadMandala(seed uint32) {
+	e.LoadMandalaWithDifficulty(seed, SeedDiffMedium)
+}
+
+// LoadDaily loads the deterministic calendar-seeded Daily Stitch (Medium 6x6 with Hearts + Rainbow!).
 func (e *Engine) LoadDaily(dateKey uint32) {
 	if dateKey == 0 {
 		dateKey = 20261125
 	}
 	e.LevelIndex = int(dateKey % 100000)
 	e.Mode = 2
+	e.SeedDifficulty = SeedDiffMedium
 	e.LastSeed = dateKey
 	e.hasCustomLevel = false
 	theme := ThemeForDaily(dateKey)
-	e.loadArtwork(GenerateMandalaArtwork(dateKey, theme))
+	e.loadArtwork(GenerateMandalaArtworkWithDifficulty(dateKey, theme, SeedDiffMedium))
 }
 
 func (e *Engine) loadArtwork(art ArtworkDef) {
@@ -453,80 +576,73 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	}
 	e.LayersComplete = 0
 
+	e.ensureTuningDefaults()
 	e.ColorQueue = colorOrder
 	e.QueueLen = colorCount
 	e.QueuePos = 0
 	e.wiggleRng = newPRNG(art.Seed ^ 0x51C3D7A1)
 	e.lastWiggleIdx = -1
+	e.lastRainbowWiggleIdx = -1
 	for i := 0; i < NumColors; i++ {
 		e.ColorGlowT[i] = 0
 	}
 	for i := 0; i < ActiveSlots; i++ {
 		e.Active[i] = -1
 	}
-	e.refillActiveColorsWithDelay(0.70)
-	e.spawnHearts(art)
+	e.updateSpecialStates(true)
+	e.refillActiveColorsWithDelay(e.Tuning.LoadDelaySec)
+	e.updateSpecialStates(true)
 	e.syncBuffers()
 }
 
-// spawnHearts deterministically places up to MaxHeartsPerLevel (3) bonus Heart Pearls on the board.
-// Heart Pearls reward faster early placement with higher bonus points and wiggle periodically to catch the eye!
-func (e *Engine) spawnHearts(art ArtworkDef) {
-	if e.TileCount <= 0 {
-		return
-	}
+// updateSpecialStates reveals any Hidden Pearl that is now stitchable (unblocked + active color)
+// and unlocks any Locked Pearl whose 4 orthogonal adjacent tiles are now empty.
+func (e *Engine) updateSpecialStates(silent bool) {
 	for i := 0; i < e.TileCount; i++ {
-		e.Tiles[i].IsHeart = false
-	}
-	rng := newPRNG(art.Seed ^ 0x48454152)
-	target := art.MaxHearts
-	if target <= 0 {
-		// Deterministic 1..3 Heart Pearls (capped strictly at 3!)
-		if e.TileCount >= 30 {
-			target = 2 + rng.intn(2) // 2 or 3
-		} else {
-			target = 1 + rng.intn(2) // 1 or 2
-		}
-	}
-	if target > MaxHeartsPerLevel {
-		target = MaxHeartsPerLevel
-	}
-	if target > e.TileCount {
-		target = e.TileCount
-	}
-
-	// Build shuffled candidate order, placing at least 1 Heart on a starting active color when available
-	var order [MaxGridTiles]int
-	for i := 0; i < e.TileCount; i++ {
-		order[i] = i
-	}
-	for i := e.TileCount - 1; i > 0; i-- {
-		j := rng.intn(i + 1)
-		order[i], order[j] = order[j], order[i]
-	}
-
-	placed := 0
-	// First pass: prefer 1 Heart on an initially active color so players immediately experience the early-placement rush
-	for k := 0; k < e.TileCount && placed == 0 && placed < target; k++ {
-		idx := order[k]
-		if e.Tiles[idx].Alive && e.isActiveColor(e.Tiles[idx].Color) {
-			e.Tiles[idx].IsHeart = true
-			placed++
-		}
-	}
-	// Remaining hearts: spread across distinct rows/colors across the board
-	for k := 0; k < e.TileCount && placed < target; k++ {
-		idx := order[k]
-		if !e.Tiles[idx].Alive || e.Tiles[idx].IsHeart {
+		t := &e.Tiles[i]
+		if !t.Alive {
 			continue
 		}
-		e.Tiles[idx].IsHeart = true
-		placed++
+		if t.Special == SpecialHidden && !t.Revealed {
+			if e.isActiveColor(t.Color) && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
+				t.Revealed = true
+				if !silent {
+					t.JiggleDelay = 0
+					t.JiggleT = 0.90
+					e.HiddenRevealEvents++
+				}
+			}
+		} else if t.Special == SpecialLocked && !t.Unlocked {
+			if adjacentAliveDirMask(e.Tiles[:e.TileCount], i) == 0 {
+				t.Unlocked = true
+				if !silent {
+					t.JiggleDelay = 0
+					t.JiggleT = 1.0
+					e.LockBreakEvents++
+					e.addShake(0.30)
+				}
+			}
+		}
 	}
 }
 
-// awardHeartBonus grants early-placement bonus points (+600 early down to +150 late) and triggers the Heart Chime!
+// pickRainbowTargetColor picks the best currently active stitch color for a Rainbow Wild Pearl.
+func (e *Engine) pickRainbowTargetColor() int {
+	best := -1
+	bestRem := 0
+	for i := 0; i < ActiveSlots; i++ {
+		c := e.Active[i]
+		if c >= 0 && e.Remain[c] > bestRem {
+			best = c
+			bestRem = e.Remain[c]
+		}
+	}
+	return best
+}
+
+// awardHeartBonus grants early-placement bonus points (HeartBonusMax early down to HeartBonusMin late) and triggers the Heart Chime!
 func (e *Engine) awardHeartBonus(wx, wz float32) {
+	e.ensureTuningDefaults()
 	remTotal := 0
 	for c := 0; c < NumColors; c++ {
 		remTotal += e.Remain[c]
@@ -539,7 +655,13 @@ func (e *Engine) awardHeartBonus(wx, wz float32) {
 	if ratio > 1.0 {
 		ratio = 1.0
 	}
-	bonus := uint32(150) + uint32(math.Round(float64(ratio)*450.0))
+	minB := e.Tuning.HeartBonusMin
+	maxB := e.Tuning.HeartBonusMax
+	if maxB < minB {
+		maxB = minB
+	}
+	span := float64(maxB - minB)
+	bonus := minB + uint32(math.Round(float64(ratio)*span))
 	e.Score += bonus
 	e.LastScoreDelta += bonus
 	e.LastHeartBonus = bonus
@@ -568,8 +690,10 @@ func (e *Engine) currentMultiplier() uint32 {
 }
 
 func (e *Engine) addShake(amount float32) {
-	if amount > e.ShakeAmt {
-		e.ShakeAmt = amount
+	e.ensureTuningDefaults()
+	scaled := amount * e.Tuning.ShakeIntensity
+	if scaled > e.ShakeAmt {
+		e.ShakeAmt = scaled
 	}
 	if e.ShakeAmt > 1.0 {
 		e.ShakeAmt = 1.0
@@ -600,23 +724,27 @@ func (e *Engine) nextQueuedColor() int {
 	return -1
 }
 
-// triggerColorJiggle queues a calm, playful wiggle on ONLY alive board pearls of color c (never non-active colors!).
-// When delay > 0, pearls stay still first so the board & celebrations breathe before gently drawing the eye.
+// triggerColorJiggle queues a calm, playful wiggle on ONLY visible alive board pearls of color c.
+// Never wiggles concealed Hidden pearls (zero color spoiler!) or Rainbow pearls (which have their own independent timer!).
 func (e *Engine) triggerColorJiggle(color uint8, delay float32) {
 	for i := 0; i < e.TileCount; i++ {
-		if e.Tiles[i].Alive && e.Tiles[i].Color == color {
+		t := &e.Tiles[i]
+		if !t.Alive || t.Special == SpecialRainbow || (t.Special == SpecialHidden && !t.Revealed) {
+			continue
+		}
+		if t.Color == color {
 			if delay > 0 {
-				e.Tiles[i].JiggleDelay = delay
-				e.Tiles[i].JiggleT = 0
+				t.JiggleDelay = delay
+				t.JiggleT = 0
 			} else {
-				e.Tiles[i].JiggleDelay = 0
-				e.Tiles[i].JiggleT = 1.0
+				t.JiggleDelay = 0
+				t.JiggleT = 1.0
 			}
 		}
 	}
 }
 
-// TriggerRandomActiveWiggle picks 1 random alive pearl matching ANY currently active stitch color OR an alive
+// TriggerRandomActiveWiggle picks 1 random visible alive pearl matching ANY currently active stitch color OR an alive
 // Heart Pearl (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a gentle wiggle.
 func (e *Engine) TriggerRandomActiveWiggle() int {
 	if e.Phase != PhasePlaying {
@@ -627,14 +755,15 @@ func (e *Engine) TriggerRandomActiveWiggle() int {
 	var heartCands [MaxGridTiles]int
 	nHeart := 0
 	for i := 0; i < e.TileCount; i++ {
-		if !e.Tiles[i].Alive {
+		t := e.Tiles[i]
+		if !t.Alive || t.Special == SpecialRainbow || (t.Special == SpecialHidden && !t.Revealed) {
 			continue
 		}
-		if e.isActiveColor(e.Tiles[i].Color) {
+		if e.isActiveColor(t.Color) {
 			activeCands[nActive] = i
 			nActive++
 		}
-		if e.Tiles[i].IsHeart {
+		if t.IsHeart {
 			heartCands[nHeart] = i
 			nHeart++
 		}
@@ -670,10 +799,37 @@ func (e *Engine) TriggerRandomActiveWiggle() int {
 	return pick
 }
 
-// refillActiveColors fills up to 2 active stitch slots during gameplay with a calm +0.85s wiggle delay
-// so flying pearls and Color Clear celebrations settle before drawing attention to newly unlocked pearls.
+// TriggerRandomRainbowWiggle independently wiggles an alive Rainbow Wild Pearl on its own cadence!
+func (e *Engine) TriggerRandomRainbowWiggle() int {
+	if e.Phase != PhasePlaying {
+		return -1
+	}
+	var cands [MaxGridTiles]int
+	n := 0
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].Alive && e.Tiles[i].Special == SpecialRainbow {
+			cands[n] = i
+			n++
+		}
+	}
+	if n == 0 {
+		return -1
+	}
+	pick := cands[e.wiggleRng.intn(n)]
+	if n > 1 && pick == e.lastRainbowWiggleIdx {
+		pick = cands[(e.wiggleRng.intn(n-1)+1)%n]
+	}
+	e.lastRainbowWiggleIdx = pick
+	e.Tiles[pick].JiggleDelay = 0
+	e.Tiles[pick].JiggleT = 1.0
+	e.syncBuffers()
+	return pick
+}
+
+// refillActiveColors fills up to 2 active stitch slots during gameplay with the configured unlock delay.
 func (e *Engine) refillActiveColors() {
-	e.refillActiveColorsWithDelay(0.85)
+	e.ensureTuningDefaults()
+	e.refillActiveColorsWithDelay(e.Tuning.UnlockDelaySec)
 }
 
 // refillActiveColorsWithDelay fills up to 2 active stitch slots, EXCEPT the very last color in the queue
@@ -790,7 +946,7 @@ func (e *Engine) triggerColorCleared(color uint8) {
 	}
 }
 
-func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay float32, toHoop bool, targetIdx int) {
+func (e *Engine) spawnFlight(color uint8, special uint8, sx, sy, sz, ex, ey, ez float32, delay float32, toHoop bool, targetIdx int) {
 	slot := -1
 	for i := range e.Flying {
 		if !e.Flying[i].Active {
@@ -817,6 +973,7 @@ func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay 
 	e.Flying[slot] = FlyingPearl{
 		Active:      true,
 		Color:       color,
+		Special:     special,
 		StartX:      sx,
 		StartY:      sy,
 		StartZ:      sz,
@@ -835,10 +992,17 @@ func (e *Engine) spawnFlight(color uint8, sx, sy, sz, ex, ey, ez float32, delay 
 }
 
 func (e *Engine) captureUndoSnapshot() undoSnapshot {
-	var aliveMask uint64
+	var aliveMask, revealedMask, unlockedMask uint64
 	for i := 0; i < e.TileCount; i++ {
+		bit := uint64(1) << uint(i)
 		if e.Tiles[i].Alive {
-			aliveMask |= (uint64(1) << uint(i))
+			aliveMask |= bit
+		}
+		if e.Tiles[i].Revealed {
+			revealedMask |= bit
+		}
+		if e.Tiles[i].Unlocked {
+			unlockedMask |= bit
 		}
 	}
 	var claimedMask uint64
@@ -848,20 +1012,22 @@ func (e *Engine) captureUndoSnapshot() undoSnapshot {
 		}
 	}
 	return undoSnapshot{
-		aliveMask:   aliveMask,
-		claimedMask: claimedMask,
-		tray:        e.Tray,
-		trayHeart:   e.TrayHeart,
-		trayLen:     e.TrayLen,
-		remain:      e.Remain,
-		active:      e.Active,
-		queuePos:    e.QueuePos,
-		score:       e.Score,
-		streak:      e.Streak,
-		directCount: e.DirectCount,
-		trayUses:    e.TrayUses,
-		layerDone:   e.LayerDone,
-		phase:       e.Phase,
+		aliveMask:    aliveMask,
+		claimedMask:  claimedMask,
+		revealedMask: revealedMask,
+		unlockedMask: unlockedMask,
+		tray:         e.Tray,
+		trayHeart:    e.TrayHeart,
+		trayLen:      e.TrayLen,
+		remain:       e.Remain,
+		active:       e.Active,
+		queuePos:     e.QueuePos,
+		score:        e.Score,
+		streak:       e.Streak,
+		directCount:  e.DirectCount,
+		trayUses:     e.TrayUses,
+		layerDone:    e.LayerDone,
+		phase:        e.Phase,
 	}
 }
 
@@ -878,10 +1044,13 @@ func (e *Engine) drainTrayToHoop() {
 				if hoopIdx >= 0 {
 					sx, sz := e.traySlotWorldPos(i)
 					hp := &e.HoopPearls[hoopIdx]
-					e.spawnFlight(c, sx, 0.22, sz, hp.WorldX, 0.14, hp.WorldZ, stagger, true, hoopIdx)
+					sp := SpecialNone
+					if isH {
+						sp = SpecialHeart
+					}
+					e.spawnFlight(c, sp, sx, 0.22, sz, hp.WorldX, 0.14, hp.WorldZ, stagger, true, hoopIdx)
 					stagger += 0.08
 					e.Remain[c]--
-					// Balatro-style escalating cascade bonus!
 					e.Streak++
 					if e.Streak > e.MaxStreak {
 						e.MaxStreak = e.Streak
@@ -935,7 +1104,6 @@ func (e *Engine) updatePhase() {
 			e.Phase = PhaseComplete
 			e.CelebrateT = 1.0
 			e.addShake(0.92)
-			// Pure Craft end-of-pattern bonuses!
 			if e.TrayUses == 0 {
 				e.Score += 1500
 				e.LastScoreDelta += 1500
@@ -944,7 +1112,6 @@ func (e *Engine) updatePhase() {
 				e.Score += 750
 				e.LastScoreDelta += 750
 			}
-			// Meaningful 1-3 Star mastery rating (mathematically proven 3-star achievable on every board!)
 			if e.UndoUsed == 0 && e.HintsUsed == 0 && e.TrayUses <= ThreeStarTrayLimit(e.HoopCount) {
 				e.Stars = 3
 			} else if e.TrayUses <= e.HoopCount/3 {
@@ -960,7 +1127,11 @@ func (e *Engine) updatePhase() {
 	if e.TrayLen >= TrayCapacity {
 		hasDirect := false
 		for i := 0; i < e.TileCount; i++ {
-			if e.Tiles[i].Alive && e.isActiveColor(e.Tiles[i].Color) && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
+			t := e.Tiles[i]
+			if !t.Alive || isTileLockedNow(e.Tiles[:e.TileCount], i) {
+				continue
+			}
+			if (t.Special == SpecialRainbow || e.isActiveColor(t.Color)) && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
 				hasDirect = true
 				break
 			}
@@ -1015,9 +1186,25 @@ func (e *Engine) TapTile(idx int) bool {
 		return false
 	}
 
+	// 1. Check Locked Pearl rule FIRST: cannot be used while ANY of the 4 orthogonal adjacent cells holds an alive pearl!
+	if isTileLockedNow(e.Tiles[:e.TileCount], idx) {
+		adj := findFirstAdjacentAlive(e.Tiles[:e.TileCount], idx)
+		e.Tiles[idx].WobbleT = 1.0
+		if adj >= 0 {
+			e.Tiles[adj].WobbleT = 0.75
+		}
+		e.LastTappedBlockedIdx = idx
+		e.LastBlockerIdx = adj
+		e.BlockerFlashT = 1.0
+		e.addShake(0.20)
+		e.LockedTapEvents++
+		e.syncBuffers()
+		return false
+	}
+
+	// 2. Check directional arrow lane blocker
 	blocker := findFirstBlocker(e.Tiles[:e.TileCount], idx, e.GridCols, e.GridRows)
 	if blocker >= 0 {
-		// Crystal-clear causal feedback: recoil wobble + highlight the EXACT blocking tile!
 		e.Tiles[idx].WobbleT = 1.0
 		e.Tiles[blocker].WobbleT = 0.65
 		e.LastTappedBlockedIdx = idx
@@ -1029,8 +1216,19 @@ func (e *Engine) TapTile(idx int) bool {
 		return false
 	}
 
+	isRainbow := e.Tiles[idx].Special == SpecialRainbow
 	color := e.Tiles[idx].Color
-	direct := e.isActiveColor(color)
+	direct := false
+	if isRainbow {
+		rc := e.pickRainbowTargetColor()
+		if rc >= 0 {
+			color = uint8(rc)
+			direct = true
+		}
+	} else {
+		direct = e.isActiveColor(color)
+	}
+
 	if !direct && e.TrayLen >= TrayCapacity {
 		e.Tiles[idx].WobbleT = 1.0
 		e.LastTappedBlockedIdx = idx
@@ -1062,6 +1260,10 @@ func (e *Engine) TapTile(idx int) bool {
 	}
 
 	isHeart := e.Tiles[idx].IsHeart
+	specialKind := e.Tiles[idx].Special
+	if specialKind == SpecialHidden {
+		e.Tiles[idx].Revealed = true
+	}
 	e.Tiles[idx].Alive = false
 	e.Tiles[idx].WobbleT = 0
 	e.Tiles[idx].JiggleT = 0
@@ -1073,7 +1275,7 @@ func (e *Engine) TapTile(idx int) bool {
 		hoopIdx := e.claimHoopSlot(color)
 		if hoopIdx >= 0 {
 			hp := &e.HoopPearls[hoopIdx]
-			e.spawnFlight(color, sx, 0.24, sz, hp.WorldX, 0.14, hp.WorldZ, 0, true, hoopIdx)
+			e.spawnFlight(color, specialKind, sx, 0.24, sz, hp.WorldX, 0.14, hp.WorldZ, 0, true, hoopIdx)
 			e.Remain[color]--
 			e.DirectCount++
 			e.Streak++
@@ -1081,6 +1283,10 @@ func (e *Engine) TapTile(idx int) bool {
 				e.MaxStreak = e.Streak
 			}
 			pts := uint32(100) * e.currentMultiplier()
+			if isRainbow {
+				pts += 250
+				e.RainbowClearEvents++
+			}
 			e.Score += pts
 			e.LastScoreDelta += pts
 			e.LastEventWorldX = hp.WorldX
@@ -1105,31 +1311,37 @@ func (e *Engine) TapTile(idx int) bool {
 		e.TrayHeart[slot] = isHeart
 		e.TrayLen++
 		e.TrayUses++
-		e.Streak = 0 // Using tray resets the Clean Direct-Stitch Streak!
+		e.Streak = 0
 		e.TrayPulse[slot] = 1.0
 		ex, ez := e.traySlotWorldPos(slot)
 		e.LastEventWorldX = ex
 		e.LastEventWorldZ = ez
-		e.spawnFlight(color, sx, 0.24, sz, ex, 0.20, ez, 0, false, slot)
+		e.spawnFlight(color, specialKind, sx, 0.24, sz, ex, 0.20, ez, 0, false, slot)
 		e.TrayEvents++
 		e.drainTrayToHoop()
 	}
 
+	// Reveal newly stitchable Hidden pearls & break open newly freed Locked pearls!
+	e.updateSpecialStates(false)
 	e.updatePhase()
 	e.syncBuffers()
 	return true
 }
 
-// Undo cleanly reverts the previous move (limitless, deducts 150 Score and resets active streak).
+// Undo cleanly reverts the previous move (limitless, deducts Tuning.UndoPenalty and resets active streak).
 func (e *Engine) Undo() bool {
 	if len(e.undoStack) == 0 {
 		return false
 	}
+	e.ensureTuningDefaults()
 	snap := e.undoStack[len(e.undoStack)-1]
 	e.undoStack = e.undoStack[:len(e.undoStack)-1]
 
 	for i := 0; i < e.TileCount; i++ {
-		e.Tiles[i].Alive = (snap.aliveMask & (uint64(1) << uint(i))) != 0
+		bit := uint64(1) << uint(i)
+		e.Tiles[i].Alive = (snap.aliveMask & bit) != 0
+		e.Tiles[i].Revealed = (snap.revealedMask & bit) != 0
+		e.Tiles[i].Unlocked = (snap.unlockedMask & bit) != 0
 		e.Tiles[i].WobbleT = 0
 		e.Tiles[i].JiggleT = 0
 		e.Tiles[i].JiggleDelay = 0
@@ -1155,9 +1367,9 @@ func (e *Engine) Undo() bool {
 	e.Remain = snap.remain
 	e.Active = snap.active
 	e.QueuePos = snap.queuePos
-	// Limitless Undo deducts UndoScorePenalty (150) clamped at 0 and resets active streak
-	if snap.score > UndoScorePenalty {
-		e.Score = snap.score - UndoScorePenalty
+	undoPen := e.Tuning.UndoPenalty
+	if snap.score > undoPen {
+		e.Score = snap.score - undoPen
 	} else {
 		e.Score = 0
 	}
@@ -1167,7 +1379,7 @@ func (e *Engine) Undo() bool {
 	e.LayerDone = snap.layerDone
 	e.Phase = snap.phase
 	e.UndoUsed++
-	e.LastPenaltyDelta = UndoScorePenalty
+	e.LastPenaltyDelta = undoPen
 	e.LayersComplete = 0
 	for l := 0; l < MaxLayers; l++ {
 		if e.LayerDone[l] {
@@ -1187,12 +1399,14 @@ func (e *Engine) Undo() bool {
 }
 
 // ComputeHint finds a guaranteed safe next tile from the live state using priority-guided search.
-// Limitless in use: deducts HintScorePenalty (250) on each new highlighted hint.
+// Limitless in use: deducts Tuning.HintPenalty on each new highlighted hint.
 // Returns HintNeedsUndo (-2) if the current board is in a dead-end pinch requiring Undo!
 func (e *Engine) ComputeHint() int {
 	if e.Phase == PhaseComplete {
 		return -1
 	}
+	e.ensureTuningDefaults()
+	hintPen := e.Tuning.HintPenalty
 
 	var aliveMask uint64
 	for i := 0; i < e.TileCount; i++ {
@@ -1216,13 +1430,13 @@ func (e *Engine) ComputeHint() int {
 
 	if ok && bestMove >= 0 {
 		if bestMove != e.HintTileIdx {
-			if e.Score > HintScorePenalty {
-				e.Score -= HintScorePenalty
+			if e.Score > hintPen {
+				e.Score -= hintPen
 			} else {
 				e.Score = 0
 			}
 			e.HintsUsed++
-			e.LastPenaltyDelta = HintScorePenalty
+			e.LastPenaltyDelta = hintPen
 		} else {
 			e.LastPenaltyDelta = 0
 		}
@@ -1233,8 +1447,6 @@ func (e *Engine) ComputeHint() int {
 		return bestMove
 	}
 
-	// If the search space was exhausted (provable dead end!) or the tray is full with no direct stitch,
-	// signal HintNeedsUndo (-2) so the UI highlights Undo to rescue the player out of the pinch!
 	if exhausted || e.TrayLen >= TrayCapacity {
 		e.HintTileIdx = HintNeedsUndo
 		e.HintPulse = 1.0
@@ -1244,17 +1456,16 @@ func (e *Engine) ComputeHint() int {
 		return HintNeedsUndo
 	}
 
-	// Rare very deep board hit budget: pick the highest-value legal unblocked move so Hint never silently fails!
 	fallback := pickBestHeuristicMove(e.Tiles[:e.TileCount], e.GridCols, e.GridRows, st)
 	if fallback >= 0 {
 		if fallback != e.HintTileIdx {
-			if e.Score > HintScorePenalty {
-				e.Score -= HintScorePenalty
+			if e.Score > hintPen {
+				e.Score -= hintPen
 			} else {
 				e.Score = 0
 			}
 			e.HintsUsed++
-			e.LastPenaltyDelta = HintScorePenalty
+			e.LastPenaltyDelta = hintPen
 		} else {
 			e.LastPenaltyDelta = 0
 		}
@@ -1436,6 +1647,7 @@ func easeOutCubic(t float32) float32 {
 }
 
 func (e *Engine) syncBuffers() {
+	e.ensureTuningDefaults()
 	solar := ComputeSolarLighting(e.TimeOfDayHours)
 	palTable := ThemePalettes[e.ThemeIndex%NumThemes]
 	tension := e.computeTrayTension()
@@ -1458,11 +1670,11 @@ func (e *Engine) syncBuffers() {
 	e.Scene[6] = CamTargetZ + shakeZ*0.5
 	e.Scene[7] = CamFovY
 
-	// 2: sunDir + sunIntensity
+	// 2: sunDir + sunIntensity (scaled live by config.json lighting.topLightIntensity)
 	e.Scene[8] = solar.SunDirX
 	e.Scene[9] = solar.SunDirY
 	e.Scene[10] = solar.SunDirZ
-	e.Scene[11] = solar.SunIntensity
+	e.Scene[11] = solar.SunIntensity * e.Tuning.TopLight
 
 	// 3: sunColor + candleIntensity
 	e.Scene[12] = solar.SunR
@@ -1588,7 +1800,7 @@ func (e *Engine) syncBuffers() {
 		e.Scene[base+3] = palTable[c][3]
 	}
 
-	// --- Board Tiles (49 * 8 floats) & TileTelemetry ---
+	// --- Board Tiles (64 * 8 floats) & TileTelemetry ---
 	pearlRad := e.CellPitch * 0.245
 	for i := 0; i < MaxGridTiles; i++ {
 		sBase := SceneTileOffset + i*8
@@ -1603,6 +1815,14 @@ func (e *Engine) syncBuffers() {
 		t := e.Tiles[i]
 		wx, wz := e.tileWorldPos(t.Col, t.Row)
 		unblocked := t.Alive && isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows)
+		adjMask := uint32(0)
+		lockedNow := false
+		if t.Alive && t.Special == SpecialLocked && !t.Unlocked {
+			adjMask = adjacentAliveDirMask(e.Tiles[:e.TileCount], i)
+			lockedNow = adjMask != 0
+		}
+		hiddenConcealed := t.Alive && t.Special == SpecialHidden && !t.Revealed
+		playable := unblocked && !lockedNow
 
 		ox, oz := float32(0), float32(0)
 		if t.WobbleT > 0 {
@@ -1619,9 +1839,15 @@ func (e *Engine) syncBuffers() {
 			}
 		}
 
-		// IMPORTANT: Zero-spoiler flags!
-		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash, Bit 32 = Bonus Heart Pearl.
-		// Temporary interior pearl glow (~3.5s on start & new color unlock) is passed via props.w!
+		// IMPORTANT: Zero-spoiler flags! (Bit 2 is NEVER set!)
+		// Bit 1 (1) = alive
+		// Bit 4 (4) = hinted
+		// Bit 8 (8) = blocker flash
+		// Bit 32 (32) = 3D Heart-Shaped Pearl
+		// Bit 64 (64) = Rainbow Wild Pearl
+		// Bit 128 (128) = Hidden Pearl (currently concealed black)
+		// Bit 256 (256) = Locked Pearl (currently locked by adjacent pearls)
+		// Bits 1024/2048/4096/8192 = N/E/S/W orthogonal neighbor lock bars!
 		flags := uint32(0)
 		if t.Alive {
 			flags |= 1
@@ -1632,33 +1858,67 @@ func (e *Engine) syncBuffers() {
 		if e.BlockerFlashT > 0.01 && (i == e.LastBlockerIdx || i == e.LastTappedBlockedIdx) {
 			flags |= 8
 		}
-		if t.IsHeart {
+		if t.IsHeart || t.Special == SpecialHeart {
 			flags |= 32
+		}
+		if t.Special == SpecialRainbow {
+			flags |= 64
+		}
+		if hiddenConcealed {
+			flags |= 128
+		}
+		if lockedNow {
+			flags |= 256 | (adjMask << 10)
+		}
+
+		// Suppress interior active-color glow on concealed Hidden pearls so they never spoil their color!
+		glowVal := e.ColorGlowT[t.Color] * e.Tuning.GlowIntensity
+		if hiddenConcealed || t.Special == SpecialRainbow {
+			glowVal = 0
 		}
 
 		e.Scene[sBase+0] = wx + ox
-		e.Scene[sBase+1] = 0.22 + t.JiggleT*0.10
+		e.Scene[sBase+1] = 0.22 + t.JiggleT*0.10*e.Tuning.JiggleIntensity
 		e.Scene[sBase+2] = wz + oz
 		e.Scene[sBase+3] = pearlRad
 		e.Scene[sBase+4] = float32(t.Color)
 		e.Scene[sBase+5] = float32(t.Dir)
 		e.Scene[sBase+6] = float32(flags)
-		e.Scene[sBase+7] = e.ColorGlowT[t.Color]
+		e.Scene[sBase+7] = glowVal
 
 		e.TileTelemetry[tBase+0] = float32(t.Col)
 		e.TileTelemetry[tBase+1] = float32(t.Row)
 		e.TileTelemetry[tBase+2] = float32(t.Color)
 		e.TileTelemetry[tBase+3] = float32(t.Dir)
 		if t.Alive {
-			if t.IsHeart {
+			switch t.Special {
+			case SpecialHeart:
 				e.TileTelemetry[tBase+4] = 2
-			} else {
-				e.TileTelemetry[tBase+4] = 1
+			case SpecialRainbow:
+				e.TileTelemetry[tBase+4] = 3
+			case SpecialHidden:
+				if t.Revealed {
+					e.TileTelemetry[tBase+4] = 5
+				} else {
+					e.TileTelemetry[tBase+4] = 4
+				}
+			case SpecialLocked:
+				if lockedNow {
+					e.TileTelemetry[tBase+4] = 6
+				} else {
+					e.TileTelemetry[tBase+4] = 7
+				}
+			default:
+				if t.IsHeart {
+					e.TileTelemetry[tBase+4] = 2
+				} else {
+					e.TileTelemetry[tBase+4] = 1
+				}
 			}
 		} else {
 			e.TileTelemetry[tBase+4] = 0
 		}
-		if unblocked {
+		if playable {
 			e.TileTelemetry[tBase+5] = 1
 		} else {
 			e.TileTelemetry[tBase+5] = 0
@@ -1759,10 +2019,10 @@ func (e *Engine) syncBuffers() {
 		e.Scene[base+4] = float32(f.Color)
 		e.Scene[base+5] = 1.0
 		e.Scene[base+6] = t
-		e.Scene[base+7] = 0
+		e.Scene[base+7] = float32(f.Special)
 	}
 
-	// --- Compact Telemetry State Buffer (48 floats) ---
+	// --- Compact Telemetry State Buffer (64 floats) ---
 	e.State[0] = float32(e.FrameCount)
 	e.State[1] = e.ElapsedSec
 	e.State[2] = float32(e.LevelIndex)
@@ -1827,4 +2087,9 @@ func (e *Engine) syncBuffers() {
 	e.State[53] = float32(e.LastSeed >> 16)
 	e.State[54] = float32(e.HeartClearEvents)
 	e.State[55] = float32(e.LastHeartBonus)
+	e.State[56] = float32(e.RainbowClearEvents)
+	e.State[57] = float32(e.HiddenRevealEvents)
+	e.State[58] = float32(e.LockBreakEvents)
+	e.State[59] = float32(e.LockedTapEvents)
+	e.State[60] = float32(e.SeedDifficulty)
 }

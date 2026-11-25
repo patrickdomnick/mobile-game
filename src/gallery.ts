@@ -21,6 +21,7 @@ export interface GalleryProgress {
   mandalasCompleted: number;
   lastMandalaSeed: number;
   selectedCampaign: number;
+  seedDifficulty: 0 | 1 | 2 | 3;
   settings: UserSettings;
 }
 
@@ -39,6 +40,7 @@ function emptyProgress(): GalleryProgress {
     mandalasCompleted: 0,
     lastMandalaSeed: 1,
     selectedCampaign: 0,
+    seedDifficulty: 1,
     settings: defaultSettings(),
   };
 }
@@ -70,12 +72,17 @@ export class EmbroideryGalleryStore {
         typeof parsed.selectedCampaign === 'number' && parsed.selectedCampaign >= 0 && parsed.selectedCampaign < 4
           ? Math.floor(parsed.selectedCampaign)
           : 0;
+      const seedDiff =
+        typeof parsed.seedDifficulty === 'number' && parsed.seedDifficulty >= 0 && parsed.seedDifficulty <= 3
+          ? (Math.floor(parsed.seedDifficulty) as 0 | 1 | 2 | 3)
+          : 1;
       return {
         completedCurated: parsed.completedCurated ?? {},
         completedDailyDates: Array.isArray(parsed.completedDailyDates) ? parsed.completedDailyDates : [],
         mandalasCompleted: typeof parsed.mandalasCompleted === 'number' ? parsed.mandalasCompleted : 0,
         lastMandalaSeed: typeof parsed.lastMandalaSeed === 'number' ? parsed.lastMandalaSeed : 1,
         selectedCampaign: selCamp,
+        seedDifficulty: seedDiff,
         settings: {
           hapticsEnabled: typeof s.hapticsEnabled === 'boolean' ? s.hapticsEnabled : true,
           timeMode: s.timeMode === 'manual' ? 'manual' : 'auto',
@@ -102,6 +109,17 @@ export class EmbroideryGalleryStore {
   setSelectedCampaign(campaignId: number): number {
     const clamped = Math.max(0, Math.min(3, Math.floor(campaignId)));
     this.data.selectedCampaign = clamped;
+    this.save();
+    return clamped;
+  }
+
+  getSeedDifficulty(): 0 | 1 | 2 | 3 {
+    return this.data.seedDifficulty;
+  }
+
+  setSeedDifficulty(tier: number): 0 | 1 | 2 | 3 {
+    const clamped = Math.max(0, Math.min(3, Math.floor(tier))) as 0 | 1 | 2 | 3;
+    this.data.seedDifficulty = clamped;
     this.save();
     return clamped;
   }
@@ -221,6 +239,7 @@ export class EmbroideryGalleryStore {
       mandalasCompleted: this.data.mandalasCompleted,
       lastMandalaSeed: this.data.lastMandalaSeed,
       selectedCampaign: this.data.selectedCampaign,
+      seedDifficulty: this.data.seedDifficulty,
       settings: { ...this.data.settings },
     };
   }

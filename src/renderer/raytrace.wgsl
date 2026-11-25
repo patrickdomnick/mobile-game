@@ -317,7 +317,7 @@ fn intersectSphereAA(ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f3
   return res;
 }
 
-// Analytic 2D Heart SDF (point at (0,0), lobes at (+-0.25, 0.75)) for Bonus Heart Pearls
+// Analytic 2D Heart SDF (tip at (0,0), twin lobes at (+-0.25, 0.75))
 fn sdHeart2D(pIn: vec2<f32>) -> f32 {
   let p = vec2<f32>(abs(pIn.x), pIn.y);
   if (p.y + p.x > 1.0) {
@@ -327,6 +327,111 @@ fn sdHeart2D(pIn: vec2<f32>) -> f32 {
   let d1 = p - vec2<f32>(0.0, 1.0);
   let d2 = p - 0.5 * max(p.x + p.y, 0.0);
   return sqrt(min(dot(d1, d1), dot(d2, d2))) * sign(p.x - p.y);
+}
+
+// True 3D Sculpted Plump Heart-Shaped Pearl SDF (lobes point screen-UP along -Z, tip screen-DOWN along +Z)
+fn sdHeartPearl3D(p: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
+  let q = (p - center) / radius;
+  let scale = 0.52;
+  let h2 = vec2<f32>(q.x * scale, -q.z * scale + 0.56);
+  let d2 = sdHeart2D(h2) / scale;
+  let k = 0.74;
+  let d3 = (length(vec2<f32>(d2 + k, q.y * 1.08)) - k) * 0.80;
+  return d3 * radius;
+}
+
+fn calcHeartNormal3D(p: vec3<f32>, center: vec3<f32>, radius: f32) -> vec3<f32> {
+  let e = radius * 0.004;
+  let k1 = vec3<f32>(1.0, -1.0, -1.0);
+  let k2 = vec3<f32>(-1.0, -1.0, 1.0);
+  let k3 = vec3<f32>(-1.0, 1.0, -1.0);
+  let k4 = vec3<f32>(1.0, 1.0, 1.0);
+  return normalize(
+    k1 * sdHeartPearl3D(p + k1 * e, center, radius) +
+    k2 * sdHeartPearl3D(p + k2 * e, center, radius) +
+    k3 * sdHeartPearl3D(p + k3 * e, center, radius) +
+    k4 * sdHeartPearl3D(p + k4 * e, center, radius)
+  );
+}
+
+// Fast bounding-sphere guarded 3D Heart Pearl raymarcher with analytic silhouette AA
+fn intersectHeartPearlAA(ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f32, pixelScale: f32) -> SphereAA {
+  var res: SphereAA;
+  res.t = -1.0;
+  res.cov = 0.0;
+  res.normal = vec3<f32>(0.0, 1.0, 0.0);
+  res.pos = center;
+
+  let boundR = radius * 1.28;
+  let oc = ro - center;
+  let b = dot(oc, rd);
+  let c = dot(oc, oc) - boundR * boundR;
+  let disc = b * b - c;
+  if (disc <= 0.0) {
+    return res;
+  }
+  let sq = sqrt(disc);
+  let tStart = max(EPS, -b - sq);
+  let tEnd = -b + sq;
+  if (tEnd <= EPS) {
+    return res;
+  }
+
+  var t = tStart;
+  var minD = 1e6;
+  var tBest = tStart;
+  var hit = false;
+  for (var s: i32 = 0; s < 18; s = s + 1) {
+    let p = ro + rd * t;
+    let d = sdHeartPearl3D(p, center, radius);
+    if (d < minD) {
+      minD = d;
+      tBest = t;
+    }
+    if (d < radius * 0.004) {
+      hit = true;
+      break;
+    }
+    t += d;
+    if (t > tEnd) {
+      break;
+    }
+  }
+
+  let pxW = tBest * pixelScale;
+  if (hit) {
+    let hitP = ro + rd * t;
+    res.t = t;
+    res.cov = 1.0;
+    res.pos = hitP;
+    res.normal = calcHeartNormal3D(hitP, center, radius);
+    return res;
+  }
+
+  // Smooth subpixel anti-aliasing along the 3D sculpted heart contour
+  let aaBand = pxW * 0.85;
+  if (minD < aaBand) {
+    let cov = smoothstep(aaBand, 0.0, minD);
+    if (cov > 0.002) {
+      let edgeP = ro + rd * tBest;
+      res.t = tBest;
+      res.cov = cov;
+      res.pos = edgeP;
+      res.normal = calcHeartNormal3D(edgeP, center, radius);
+    }
+  }
+  return res;
+}
+
+// Vivid swirling prismatic spectrum in linear space for Rainbow Wild Pearls
+fn rainbowSpectrumLinear(n: vec3<f32>, time: f32) -> vec3<f32> {
+  let angle = atan2(n.z, n.x) + n.y * 2.4 - time * 1.9;
+  let srgb = vec3<f32>(
+    0.55 + 0.45 * sin(angle),
+    0.55 + 0.45 * sin(angle + 2.094395),
+    0.55 + 0.45 * sin(angle + 4.188790),
+  );
+  return toLinear(clamp(srgb, vec3<f32>(0.04), vec3<f32>(1.0)));
 }
 
 // Computes the exact 3D center of a board pearl, including pearl-only joyful wiggle & tiny hop
@@ -792,8 +897,20 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
         }
 
         let tileMask = smoothstep(aa, -aa, dTile);
+        let isRainbowTile = (flags & 64u) != 0u;
+        let isHiddenTile = (flags & 128u) != 0u;
+        let isLockedTile = (flags & 256u) != 0u;
+
         if (tileMask > 0.002) {
-          let pal = getPaletteLinear(tl.props.x).rgb;
+          let rawPal = getPaletteLinear(tl.props.x).rgb;
+          let rainAngle = atan2(dLocal.y, dLocal.x) - renderU.time * 1.8;
+          let rainPal = toLinear(clamp(vec3<f32>(
+            0.55 + 0.45 * sin(rainAngle),
+            0.55 + 0.45 * sin(rainAngle + 2.094395),
+            0.55 + 0.45 * sin(rainAngle + 4.188790),
+          ), vec3<f32>(0.08), vec3<f32>(1.0)));
+          // Hidden tiles MUST NEVER leak their concealed color into tile background, border, or caustics!
+          let pal = select(select(rawPal, rainPal, isRainbowTile), toLinear(vec3<f32>(0.42, 0.44, 0.52)), isHiddenTile);
           let edgeBevel = smoothstep(0.0, -0.048, dTile);
 
           // 3D sculpted beveled tile edge normal
@@ -809,6 +926,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           var arrowCol = vec3<f32>(0.012, 0.012, 0.018);
           var arrowEmissive = vec3<f32>(0.0);
           var tRough = 0.26;
+          var tMet = 0.06;
 
           if (theme == 0u) {
             let ivory = mix(toLinear(vec3<f32>(0.80, 0.77, 0.72)), toLinear(vec3<f32>(0.96, 0.94, 0.88)), daylight);
@@ -831,9 +949,19 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
             borderCol = toLinear(vec3<f32>(0.84, 0.64, 0.32));
             arrowCol = toLinear(vec3<f32>(1.0, 0.88, 0.48));
             arrowEmissive = toLinear(vec3<f32>(1.0, 0.80, 0.30)) * 0.50;
-            let caustic = exp(-length(dLocal) / (pitch * 0.34));
-            emissive += pal * caustic * 0.45 * tileMask;
+            if (!isHiddenTile) {
+              let caustic = exp(-length(dLocal) / (pitch * 0.34));
+              emissive += pal * caustic * 0.45 * tileMask;
+            }
             tRough = 0.20;
+          }
+
+          if (isHiddenTile) {
+            // Subtle slate-obsidian mystery card surface
+            tileCol = mix(tileCol, toLinear(vec3<f32>(0.20, 0.22, 0.28)), 0.55);
+            borderCol = toLinear(vec3<f32>(0.68, 0.74, 0.86));
+          } else if (isRainbowTile) {
+            borderCol = rainPal;
           }
 
           tileCol = mix(tileCol * 0.80, tileCol, edgeBevel);
@@ -850,8 +978,75 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           let tRimMask = smoothstep(rimWidth - aa, rimWidth + aa, dTile);
           if (tRimMask > 0.002) {
             tileCol = mix(tileCol, borderCol, tRimMask);
-            if (theme == 1u) {
-              emissive += pal * 0.36 * tRimMask * tileMask;
+            if (theme == 1u || isRainbowTile) {
+              emissive += borderCol * select(0.36, 0.55, isRainbowTile) * tRimMask * tileMask;
+            }
+          }
+
+          // Locked Pearl Overlay: crisp brass-gold lock frame + directional clasp bars pointing ONLY to still-alive N/E/S/W neighbors!
+          if (isLockedTile) {
+            let goldCol = toLinear(vec3<f32>(0.96, 0.76, 0.26));
+            let darkSteel = vec3<f32>(0.025, 0.024, 0.032);
+            let frameBand = smoothstep(-pitch * 0.068 - aa, -pitch * 0.068 + aa, dTile);
+            let innerGroove = smoothstep(-pitch * 0.088 - aa, -pitch * 0.088 + aa, dTile) * (1.0 - frameBand);
+            tileCol = mix(tileCol, darkSteel, innerGroove * 0.78);
+            tileCol = mix(tileCol, goldCol, frameBand * 0.90);
+            tMet = mix(tMet, 0.82, frameBand);
+            tRough = mix(tRough, 0.20, frameBand);
+            emissive += goldCol * 0.14 * frameBand * tileMask;
+
+            let barHalfW = pitch * 0.056;
+            let barOutW = pitch * 0.086;
+            let rivetR = pitch * 0.072;
+            var lockBarOut: f32 = 0.0;
+            var lockBarMask: f32 = 0.0;
+            var lockRivetMask: f32 = 0.0;
+            // North (1024u -> -Z)
+            if ((flags & 1024u) != 0u) {
+              let dSeg = sdSegment2D(dLocal, vec2<f32>(0.0, -pitch * 0.14), vec2<f32>(0.0, -tileHalf));
+              lockBarOut = max(lockBarOut, smoothstep(aa, -aa, dSeg - barOutW));
+              lockBarMask = max(lockBarMask, smoothstep(aa, -aa, dSeg - barHalfW));
+              let dR = length(dLocal - vec2<f32>(0.0, -tileHalf + pitch * 0.055)) - rivetR;
+              lockRivetMask = max(lockRivetMask, smoothstep(aa, -aa, dR));
+            }
+            // East (2048u -> +X)
+            if ((flags & 2048u) != 0u) {
+              let dSeg = sdSegment2D(dLocal, vec2<f32>(pitch * 0.14, 0.0), vec2<f32>(tileHalf, 0.0));
+              lockBarOut = max(lockBarOut, smoothstep(aa, -aa, dSeg - barOutW));
+              lockBarMask = max(lockBarMask, smoothstep(aa, -aa, dSeg - barHalfW));
+              let dR = length(dLocal - vec2<f32>(tileHalf - pitch * 0.055, 0.0)) - rivetR;
+              lockRivetMask = max(lockRivetMask, smoothstep(aa, -aa, dR));
+            }
+            // South (4096u -> +Z)
+            if ((flags & 4096u) != 0u) {
+              let dSeg = sdSegment2D(dLocal, vec2<f32>(0.0, pitch * 0.14), vec2<f32>(0.0, tileHalf));
+              lockBarOut = max(lockBarOut, smoothstep(aa, -aa, dSeg - barOutW));
+              lockBarMask = max(lockBarMask, smoothstep(aa, -aa, dSeg - barHalfW));
+              let dR = length(dLocal - vec2<f32>(0.0, tileHalf - pitch * 0.055)) - rivetR;
+              lockRivetMask = max(lockRivetMask, smoothstep(aa, -aa, dR));
+            }
+            // West (8192u -> -X)
+            if ((flags & 8192u) != 0u) {
+              let dSeg = sdSegment2D(dLocal, vec2<f32>(-pitch * 0.14, 0.0), vec2<f32>(-tileHalf, 0.0));
+              lockBarOut = max(lockBarOut, smoothstep(aa, -aa, dSeg - barOutW));
+              lockBarMask = max(lockBarMask, smoothstep(aa, -aa, dSeg - barHalfW));
+              let dR = length(dLocal - vec2<f32>(-tileHalf + pitch * 0.055, 0.0)) - rivetR;
+              lockRivetMask = max(lockRivetMask, smoothstep(aa, -aa, dR));
+            }
+
+            if (lockBarOut > 0.002) {
+              tileCol = mix(tileCol, darkSteel, lockBarOut * 0.92);
+            }
+            if (lockBarMask > 0.002) {
+              tileCol = mix(tileCol, goldCol, lockBarMask * 0.94);
+              tMet = mix(tMet, 0.86, lockBarMask);
+              tRough = mix(tRough, 0.18, lockBarMask);
+              emissive += goldCol * 0.30 * lockBarMask * tileMask;
+            }
+            if (lockRivetMask > 0.002) {
+              let amberGem = toLinear(vec3<f32>(1.0, 0.52, 0.10));
+              tileCol = mix(tileCol, amberGem, lockRivetMask);
+              emissive += amberGem * 0.90 * lockRivetMask * tileMask;
             }
           }
 
@@ -873,7 +1068,7 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           boardCol = mix(boardCol, tileCol, tileMask);
           boardNorm = normalize(mix(boardNorm, tNorm, tileMask));
           boardRough = mix(boardRough, tRough, tileMask);
-          boardMet = mix(boardMet, 0.06, tileMask);
+          boardMet = mix(boardMet, tMet, tileMask);
         }
       }
 
@@ -973,7 +1168,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   }
   let deskAA = clamp(tDesk * pixelScale * 0.60, 0.002, 0.022);
 
-  // Track nearest anti-aliased sphere hit (with exact subpixel silhouette coverage!)
+  // Track nearest anti-aliased pearl hit (with exact subpixel silhouette coverage!)
   var bestT = tDesk;
   var bestCov: f32 = 0.0;
   var hitPos = vec3<f32>(0.0);
@@ -984,7 +1179,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var hitBlocker = false;
   var hitInteriorGlow: f32 = 0.0;
   var hitIsBoard = false;
-  var hitIsHeart = false;
+  // hitSpecialKind: 0=normal, 1=3D Heart, 2=Rainbow Wild, 3=Hidden Concealed, 4=Locked
+  var hitSpecialKind: u32 = 0u;
+  var hitLockDirBits: u32 = 0u;
   var hitCenter = vec3<f32>(0.0);
   var hitRad: f32 = 0.2;
 
@@ -1021,7 +1218,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.0;
         hitIsBoard = false;
-        hitIsHeart = false;
+        hitSpecialKind = 0u;
+        hitLockDirBits = 0u;
       }
     }
   } else if (abs(pDesk.z - trayZ) < 0.36) {
@@ -1043,7 +1241,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.0;
         hitIsBoard = false;
-        hitIsHeart = false;
+        hitSpecialKind = 0u;
+        hitLockDirBits = 0u;
       }
     }
   } else if (abs(pDesk.x - boardC.x) < boardHalf.x + 0.42 && abs(pDesk.z - boardC.y) < boardHalf.y + 0.42) {
@@ -1055,11 +1254,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
       if ((flags & 1u) == 0u) {
         continue;
       }
-      if (abs(pDesk.x - tl.posRad.x) > pitch * 0.70 || abs(pDesk.z - tl.posRad.z) > pitch * 0.70) {
+      if (abs(pDesk.x - tl.posRad.x) > pitch * 0.72 || abs(pDesk.z - tl.posRad.z) > pitch * 0.72) {
         continue;
       }
       let spCenter = boardPearlCenter(tl, pitch);
-      let hit = intersectSphereAA(ro, rd, spCenter, tl.posRad.w, pixelScale);
+      let isHeart = (flags & 32u) != 0u;
+      var hit: SphereAA;
+      if (isHeart) {
+        // Real 3D sculpted heart-shaped pearl (raymarched SDF with analytic AA!)
+        hit = intersectHeartPearlAA(ro, rd, spCenter, tl.posRad.w, pixelScale);
+      } else {
+        hit = intersectSphereAA(ro, rd, spCenter, tl.posRad.w, pixelScale);
+      }
       if (hit.cov > 0.002 && hit.t < bestT) {
         bestT = hit.t;
         bestCov = hit.cov;
@@ -1073,9 +1279,20 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = (flags & 8u) != 0u;
         hitInteriorGlow = tl.props.w;
         hitIsBoard = true;
-        hitIsHeart = (flags & 32u) != 0u;
         hitCenter = spCenter;
         hitRad = tl.posRad.w;
+        hitLockDirBits = (flags >> 10u) & 15u;
+        if (isHeart) {
+          hitSpecialKind = 1u;
+        } else if ((flags & 64u) != 0u) {
+          hitSpecialKind = 2u;
+        } else if ((flags & 128u) != 0u) {
+          hitSpecialKind = 3u;
+        } else if ((flags & 256u) != 0u) {
+          hitSpecialKind = 4u;
+        } else {
+          hitSpecialKind = 0u;
+        }
       }
     }
   }
@@ -1087,7 +1304,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
       if (fp.props.y < 0.5) {
         continue;
       }
-      let hit = intersectSphereAA(ro, rd, fp.posRad.xyz, fp.posRad.w, pixelScale);
+      let flySpecial = u32(max(fp.props.w + 0.5, 0.0));
+      var hit: SphereAA;
+      if (flySpecial == 1u) {
+        hit = intersectHeartPearlAA(ro, rd, fp.posRad.xyz, fp.posRad.w, pixelScale);
+      } else {
+        hit = intersectSphereAA(ro, rd, fp.posRad.xyz, fp.posRad.w, pixelScale);
+      }
       if (hit.cov > 0.002 && hit.t < bestT) {
         bestT = hit.t;
         bestCov = hit.cov;
@@ -1100,7 +1323,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.45;
         hitIsBoard = false;
-        hitIsHeart = false;
+        hitSpecialKind = select(0u, flySpecial, flySpecial <= 2u);
+        hitLockDirBits = 0u;
+        hitCenter = fp.posRad.xyz;
+        hitRad = fp.posRad.w;
       }
     }
   }
@@ -1108,24 +1334,72 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let theme = getTheme();
   var finalCol = vec3<f32>(0.0);
   if (bestCov > 0.002) {
-    var pearlCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
-    if (hitIsHeart) {
-      // Crisp analytic inlaid Heart Jewel emblem right on the pearl's upper face (keeps pearl color 100% legible!)
-      let hp = vec2<f32>((hitPos.x - hitCenter.x) / hitRad, -(hitPos.z - hitCenter.z) / hitRad) * 1.24 + vec2<f32>(0.0, 0.50);
-      let dHeart = sdHeart2D(hp);
-      let outlineMask = smoothstep(0.14, 0.02, abs(dHeart));
-      let fillMask = smoothstep(0.03, -0.05, dHeart);
-      let pearlLum = dot(hitColorLin, vec3<f32>(0.2126, 0.7152, 0.0722));
-      let isBrightPearl = pearlLum > 0.42;
-      let outlineCol = select(vec3<f32>(0.05, 0.012, 0.028), vec3<f32>(0.18, 0.02, 0.06), isBrightPearl);
-      let heartFill = select(
-        toLinear(vec3<f32>(1.0, 0.95, 0.97)) * 1.12 + toLinear(vec3<f32>(1.0, 0.56, 0.72)) * 0.34,
-        toLinear(vec3<f32>(0.96, 0.14, 0.34)) * 1.15,
-        isBrightPearl
-      );
-      pearlCol = mix(pearlCol, outlineCol, outlineMask * 0.85);
-      pearlCol = mix(pearlCol, heartFill, fillMask * 0.95);
+    var shadeColorLin = hitColorLin;
+    var shadeIrid = hitIrid;
+    var shadeSpark = hitSpark;
+    if (hitSpecialKind == 2u) {
+      // Swirling Prismatic Rainbow Wild Pearl!
+      shadeColorLin = rainbowSpectrumLinear(hitNormal, renderU.time);
+      shadeIrid = 1.0;
+      shadeSpark = max(shadeSpark, 0.25 + 0.20 * sin(renderU.time * 4.2 + hitPos.x * 5.0));
+    } else if (hitSpecialKind == 3u) {
+      // Glossy Deep Obsidian-Black Hidden Pearl (zero color leak!)
+      shadeColorLin = vec3<f32>(0.009, 0.011, 0.018);
+      shadeIrid = 0.15;
     }
+
+    var pearlCol = shadePearl(hitPos, hitNormal, rd, shadeColorLin, shadeIrid, shadeSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
+
+    if (hitSpecialKind == 2u) {
+      // Subtle prismatic star-glint highlight on Rainbow Wild Pearls
+      let ndv = clamp(dot(normalize(hitNormal), -rd), 0.0, 1.0);
+      pearlCol += shadeColorLin * (0.28 + 0.35 * pow(1.0 - ndv, 2.5));
+    } else if (hitSpecialKind == 3u) {
+      // Moonlight-silver Fresnel rim + crisp engraved silver '?' mystery crest on Hidden Pearls
+      let ndv = clamp(dot(normalize(hitNormal), -rd), 0.0, 1.0);
+      let silver = toLinear(vec3<f32>(0.84, 0.88, 0.98));
+      pearlCol += silver * pow(1.0 - ndv, 3.0) * 0.48;
+      let mp = vec2<f32>((hitPos.x - hitCenter.x) / hitRad, -(hitPos.z - hitCenter.z) / hitRad);
+      let dHookRing = abs(length(mp - vec2<f32>(0.0, 0.17)) - 0.19);
+      let inHookArc = !(mp.y < 0.14 && mp.x < -0.02);
+      var dQ = select(1.0, dHookRing - 0.068, inHookArc);
+      dQ = min(dQ, sdSegment2D(mp, vec2<f32>(0.0, -0.02), vec2<f32>(0.0, -0.14)) - 0.065);
+      dQ = min(dQ, length(mp - vec2<f32>(0.0, -0.34)) - 0.082);
+      let qMask = smoothstep(0.04, -0.04, dQ);
+      pearlCol = mix(pearlCol, silver * 1.15, qMask * 0.92);
+    } else if (hitSpecialKind == 4u) {
+      // Brushed-gold metallic lock clasp straps hugging ONLY the active locked axes (N/S and/or E/W) + center rivet!
+      let lp = vec2<f32>((hitPos.x - hitCenter.x) / hitRad, (hitPos.z - hitCenter.z) / hitRad);
+      var strapMask: f32 = 0.0;
+      if ((hitLockDirBits & 1u) != 0u) {
+        // N lock strap (-Z)
+        let dS = sdSegment2D(lp, vec2<f32>(0.0, 0.0), vec2<f32>(0.0, -1.05)) - 0.13;
+        strapMask = max(strapMask, smoothstep(0.05, -0.04, dS));
+      }
+      if ((hitLockDirBits & 2u) != 0u) {
+        // E lock strap (+X)
+        let dS = sdSegment2D(lp, vec2<f32>(0.0, 0.0), vec2<f32>(1.05, 0.0)) - 0.13;
+        strapMask = max(strapMask, smoothstep(0.05, -0.04, dS));
+      }
+      if ((hitLockDirBits & 4u) != 0u) {
+        // S lock strap (+Z)
+        let dS = sdSegment2D(lp, vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.05)) - 0.13;
+        strapMask = max(strapMask, smoothstep(0.05, -0.04, dS));
+      }
+      if ((hitLockDirBits & 8u) != 0u) {
+        // W lock strap (-X)
+        let dS = sdSegment2D(lp, vec2<f32>(0.0, 0.0), vec2<f32>(-1.05, 0.0)) - 0.13;
+        strapMask = max(strapMask, smoothstep(0.05, -0.04, dS));
+      }
+      let bossR = length(lp);
+      let bossRing = smoothstep(0.28, 0.22, bossR);
+      let keyhole = smoothstep(0.11, 0.06, bossR);
+      let goldBand = toLinear(vec3<f32>(0.96, 0.78, 0.28)) * (0.65 + 0.55 * max(dot(normalize(hitNormal), normalize(vec3<f32>(-0.4, 0.8, -0.4))), 0.0));
+      let darkIron = vec3<f32>(0.02, 0.02, 0.028);
+      pearlCol = mix(pearlCol, goldBand, clamp(max(strapMask * 0.90, bossRing * 0.94), 0.0, 1.0));
+      pearlCol = mix(pearlCol, darkIron, keyhole * 0.90);
+    }
+
     if (bestCov >= 0.995) {
       finalCol = pearlCol;
     } else {

@@ -4,8 +4,8 @@ import path from 'node:path';
 
 const RESULTS_DIR = path.resolve(process.cwd(), 'test-results');
 
-test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtest', () => {
-  test('verifies Campaign-First Start Menu, 4 Day-1 Campaigns (52 levels, 5x5 warmups -> 8x8 64-pearl finales), Sequential Locking, Anti-Aliased Visual Pop, Heart Pearls, Daily Stitch & 0-FPS Idle', async ({
+test.describe('Pearl Loom v2.9 — iPhone 16 WebGPU Special Pearls, Live Config & 4 Seeded Difficulties E2E Playtest', () => {
+  test('verifies Live config.json, Gradual Special Pearl Rollout (3D Heart, Rainbow, Hidden, Locked), 4 Seeded Difficulty Tiers, Sequential Locking, Anti-Aliased Visual Pop & 0-FPS Idle', async ({
     page,
     request,
   }) => {
@@ -29,7 +29,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
       }
     });
 
-    // 1. Verify PWA manifest, icons, SW, WASM & v2 52-level JSON endpoints (subpath-portable)
+    // 1. Verify PWA manifest, icons, SW, WASM, live config.json & v3 52-level JSON endpoints
     const manifestRes = await request.get('/manifest.webmanifest');
     expect(manifestRes.status()).toBe(200);
     const manifest = await manifestRes.json();
@@ -41,14 +41,23 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect((await request.get('/sw.js')).status()).toBe(200);
     expect((await request.get('/apple-touch-icon.png')).status()).toBe(200);
     expect((await request.get('/game.wasm')).status()).toBe(200);
+
+    const configRes = await request.get('/config.json');
+    expect(configRes.status()).toBe(200);
+    const configJson = await configRes.json();
+    expect(configJson.version).toBe(1);
+    expect(configJson.jiggle.intervalMs).toBeGreaterThan(0);
+    expect(configJson.lighting.topLightIntensity).toBeGreaterThan(0);
+    expect(configJson.feedback.rumbleIntensity).toBeGreaterThan(0);
+
     const levelsRes = await request.get('/levels.json');
     expect(levelsRes.status()).toBe(200);
     const levelsJson = await levelsRes.json();
-    expect(levelsJson.version).toBe(2);
+    expect(levelsJson.version).toBe(3);
     expect(levelsJson.chapters.length).toBe(4);
     expect(levelsJson.levels.length).toBe(52);
 
-    // 2. Load Pearl Loom v2.8 on localhost (secure context for WebGPU)
+    // 2. Load Pearl Loom v2.9 on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
     await page.evaluate(async () => {
@@ -118,8 +127,10 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(bootState.screen).toBe('menu');
     expect(bootState.timeMode).toBe('auto');
     expect(bootState.themeIndex).toBe(0);
+    expect(bootState.configSource).toBe('network');
+    expect(bootState.config.jiggle.intervalMs).toBe(configJson.jiggle.intervalMs);
     expect(bootState.levelsCatalog.source).toBe('network');
-    expect(bootState.levelsCatalog.version).toBe(2);
+    expect(bootState.levelsCatalog.version).toBe(3);
     expect(bootState.levelsCatalog.count).toBe(52);
     expect(bootState.renderer.validationErrors).toEqual([]);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'start-menu.png') });
@@ -133,11 +144,12 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     await page.locator('#menu-campaign-strip .menu-campaign-pill[data-campaign-id="0"]').click();
     await expect(page.locator('#menu-journey-main')).toHaveText('Play Sunbeam Brooch');
 
-    // 4. Verify Sequential Level Locking inside Campaigns Map BEFORE beating Level 1!
+    // 4. Verify Sequential Level Locking + 4-Tier Endless/Seed Difficulty Picker inside Campaigns Map!
     await page.locator('#btn-menu-gallery').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
     await expect(page.locator('#chapter-tabs .chapter-tab')).toHaveCount(4);
     await expect(page.locator('#gallery-grid .gallery-item')).toHaveCount(13);
+    await expect(page.locator('#seed-diff-picker .seed-diff-pill')).toHaveCount(4);
     await expect(page.locator('#gallery-grid .gallery-item[data-level-index="0"]')).toHaveAttribute('data-locked', 'false');
     await expect(page.locator('#gallery-grid .gallery-item[data-level-index="0"]')).toHaveClass(/is-current/);
     await expect(page.locator('#gallery-grid .gallery-item[data-locked="true"]')).toHaveCount(12);
@@ -185,7 +197,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     await page.locator('#btn-close-install').click();
     await expect(page.locator('#overlay-install')).toBeHidden();
 
-    // 6. Launch Jewel Atelier Level 1 (Sunbeam Brooch — Zero-Blocker Warm-Up!), solve it & verify Level 2 UNLOCKS!
+    // 6. Launch Jewel Atelier Level 1 (Sunbeam Brooch — Zero-Blocker, Zero-Specials Warm-Up!), solve it & verify Level 2 UNLOCKS!
     await page.locator('#btn-mode-journey').click();
     await expect(page.locator('#overlay-start-menu')).toBeHidden();
     await expect(page.locator('#hud-top')).toBeVisible();
@@ -194,7 +206,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(warmupStart.levelIndex).toBe(0);
     expect(warmupStart.totalPearls).toBe(14);
     expect(warmupStart.tiles.every((t) => t.unblocked), 'Level 1 Warm-Up must have 0 blockers').toBe(true);
-    expect(warmupStart.tiles.filter((t) => t.alive && t.isHeart).length).toBeGreaterThanOrEqual(1);
+    expect(warmupStart.tiles.every((t) => t.special === 'none'), 'Level 1 Warm-Up must start with ZERO special pearls').toBe(true);
 
     await page.evaluate(async () => {
       for (let i = 0; i < 16; i++) {
@@ -212,7 +224,6 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     const warmupDone = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(warmupDone.phase).toBe('complete');
     expect(warmupDone.stitchedCount).toBe(14);
-    expect(warmupDone.events.heartClearEvents).toBeGreaterThanOrEqual(1);
     expect(warmupDone.gallery.completedCuratedIds).toContain(0);
     await expect(page.locator('#overlay-complete')).toBeVisible();
     await expect(page.locator('#complete-title')).toHaveText('Sunbeam Brooch');
@@ -226,6 +237,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(lvl2State.levelIndex).toBe(1);
     expect(lvl2State.totalPearls).toBe(16);
     expect(lvl2State.tiles.every((t) => t.unblocked), 'Level 2 Warm-Up must also have 0 blockers').toBe(true);
+    expect(lvl2State.tiles.every((t) => t.special === 'none'), 'Level 2 Warm-Up must also have 0 specials').toBe(true);
 
     await page.locator('#btn-pattern').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
@@ -240,12 +252,12 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(framesAfterWait).toBe(framesAtOpen);
     await page.locator('#btn-close-gallery').click();
 
-    // 7. Verify ALL 4 Campaigns render distinctly with crisp anti-aliased pop + inspect an 8x8 (64-pearl!) Masterpiece!
+    // 7. Verify ALL 4 Campaigns render distinctly with crisp 3D Sculpted Heart Pearls on Level 3!
     const chapterSamples = [
-      { level: 2, expectedTheme: 0, file: 'theme-0-jewel.png', label: 'Jewel Atelier (Jewel Heart)' },
-      { level: 15, expectedTheme: 1, file: 'theme-1-neon.png', label: 'Cyber Arcade (Neon Pulse)' },
-      { level: 28, expectedTheme: 2, file: 'theme-2-popart.png', label: 'Pop Studio (Comic Star)' },
-      { level: 41, expectedTheme: 3, file: 'theme-3-prism.png', label: 'Cathedral Glass (Prism Lantern)' },
+      { level: 2, expectedTheme: 0, file: 'theme-0-jewel.png', label: 'Jewel Atelier (Jewel Heart — 3D Heart Pearls)' },
+      { level: 15, expectedTheme: 1, file: 'theme-1-neon.png', label: 'Cyber Arcade (Neon Pulse — 3D Heart Pearls)' },
+      { level: 28, expectedTheme: 2, file: 'theme-2-popart.png', label: 'Pop Studio (Comic Star — 3D Heart Pearls)' },
+      { level: 41, expectedTheme: 3, file: 'theme-3-prism.png', label: 'Cathedral Glass (Prism Lantern — 3D Heart Pearls)' },
     ];
     const themeCaptures: Buffer[] = [];
     await page.evaluate(async () => {
@@ -259,6 +271,8 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
       }, sample.level);
       const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
       expect(st.themeIndex, `${sample.label} native theme mismatch`).toBe(sample.expectedTheme);
+      expect(st.tiles.filter((t) => t.alive && t.special === 'heart').length, `${sample.label} must have 3D Heart Pearls`).toBeGreaterThanOrEqual(1);
+      expect(st.tiles.filter((t) => t.special === 'rainbow' || t.special === 'hidden' || t.special === 'locked').length).toBe(0);
       expect(st.renderer.validationErrors).toEqual([]);
       const buf = await page.screenshot({ path: path.join(RESULTS_DIR, sample.file) });
       expect(buf.byteLength).toBeGreaterThan(8_000);
@@ -321,20 +335,41 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(popMetrics.p95Sat, 'Pop Art colors too dull').toBeGreaterThan(0.65);
     expect(prismMetrics.p95Sat, 'Cathedral Glass colors too dull').toBeGreaterThan(0.55);
 
-    // 7b. Verify full 8x8 (64-pearl!) Grand Masterpiece renders cleanly with zero WebGPU errors!
+    // 7b. Verify full 8x8 Grand Masterpiece (Level 12) showcases ALL 4 Special Pearls: 3D Heart, Rainbow, Hidden ?, Locked!
     await page.evaluate(async () => {
-      window.__GAME_TEST__!.loadLevel(12); // Grand Jewel Rose (8x8, 64 pearls)
+      window.__GAME_TEST__!.loadLevel(12); // Grand Jewel Rose (8x8, 62 hoop + 2 Rainbow = 64 tiles!)
       await window.__GAME_TEST__!.stepTicks(4);
     });
     const finale8x8 = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(finale8x8.gridCols).toBe(8);
     expect(finale8x8.gridRows).toBe(8);
-    expect(finale8x8.totalPearls).toBe(64);
+    expect(finale8x8.totalPearls).toBe(62);
     expect(finale8x8.tiles.length).toBe(64);
+    expect(finale8x8.tiles.filter((t) => t.special === 'heart').length).toBeGreaterThanOrEqual(1);
+    expect(finale8x8.tiles.filter((t) => t.special === 'rainbow').length).toBeGreaterThanOrEqual(1);
+    expect(finale8x8.tiles.filter((t) => t.special === 'hidden' && t.hiddenConcealed).length).toBeGreaterThanOrEqual(1);
+    expect(finale8x8.tiles.filter((t) => t.special === 'locked' && t.lockedNow).length).toBeGreaterThanOrEqual(1);
     expect(finale8x8.renderer.validationErrors).toEqual([]);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'campaign-8x8-finale.png') });
 
-    // 8. Verify Causal Blocker Highlight, Periodic Wiggle, Hint (-250) & Undo (-150) on Level 2 (Jewel Heart, 5x5)
+    // Verify independent Rainbow wiggle & Locked Pearl guard directly on the 8x8 finale!
+    const rainWigIdx = await page.evaluate(() => window.__GAME_TEST__!.triggerRainbowWiggle());
+    expect(rainWigIdx).toBeGreaterThanOrEqual(0);
+    expect(finale8x8.tiles[rainWigIdx]?.special).toBe('rainbow');
+
+    const lockedTile = finale8x8.tiles.find((t) => t.alive && t.lockedNow);
+    expect(lockedTile, '8x8 finale must contain a locked pearl').toBeTruthy();
+    if (lockedTile) {
+      const beforeLockTap = finale8x8.events.lockedTapEvents;
+      const tappedOk = await page.evaluate((idx) => window.__GAME_TEST__!.tapTile(idx), lockedTile.index);
+      expect(tappedOk).toBe(false);
+      await page.evaluate(() => window.__GAME_TEST__!.stepTicks(2));
+      const afterLockTap = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      expect(afterLockTap.events.lockedTapEvents).toBeGreaterThan(beforeLockTap);
+      expect(afterLockTap.tiles[lockedTile.index].alive).toBe(true);
+    }
+
+    // 8. Verify Causal Blocker Highlight, Periodic Wiggle, Hint (-250) & Undo (-150) on Level 3 (Jewel Heart, 5x5)
     await page.evaluate(async () => {
       window.__GAME_TEST__!.setTimeOfDayOverride(10.5);
       window.__GAME_TEST__!.loadLevel(2);
@@ -394,7 +429,41 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     expect(afterUndo.undoUsed).toBe(1);
     expect(afterUndo.streak).toBe(0);
 
-    // 9. Verify Daily Stitch & Custom Pattern Code Input UI
+    // 9. Verify 4 Seeded Difficulty Tiers (Easy 5x5 -> Extreme 8x8) & Custom Seed UI!
+    const expectedDims = [
+      { tier: 0 as const, dim: 5 },
+      { tier: 1 as const, dim: 6 },
+      { tier: 2 as const, dim: 7 },
+      { tier: 3 as const, dim: 8 },
+    ];
+    for (const cfg of expectedDims) {
+      await page.evaluate(async ({ tier }) => {
+        window.__GAME_TEST__!.loadMandala(7772026, tier);
+        await window.__GAME_TEST__!.stepTicks(3);
+      }, cfg);
+      const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
+      expect(st.mode).toBe('mandala');
+      expect(st.seedDifficulty).toBe(cfg.tier);
+      expect(st.gridCols).toBe(cfg.dim);
+      expect(st.gridRows).toBe(cfg.dim);
+      if (cfg.tier === 0) {
+        expect(st.tiles.filter((t) => t.special === 'rainbow' || t.special === 'hidden' || t.special === 'locked').length).toBe(0);
+      } else if (cfg.tier === 1) {
+        expect(st.tiles.filter((t) => t.special === 'rainbow').length).toBeGreaterThanOrEqual(1);
+        expect(st.tiles.filter((t) => t.special === 'hidden' || t.special === 'locked').length).toBe(0);
+      } else if (cfg.tier === 2) {
+        expect(st.tiles.filter((t) => t.special === 'hidden').length).toBeGreaterThanOrEqual(1);
+        expect(st.tiles.filter((t) => t.special === 'locked').length).toBe(0);
+      } else if (cfg.tier === 3) {
+        expect(st.tiles.filter((t) => t.special === 'heart').length).toBeGreaterThanOrEqual(1);
+        expect(st.tiles.filter((t) => t.special === 'rainbow').length).toBeGreaterThanOrEqual(1);
+        expect(st.tiles.filter((t) => t.special === 'hidden').length).toBeGreaterThanOrEqual(1);
+        expect(st.tiles.filter((t) => t.special === 'locked').length).toBeGreaterThanOrEqual(1);
+        await page.screenshot({ path: path.join(RESULTS_DIR, 'seeded-extreme-8x8.png') });
+      }
+    }
+
+    // Select Medium (6x6) via the UI radio pill + play custom seed 20261125 and verify parity with Daily Stitch!
     await page.evaluate(async () => {
       window.__GAME_TEST__!.loadDaily(20261125);
       await window.__GAME_TEST__!.stepTicks(3);
@@ -405,6 +474,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
 
     await page.locator('#btn-pattern').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
+    await page.locator('#seed-diff-picker .seed-diff-pill[data-seed-difficulty="1"]').click();
     await page.locator('#input-custom-seed').fill('20261125');
     await page.locator('#btn-play-seed').click();
     await expect(page.locator('#overlay-gallery')).toBeHidden();
@@ -412,11 +482,12 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     const customSeedSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(customSeedSt.mode).toBe('mandala');
     expect(customSeedSt.seed).toBe(20261125);
-    expect(customSeedSt.levelName).toBe('Pattern #20261125');
+    expect(customSeedSt.seedDifficulty).toBe(1);
+    expect(customSeedSt.levelName).toBe('Medium #20261125');
     expect(customSeedSt.themeIndex).toBe(dailySt.themeIndex);
     expect(customSeedSt.totalPearls).toBe(dailySt.totalPearls);
 
-    // 10. Reload page and verify Campaign progress & Level 2 unlock survive browser reload!
+    // 10. Reload page and verify Campaign progress, Level 2 unlock & persisted Seed Difficulty survive reload!
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
     await page.evaluate(async () => {
@@ -425,6 +496,7 @@ test.describe('Pearl Loom v2.8 — iPhone 16 WebGPU Campaign Testrun E2E Playtes
     const reloaded = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(reloaded.screen).toBe('menu');
     expect(reloaded.gallery.completedCuratedIds).toContain(0);
+    expect(reloaded.gallery.seedDifficulty).toBe(1);
     await expect(page.locator('#menu-journey-main')).toHaveText('Play Dewdrop Ring');
 
     expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
