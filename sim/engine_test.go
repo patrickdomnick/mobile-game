@@ -135,10 +135,10 @@ func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing
 		t.Fatalf("expected IsAnimating() == false once start spotlight finishes (for 0-FPS battery idle)")
 	}
 
-	// Periodic random active-color wiggle picks ONLY an alive active-color pearl immediately and settles cleanly!
+	// Periodic random wiggle picks ONLY an alive active-color pearl OR an alive Heart Pearl and settles cleanly!
 	for k := 0; k < 8; k++ {
 		idx := e.TriggerRandomActiveWiggle()
-		if idx < 0 || !e.Tiles[idx].Alive || !e.isActiveColor(e.Tiles[idx].Color) {
+		if idx < 0 || !e.Tiles[idx].Alive || (!e.isActiveColor(e.Tiles[idx].Color) && !e.Tiles[idx].IsHeart) {
 			t.Fatalf("TriggerRandomActiveWiggle picked invalid tile %d", idx)
 		}
 		if e.Tiles[idx].JiggleT < 0.99 || !e.IsAnimating() {
@@ -383,3 +383,99 @@ func TestSolar24hContinuity(t *testing.T) {
 		prev = cur
 	}
 }
+
+func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
+	var e Engine
+
+	// 1. All 32 curated levels spawn 1..3 Heart Pearls (strictly <= MaxHeartsPerLevel)
+	for lvl := 0; lvl < len(CuratedArtworks); lvl++ {
+		e.LoadCuratedLevel(lvl)
+		hearts := 0
+		for i := 0; i < e.TileCount; i++ {
+			if e.Tiles[i].IsHeart {
+				hearts++
+			}
+		}
+		if hearts < 1 || hearts > MaxHeartsPerLevel {
+			t.Fatalf("level %d spawned %d Heart Pearls, expected 1..%d", lvl, hearts, MaxHeartsPerLevel)
+		}
+	}
+
+	// 2. Load a custom JSON-staged zero-blocker level (NoBlockers=true, MaxHearts=2) via CustomLevelBuf
+	art := CuratedArtworks[0]
+	e.CustomLevelBuf[0] = 99
+	e.CustomLevelBuf[1] = 1
+	e.CustomLevelBuf[2] = 1
+	e.CustomLevelBuf[3] = 5
+	e.CustomLevelBuf[4] = 5
+	e.CustomLevelBuf[5] = 1
+	e.CustomLevelBuf[6] = 777
+	e.CustomLevelBuf[7] = 0
+	e.CustomLevelBuf[8] = 1 // bit 0 = NoBlockers
+	e.CustomLevelBuf[9] = 2 // 2 hearts
+	count := 16             // 16 perimeter tiles on 5x5 -> 100% zero blockers!
+	for i := 0; i < count; i++ {
+		sp := art.Stitches[i]
+		off := 10 + i*4
+		e.CustomLevelBuf[off+0] = sp.X
+		e.CustomLevelBuf[off+1] = sp.Z
+		e.CustomLevelBuf[off+2] = float32(sp.Color)
+		e.CustomLevelBuf[off+3] = float32(sp.Layer)
+	}
+	if !e.LoadCustomLevel(count) {
+		t.Fatalf("LoadCustomLevel failed")
+	}
+	if e.LevelIndex != 99 || e.ThemeIndex != 1 || e.TileCount != count {
+		t.Fatalf("unexpected custom level state: lvl=%d theme=%d tiles=%d", e.LevelIndex, e.ThemeIndex, e.TileCount)
+	}
+	for i := 0; i < e.TileCount; i++ {
+		if !isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
+			t.Fatalf("NoBlockers custom level tile %d (%d,%d dir=%d) should be unblocked on tap 1", i, e.Tiles[i].Col, e.Tiles[i].Row, e.Tiles[i].Dir)
+		}
+	}
+
+	// 3. Placing a Heart Pearl early yields strictly MORE bonus points than placing it late!
+	var heartIndices []int
+	for i := 0; i < e.TileCount; i++ {
+		if e.Tiles[i].IsHeart {
+			heartIndices = append(heartIndices, i)
+		}
+	}
+	if len(heartIndices) != 2 {
+		t.Fatalf("expected 2 Heart Pearls, got %d", len(heartIndices))
+	}
+	// Tap an active-color Heart Pearl first (early)
+	earlyIdx := -1
+	for _, hi := range heartIndices {
+		if e.isActiveColor(e.Tiles[hi].Color) {
+			earlyIdx = hi
+			break
+		}
+	}
+	if earlyIdx < 0 {
+		t.Fatalf("expected at least 1 Heart Pearl on an active start color")
+	}
+	if !e.TapTile(earlyIdx) {
+		t.Fatalf("expected early active Heart Pearl tap to succeed")
+	}
+	earlyBonus := e.LastHeartBonus
+	if e.HeartClearEvents != 1 || earlyBonus < 500 {
+		t.Fatalf("expected early Heart bonus >= 500 & HeartClearEvents==1, got bonus=%d ev=%d", earlyBonus, e.HeartClearEvents)
+	}
+
+	// Solve the rest of the level and confirm the second (later) Heart Pearl yields strictly fewer bonus points
+	for step := 0; step < 30 && e.Phase != PhaseComplete; step++ {
+		h := e.ComputeHint()
+		if h < 0 {
+			break
+		}
+		e.TapTile(h)
+	}
+	if e.HeartClearEvents != 2 {
+		t.Fatalf("expected both Heart Pearls cleared, got HeartClearEvents=%d", e.HeartClearEvents)
+	}
+	if e.LastHeartBonus >= earlyBonus {
+		t.Fatalf("expected later Heart bonus (%d) < early Heart bonus (%d)", e.LastHeartBonus, earlyBonus)
+	}
+}
+

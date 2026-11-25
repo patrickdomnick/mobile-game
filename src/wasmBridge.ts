@@ -207,6 +207,7 @@ export interface TileSnapshot {
   color: number;
   dir: number;
   alive: boolean;
+  isHeart: boolean;
   unblocked: boolean;
   worldX: number;
   worldZ: number;
@@ -223,6 +224,7 @@ export interface AudioEventCounters {
   hintEvents: number;
   colorClearEvents: number;
   layerClearEvents: number;
+  heartClearEvents: number;
   completeEvents: number;
 }
 
@@ -251,6 +253,7 @@ export interface SimSnapshot {
   layersComplete: number;
   totalLayers: number;
   lastScoreDelta: number;
+  lastHeartBonus: number;
   lastPenaltyDelta: number;
   lastBlockerIdx: number;
   lastEventWorldX: number;
@@ -274,6 +277,20 @@ export interface SimSnapshot {
   events: AudioEventCounters;
 }
 
+export interface CustomLevelPayload {
+  id: number;
+  chapter: number;
+  theme: number;
+  name: string;
+  cols: number;
+  rows: number;
+  difficulty: number;
+  seed: number;
+  noBlockers?: boolean;
+  maxHearts?: number;
+  stitches?: readonly (readonly [number, number, number, number])[];
+}
+
 interface SimExports {
   memory: WebAssembly.Memory;
   _initialize?: () => void;
@@ -295,6 +312,9 @@ interface SimExports {
   sim_state_len: () => number;
   sim_tiles_ptr: () => number;
   sim_tiles_len: () => number;
+  sim_custom_level_ptr?: () => number;
+  sim_custom_level_len?: () => number;
+  sim_load_custom_level?: (stitchCount: number) => number;
 }
 
 const MODE_MAP: GameMode[] = ['curated', 'mandala', 'daily'];
@@ -308,6 +328,9 @@ export class WasmSimulation {
   private readonly stateLen: number;
   private readonly tilesPtr: number;
   private readonly tilesLen: number;
+  private readonly customLevelPtr: number;
+  private readonly customLevelLen: number;
+  private activeCustomName: string | null = null;
 
   private constructor(exports: SimExports) {
     this.exports = exports;
@@ -319,6 +342,8 @@ export class WasmSimulation {
     this.stateLen = this.exports.sim_state_len();
     this.tilesPtr = this.exports.sim_tiles_ptr();
     this.tilesLen = this.exports.sim_tiles_len();
+    this.customLevelPtr = this.exports.sim_custom_level_ptr?.() ?? 0;
+    this.customLevelLen = this.exports.sim_custom_level_len?.() ?? 0;
   }
 
   static async load(url = './game.wasm'): Promise<WasmSimulation> {
@@ -393,14 +418,59 @@ export class WasmSimulation {
   }
 
   loadLevel(index: number): void {
+    this.activeCustomName = null;
     this.exports.sim_load_level(Math.max(0, Math.floor(index)));
   }
 
+  /** Loads a remote/cached JSON level directly into WASM memory via zero-alloc flat staging buffer. */
+  loadCustomLevel(def: CustomLevelPayload): boolean {
+    const stitches = def.stitches;
+    if (
+      !stitches ||
+      stitches.length === 0 ||
+      !this.exports.sim_load_custom_level ||
+      this.customLevelPtr === 0 ||
+      10 + stitches.length * 4 > this.customLevelLen
+    ) {
+      this.activeCustomName = def.name || null;
+      this.exports.sim_load_level(Math.max(0, Math.floor(def.id)));
+      return false;
+    }
+
+    const buf = new Float32Array(this.exports.memory.buffer, this.customLevelPtr, this.customLevelLen);
+    const seed = (def.seed >>> 0) || (def.id + 1) * 1009;
+    buf[0] = def.id;
+    buf[1] = def.chapter;
+    buf[2] = def.theme;
+    buf[3] = def.cols;
+    buf[4] = def.rows;
+    buf[5] = def.difficulty;
+    buf[6] = seed & 0xffff;
+    buf[7] = (seed >>> 16) & 0xffff;
+    buf[8] = def.noBlockers ? 1 : 0;
+    buf[9] = def.maxHearts ?? 0;
+
+    for (let i = 0; i < stitches.length; i++) {
+      const off = 10 + i * 4;
+      const st = stitches[i];
+      buf[off + 0] = st[0];
+      buf[off + 1] = st[1];
+      buf[off + 2] = st[2];
+      buf[off + 3] = st[3];
+    }
+
+    const ok = this.exports.sim_load_custom_level(stitches.length) !== 0;
+    this.activeCustomName = ok ? def.name : null;
+    return ok;
+  }
+
   loadMandala(seed: number): void {
+    this.activeCustomName = null;
     this.exports.sim_load_mandala(Math.max(1, Math.floor(seed)) >>> 0);
   }
 
   loadDaily(dateKey: number): void {
+    this.activeCustomName = null;
     this.exports.sim_load_daily(Math.max(1, Math.floor(dateKey)) >>> 0);
   }
 
@@ -500,6 +570,7 @@ export class WasmSimulation {
       const off = i * 8;
       const wx = tBuf[off + 6];
       const wz = tBuf[off + 7];
+      const aliveVal = tBuf[off + 4];
       const proj = projectWorldToScreen(wx, 0.14, wz, aspect);
       tiles.push({
         index: i,
@@ -507,7 +578,8 @@ export class WasmSimulation {
         row: Math.round(tBuf[off + 1]),
         color: Math.round(tBuf[off + 2]),
         dir: Math.round(tBuf[off + 3]),
-        alive: tBuf[off + 4] > 0.5,
+        alive: aliveVal > 0.5,
+        isHeart: aliveVal > 1.5,
         unblocked: tBuf[off + 5] > 0.5,
         worldX: wx,
         worldZ: wz,
@@ -519,10 +591,10 @@ export class WasmSimulation {
     const mode = MODE_MAP[modeIdx] ?? 'curated';
     const levelName =
       mode === 'curated'
-        ? (CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
+        ? (this.activeCustomName ?? CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
         : mode === 'daily'
           ? `Daily #${seed || levelIndex}`
-          : `Seed #${seed || levelIndex}`;
+          : `Pattern #${seed || levelIndex}`;
 
     const hintTileIndex = Math.round(s[21]);
 
@@ -551,6 +623,7 @@ export class WasmSimulation {
       layersComplete: Math.round(s[40]),
       totalLayers: Math.round(s[41]),
       lastScoreDelta: Math.round(s[44]),
+      lastHeartBonus: s.length > 55 ? Math.round(s[55]) : 0,
       lastPenaltyDelta: s.length > 50 ? Math.round(s[50]) : 0,
       lastBlockerIdx: Math.round(s[45]),
       lastEventWorldX: s[46],
@@ -580,6 +653,7 @@ export class WasmSimulation {
         hintEvents: s.length > 49 ? Math.round(s[49]) : 0,
         colorClearEvents: Math.round(s[42]),
         layerClearEvents: Math.round(s[43]),
+        heartClearEvents: s.length > 54 ? Math.round(s[54]) : 0,
         completeEvents: Math.round(s[30]),
       },
     };

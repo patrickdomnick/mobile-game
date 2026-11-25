@@ -23,11 +23,13 @@ const (
 	SceneFlyingOffset  = SceneTrayOffset + TrayCapacity*8
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
-	// Telemetry / state buffer layout for JS & E2E bridge (54 floats incl. exact 32-bit seed halves)
-	StateFloats = 54
+	// Telemetry / state buffer layout for JS & E2E bridge (56 floats incl. seed halves + Heart events)
+	StateFloats          = 56
+	MaxHeartsPerLevel    = 3
+	CustomLevelBufFloats = 10 + MaxHoopPearls*4
 
 	// Per-tile telemetry layout (49 * 8 = 392 floats):
-	// [col, row, color, dir, alive, unblocked, worldX, worldZ]
+	// [col, row, color, dir, alive(1=normal,2=heart), unblocked, worldX, worldZ]
 	TileTelemetryStride = 8
 	TileTelemetryFloats = MaxGridTiles * TileTelemetryStride
 
@@ -98,6 +100,7 @@ type undoSnapshot struct {
 	aliveMask   uint64
 	claimedMask uint64
 	tray        [TrayCapacity]uint8
+	trayHeart   [TrayCapacity]bool
 	trayLen     int
 	remain      [NumColors]int
 	active      [ActiveSlots]int
@@ -110,7 +113,7 @@ type undoSnapshot struct {
 	phase       int
 }
 
-// Engine holds all deterministic Pearl Loom v2.3 state, Balatro/VS scoring, layers,
+// Engine holds all deterministic Pearl Loom state, scoring, Heart Pearls,
 // 4 vivid visual themes, 24h solar clock, blocker causal feedback, and flat GPU buffers.
 type Engine struct {
 	FrameCount     uint32
@@ -118,11 +121,13 @@ type Engine struct {
 	TimeOfDayHours float32
 	ThemeIndex     int
 
-	LevelIndex   int
-	ChapterIndex int
-	Mode         int // 0=curated, 1=mandala, 2=daily
-	Phase        int
-	LastSeed     uint32
+	LevelIndex     int
+	ChapterIndex   int
+	Mode           int // 0=curated, 1=mandala, 2=daily
+	Phase          int
+	LastSeed       uint32
+	hasCustomLevel bool
+	lastCustomArt  ArtworkDef
 
 	// Meaningful Balatro-style mastery & scoring state
 	Score            uint32
@@ -137,6 +142,7 @@ type Engine struct {
 
 	// Last scoring callout payload for JS floating popups
 	LastScoreDelta  uint32
+	LastHeartBonus  uint32
 	LastEventWorldX float32
 	LastEventWorldZ float32
 
@@ -165,14 +171,15 @@ type Engine struct {
 	HoopPearls [MaxHoopPearls]HoopPearl
 	HoopCount  int
 	Tray       [TrayCapacity]uint8
+	TrayHeart  [TrayCapacity]bool
 	TrayLen    int
 	TrayPulse  [TrayCapacity]float32
 	Flying     [MaxFlying]FlyingPearl
 
-	ColorQueue [NumColors]uint8
-	QueueLen   int
-	QueuePos   int
-	Remain     [NumColors]int
+	ColorQueue    [NumColors]uint8
+	QueueLen      int
+	QueuePos      int
+	Remain        [NumColors]int
 	Active        [ActiveSlots]int
 	ColorGlowT    [NumColors]float32
 	wiggleRng     prng
@@ -192,16 +199,18 @@ type Engine struct {
 	ColorClearEvents uint32
 	LastColorCleared uint32
 	LayerClearEvents uint32
+	HeartClearEvents uint32
 	CompleteEvents   uint32
 
 	undoStack []undoSnapshot
 
-	Scene         [SceneFloats]float32
-	State         [StateFloats]float32
-	TileTelemetry [TileTelemetryFloats]float32
+	Scene          [SceneFloats]float32
+	State          [StateFloats]float32
+	TileTelemetry  [TileTelemetryFloats]float32
+	CustomLevelBuf [CustomLevelBufFloats]float32
 }
 
-// Reset reloads the current level/mode cleanly (replaying the same Daily/Mandala seed if active).
+// Reset reloads the current level/mode cleanly (replaying the same Daily/Mandala/Custom JSON level if active).
 func (e *Engine) Reset() {
 	if e.TimeOfDayHours <= 0 {
 		e.TimeOfDayHours = 12.5
@@ -212,6 +221,10 @@ func (e *Engine) Reset() {
 	}
 	if e.Mode == 2 && e.LastSeed > 0 {
 		e.LoadDaily(e.LastSeed)
+		return
+	}
+	if e.Mode == 0 && e.hasCustomLevel {
+		e.loadArtwork(e.lastCustomArt)
 		return
 	}
 	if e.LevelIndex < 0 || e.LevelIndex >= len(CuratedArtworks) {
@@ -229,7 +242,7 @@ func (e *Engine) SetTheme(idx int) {
 	e.syncBuffers()
 }
 
-// LoadCuratedLevel initializes one of the 32 handcrafted theme-matched patterns across 4 Chapters.
+// LoadCuratedLevel initializes one of the built-in curated patterns across 4 Chapters.
 func (e *Engine) LoadCuratedLevel(idx int) {
 	if len(CuratedArtworks) == 0 {
 		return
@@ -241,7 +254,85 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 	e.LevelIndex = idx
 	e.Mode = 0
 	e.LastSeed = 0
+	e.hasCustomLevel = false
 	e.loadArtwork(CuratedArtworks[idx])
+}
+
+// LoadCustomLevel loads a curated level parsed from remote/cached levels.json via CustomLevelBuf.
+// Staging layout: [id, chapter, theme, cols, rows, difficulty, seedLo, seedHi, flags(bit0=noBlockers), maxHearts, ...stitches(x,z,color,layer)].
+func (e *Engine) LoadCustomLevel(stitchCount int) bool {
+	if stitchCount < 1 || stitchCount > MaxHoopPearls {
+		return false
+	}
+	id := int(e.CustomLevelBuf[0])
+	chapter := int(e.CustomLevelBuf[1])
+	theme := int(e.CustomLevelBuf[2])
+	cols := int(e.CustomLevelBuf[3])
+	rows := int(e.CustomLevelBuf[4])
+	difficulty := int(e.CustomLevelBuf[5])
+	seedLo := uint32(e.CustomLevelBuf[6]) & 0xFFFF
+	seedHi := uint32(e.CustomLevelBuf[7]) & 0xFFFF
+	flags := uint32(e.CustomLevelBuf[8])
+	maxHearts := int(e.CustomLevelBuf[9])
+
+	if cols < 2 || rows < 2 || cols*rows < stitchCount || cols*rows > MaxGridTiles {
+		return false
+	}
+	if chapter < 0 {
+		chapter = 0
+	}
+	if theme < 0 {
+		theme = 0
+	}
+	if difficulty < 1 {
+		difficulty = 1
+	}
+	seed := seedLo | (seedHi << 16)
+	if seed == 0 {
+		seed = uint32(id+1) * 1009
+	}
+
+	stitches := make([]StitchPoint, stitchCount)
+	for i := 0; i < stitchCount; i++ {
+		off := 10 + i*4
+		col := int(e.CustomLevelBuf[off+2])
+		if col < 0 || col >= NumColors {
+			col = 0
+		}
+		layer := int(e.CustomLevelBuf[off+3])
+		if layer < 0 {
+			layer = 0
+		}
+		if layer >= MaxLayers {
+			layer = MaxLayers - 1
+		}
+		stitches[i] = StitchPoint{
+			X:     e.CustomLevelBuf[off+0],
+			Z:     e.CustomLevelBuf[off+1],
+			Color: uint8(col),
+			Layer: uint8(layer),
+		}
+	}
+
+	art := ArtworkDef{
+		ID:         id,
+		Chapter:    chapter,
+		Theme:      theme % NumThemes,
+		Cols:       cols,
+		Rows:       rows,
+		Difficulty: difficulty,
+		Seed:       seed,
+		NoBlockers: (flags & 1) != 0,
+		MaxHearts:  maxHearts,
+		Stitches:   stitches,
+	}
+	e.LevelIndex = id
+	e.Mode = 0
+	e.LastSeed = seed
+	e.hasCustomLevel = true
+	e.lastCustomArt = art
+	e.loadArtwork(art)
+	return true
 }
 
 // LoadMandala procedurally generates and loads a verified 3-star puzzle purely from any uint32 seed.
@@ -252,6 +343,7 @@ func (e *Engine) LoadMandala(seed uint32) {
 	e.LevelIndex = int(seed & 0x7FFF)
 	e.Mode = 1
 	e.LastSeed = seed
+	e.hasCustomLevel = false
 	theme := ThemeForMandala(seed)
 	e.loadArtwork(GenerateMandalaArtwork(seed, theme))
 }
@@ -264,6 +356,7 @@ func (e *Engine) LoadDaily(dateKey uint32) {
 	e.LevelIndex = int(dateKey % 100000)
 	e.Mode = 2
 	e.LastSeed = dateKey
+	e.hasCustomLevel = false
 	theme := ThemeForDaily(dateKey)
 	e.loadArtwork(GenerateMandalaArtwork(dateKey, theme))
 }
@@ -281,6 +374,7 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	e.HintsUsed = 0
 	e.Stars = 0
 	e.LastScoreDelta = 0
+	e.LastHeartBonus = 0
 	e.LastPenaltyDelta = 0
 	e.ShakeAmt = 0
 	e.ColorBurstPulse = 0
@@ -303,6 +397,7 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 	}
 	for i := range e.TrayPulse {
 		e.TrayPulse[i] = 0
+		e.TrayHeart[i] = false
 	}
 
 	maxDim := art.Cols
@@ -370,7 +465,88 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 		e.Active[i] = -1
 	}
 	e.refillActiveColorsWithDelay(0.70)
+	e.spawnHearts(art)
 	e.syncBuffers()
+}
+
+// spawnHearts deterministically places up to MaxHeartsPerLevel (3) bonus Heart Pearls on the board.
+// Heart Pearls reward faster early placement with higher bonus points and wiggle periodically to catch the eye!
+func (e *Engine) spawnHearts(art ArtworkDef) {
+	if e.TileCount <= 0 {
+		return
+	}
+	for i := 0; i < e.TileCount; i++ {
+		e.Tiles[i].IsHeart = false
+	}
+	rng := newPRNG(art.Seed ^ 0x48454152)
+	target := art.MaxHearts
+	if target <= 0 {
+		// Deterministic 1..3 Heart Pearls (capped strictly at 3!)
+		if e.TileCount >= 30 {
+			target = 2 + rng.intn(2) // 2 or 3
+		} else {
+			target = 1 + rng.intn(2) // 1 or 2
+		}
+	}
+	if target > MaxHeartsPerLevel {
+		target = MaxHeartsPerLevel
+	}
+	if target > e.TileCount {
+		target = e.TileCount
+	}
+
+	// Build shuffled candidate order, placing at least 1 Heart on a starting active color when available
+	var order [MaxGridTiles]int
+	for i := 0; i < e.TileCount; i++ {
+		order[i] = i
+	}
+	for i := e.TileCount - 1; i > 0; i-- {
+		j := rng.intn(i + 1)
+		order[i], order[j] = order[j], order[i]
+	}
+
+	placed := 0
+	// First pass: prefer 1 Heart on an initially active color so players immediately experience the early-placement rush
+	for k := 0; k < e.TileCount && placed == 0 && placed < target; k++ {
+		idx := order[k]
+		if e.Tiles[idx].Alive && e.isActiveColor(e.Tiles[idx].Color) {
+			e.Tiles[idx].IsHeart = true
+			placed++
+		}
+	}
+	// Remaining hearts: spread across distinct rows/colors across the board
+	for k := 0; k < e.TileCount && placed < target; k++ {
+		idx := order[k]
+		if !e.Tiles[idx].Alive || e.Tiles[idx].IsHeart {
+			continue
+		}
+		e.Tiles[idx].IsHeart = true
+		placed++
+	}
+}
+
+// awardHeartBonus grants early-placement bonus points (+600 early down to +150 late) and triggers the Heart Chime!
+func (e *Engine) awardHeartBonus(wx, wz float32) {
+	remTotal := 0
+	for c := 0; c < NumColors; c++ {
+		remTotal += e.Remain[c]
+	}
+	denom := e.HoopCount
+	if denom < 1 {
+		denom = 1
+	}
+	ratio := float32(remTotal+1) / float32(denom)
+	if ratio > 1.0 {
+		ratio = 1.0
+	}
+	bonus := uint32(150) + uint32(math.Round(float64(ratio)*450.0))
+	e.Score += bonus
+	e.LastScoreDelta += bonus
+	e.LastHeartBonus = bonus
+	e.HeartClearEvents++
+	e.LastEventWorldX = wx
+	e.LastEventWorldZ = wz
+	e.addShake(0.34)
 }
 
 // SetTimeOfDayHours updates the continuous 24-hour real-world solar clock [0, 24).
@@ -440,30 +616,48 @@ func (e *Engine) triggerColorJiggle(color uint8, delay float32) {
 	}
 }
 
-// TriggerRandomActiveWiggle picks 1 random alive pearl matching ANY currently active stitch color
-// (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a gentle wiggle.
+// TriggerRandomActiveWiggle picks 1 random alive pearl matching ANY currently active stitch color OR an alive
+// Heart Pearl (completely ignoring blocked/unblocked for 100% zero-spoiler fairness!) and gives it a gentle wiggle.
 func (e *Engine) TriggerRandomActiveWiggle() int {
 	if e.Phase != PhasePlaying {
 		return -1
 	}
-	var cands [MaxGridTiles]int
-	n := 0
+	var activeCands [MaxGridTiles]int
+	nActive := 0
+	var heartCands [MaxGridTiles]int
+	nHeart := 0
 	for i := 0; i < e.TileCount; i++ {
-		if e.Tiles[i].Alive && e.isActiveColor(e.Tiles[i].Color) {
-			cands[n] = i
-			n++
+		if !e.Tiles[i].Alive {
+			continue
+		}
+		if e.isActiveColor(e.Tiles[i].Color) {
+			activeCands[nActive] = i
+			nActive++
+		}
+		if e.Tiles[i].IsHeart {
+			heartCands[nHeart] = i
+			nHeart++
 		}
 	}
+
+	useHeart := nHeart > 0 && (nActive == 0 || e.wiggleRng.intn(100) < 42)
+	var pool []int
+	if useHeart {
+		pool = heartCands[:nHeart]
+	} else {
+		pool = activeCands[:nActive]
+	}
+	n := len(pool)
 	if n == 0 {
 		return -1
 	}
-	pick := cands[e.wiggleRng.intn(n)]
+	pick := pool[e.wiggleRng.intn(n)]
 	if n > 1 && pick == e.lastWiggleIdx {
-		pick = cands[(e.wiggleRng.intn(n-1)+1)%n]
+		pick = pool[(e.wiggleRng.intn(n-1)+1)%n]
 		if pick == e.lastWiggleIdx {
 			for k := 0; k < n; k++ {
-				if cands[k] != e.lastWiggleIdx {
-					pick = cands[k]
+				if pool[k] != e.lastWiggleIdx {
+					pick = pool[k]
 					break
 				}
 			}
@@ -657,6 +851,7 @@ func (e *Engine) captureUndoSnapshot() undoSnapshot {
 		aliveMask:   aliveMask,
 		claimedMask: claimedMask,
 		tray:        e.Tray,
+		trayHeart:   e.TrayHeart,
 		trayLen:     e.TrayLen,
 		remain:      e.Remain,
 		active:      e.Active,
@@ -677,6 +872,7 @@ func (e *Engine) drainTrayToHoop() {
 		writeIdx := 0
 		for i := 0; i < e.TrayLen; i++ {
 			c := e.Tray[i]
+			isH := e.TrayHeart[i]
 			if e.isActiveColor(c) {
 				hoopIdx := e.claimHoopSlot(c)
 				if hoopIdx >= 0 {
@@ -699,6 +895,9 @@ func (e *Engine) drainTrayToHoop() {
 					e.CascadeEvents++
 					e.LastStitchCol = uint32(c)
 					e.addShake(0.28 + float32(e.currentMultiplier())*0.03)
+					if isH {
+						e.awardHeartBonus(hp.WorldX, hp.WorldZ)
+					}
 					if e.Remain[c] == 0 {
 						e.triggerColorCleared(c)
 					}
@@ -708,7 +907,11 @@ func (e *Engine) drainTrayToHoop() {
 				}
 			}
 			e.Tray[writeIdx] = c
+			e.TrayHeart[writeIdx] = isH
 			writeIdx++
+		}
+		for k := writeIdx; k < TrayCapacity; k++ {
+			e.TrayHeart[k] = false
 		}
 		e.TrayLen = writeIdx
 		if progressed {
@@ -858,6 +1061,7 @@ func (e *Engine) TapTile(idx int) bool {
 		sx -= 0.14
 	}
 
+	isHeart := e.Tiles[idx].IsHeart
 	e.Tiles[idx].Alive = false
 	e.Tiles[idx].WobbleT = 0
 	e.Tiles[idx].JiggleT = 0
@@ -885,6 +1089,9 @@ func (e *Engine) TapTile(idx int) bool {
 			e.LastStitchCol = uint32(color)
 			e.addShake(0.16 + float32(e.currentMultiplier())*0.025)
 
+			if isHeart {
+				e.awardHeartBonus(hp.WorldX, hp.WorldZ)
+			}
 			if e.Remain[color] == 0 {
 				e.triggerColorCleared(color)
 			}
@@ -895,6 +1102,7 @@ func (e *Engine) TapTile(idx int) bool {
 	} else {
 		slot := e.TrayLen
 		e.Tray[slot] = color
+		e.TrayHeart[slot] = isHeart
 		e.TrayLen++
 		e.TrayUses++
 		e.Streak = 0 // Using tray resets the Clean Direct-Stitch Streak!
@@ -912,7 +1120,7 @@ func (e *Engine) TapTile(idx int) bool {
 	return true
 }
 
-// Undo cleanly reverts the previous move (limitless, deducts 150 Luster Score and resets active streak).
+// Undo cleanly reverts the previous move (limitless, deducts 150 Score and resets active streak).
 func (e *Engine) Undo() bool {
 	if len(e.undoStack) == 0 {
 		return false
@@ -942,6 +1150,7 @@ func (e *Engine) Undo() bool {
 	}
 
 	e.Tray = snap.tray
+	e.TrayHeart = snap.trayHeart
 	e.TrayLen = snap.trayLen
 	e.Remain = snap.remain
 	e.Active = snap.active
@@ -1411,8 +1620,8 @@ func (e *Engine) syncBuffers() {
 		}
 
 		// IMPORTANT: Zero-spoiler flags!
-		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash.
-		// Temporary interior pearl glow (~2.2s on start & new color unlock) is passed via props.w!
+		// Bit 1 = alive, Bit 4 = hinted, Bit 8 = blocker flash, Bit 32 = Bonus Heart Pearl.
+		// Temporary interior pearl glow (~3.5s on start & new color unlock) is passed via props.w!
 		flags := uint32(0)
 		if t.Alive {
 			flags |= 1
@@ -1422,6 +1631,9 @@ func (e *Engine) syncBuffers() {
 		}
 		if e.BlockerFlashT > 0.01 && (i == e.LastBlockerIdx || i == e.LastTappedBlockedIdx) {
 			flags |= 8
+		}
+		if t.IsHeart {
+			flags |= 32
 		}
 
 		e.Scene[sBase+0] = wx + ox
@@ -1438,7 +1650,11 @@ func (e *Engine) syncBuffers() {
 		e.TileTelemetry[tBase+2] = float32(t.Color)
 		e.TileTelemetry[tBase+3] = float32(t.Dir)
 		if t.Alive {
-			e.TileTelemetry[tBase+4] = 1
+			if t.IsHeart {
+				e.TileTelemetry[tBase+4] = 2
+			} else {
+				e.TileTelemetry[tBase+4] = 1
+			}
 		} else {
 			e.TileTelemetry[tBase+4] = 0
 		}
@@ -1607,4 +1823,6 @@ func (e *Engine) syncBuffers() {
 	e.State[51] = float32(e.ChapterIndex)
 	e.State[52] = float32(e.LastSeed & 0xFFFF)
 	e.State[53] = float32(e.LastSeed >> 16)
+	e.State[54] = float32(e.HeartClearEvents)
+	e.State[55] = float32(e.LastHeartBonus)
 }

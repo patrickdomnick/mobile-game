@@ -114,8 +114,14 @@ export class EmbroideryGalleryStore {
     this.save();
   }
 
-  /** Returns the next uncompleted curated pattern across Chapters I-V (or 0 if all 40 mastered). */
-  getNextJourneyLevel(): number {
+  /** Returns the next uncompleted curated pattern across the loaded catalog (or first level if all mastered). */
+  getNextJourneyLevel(levelIds?: readonly number[]): number {
+    if (levelIds && levelIds.length > 0) {
+      for (const id of levelIds) {
+        if (!this.data.completedCurated[id]) return id;
+      }
+      return levelIds[0];
+    }
     for (let i = 0; i < CURATED_LEVELS.length; i++) {
       if (!this.data.completedCurated[i]) {
         return i;
@@ -124,8 +130,15 @@ export class EmbroideryGalleryStore {
     return 0;
   }
 
-  /** Returns how many of the 8 patterns in chapterIdx have been completed. */
-  getChapterCompletion(chapterIdx: number): { done: number; total: number } {
+  /** Returns how many patterns in chapterIdx (or given levelIds) have been completed. */
+  getChapterCompletion(chapterIdx: number, chapterLevelIds?: readonly number[]): { done: number; total: number } {
+    if (chapterLevelIds) {
+      let done = 0;
+      for (const id of chapterLevelIds) {
+        if (this.data.completedCurated[id]) done++;
+      }
+      return { done, total: chapterLevelIds.length };
+    }
     const ch = CHAPTERS[chapterIdx] ?? CHAPTERS[0];
     let done = 0;
     for (let i = ch.startIndex; i < ch.startIndex + ch.count; i++) {

@@ -1,8 +1,9 @@
-const CACHE_NAME = 'pearl-loom-v10';
+const CACHE_NAME = 'pearl-loom-v11';
 const PRECACHE_URLS = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './levels.json',
   './icon.svg',
   './apple-touch-icon.png',
   './icon-512.png',

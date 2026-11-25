@@ -515,6 +515,19 @@ export class ProceduralSoundscape {
       }
     }
 
+    if (events.heartClearEvents > prev.heartClearEvents) {
+      // Brand-new warm crystalline Heart Chime: shimmering major-9th harp bloom + bell sparkle!
+      vibratePattern(info.hapticsEnabled, [16, 20, 26]);
+      if (this.ctx && !this.muted) {
+        [0, 4, 7, 11, 14, 19].forEach((semi, idx) => {
+          this.playTone(midiToHz(rootMidi + 12 + semi), 0.85, 0.105, 'sine', idx * 0.038, 0.005);
+          if (idx >= 2) {
+            this.playTone(midiToHz(rootMidi + 24 + semi), 0.55, 0.042, 'triangle', idx * 0.038 + 0.015, 0.005);
+          }
+        });
+      }
+    }
+
     if (events.stitchEvents > prev.stitchEvents) {
       const streakStep = Math.min(Math.max(0, info.streak - 1), SOLAR_SCALE_SEMITONES.length - 1);
       const semi = SOLAR_SCALE_SEMITONES[streakStep];

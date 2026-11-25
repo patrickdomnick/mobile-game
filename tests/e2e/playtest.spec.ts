@@ -41,15 +41,20 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect((await request.get('/sw.js')).status()).toBe(200);
     expect((await request.get('/apple-touch-icon.png')).status()).toBe(200);
     expect((await request.get('/game.wasm')).status()).toBe(200);
+    const levelsRes = await request.get('/levels.json');
+    expect(levelsRes.status()).toBe(200);
+    const levelsJson = await levelsRes.json();
+    expect(levelsJson.chapters.length).toBe(4);
+    expect(levelsJson.levels.length).toBe(32);
 
-    // 2. Load Pearl Loom v2.2 on localhost (secure context for WebGPU)
+    // 2. Load Pearl Loom v2.7 on localhost (secure context for WebGPU)
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
     await page.evaluate(async () => {
       await window.__GAME_TEST__!.ready();
     });
 
-    // 3. Verify Streamlined Start Menu (no manual theme toggle, Chapter badge visible, touch targets >= 36px)
+    // 3. Verify Clean Start Menu (no redundant Time or Install buttons, no technical jargon, touch targets >= 36px)
     const menuAudit = await page.evaluate(() => {
       const capable = document
         .querySelector('meta[name="apple-mobile-web-app-capable"]')
@@ -58,13 +63,11 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         .querySelector('meta[name="viewport"]')
         ?.getAttribute('content');
       const selectors = [
-        '#btn-menu-solar',
         '#btn-menu-settings',
         '#btn-mode-journey',
         '#btn-mode-daily',
         '#btn-mode-endless',
         '#btn-menu-gallery',
-        '#btn-menu-open-settings',
       ];
       const buttons = selectors.map((sel) => {
         const el = document.querySelector(sel) as HTMLElement | null;
@@ -88,7 +91,8 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
         viewport,
         noOverflowX: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
         noOverflowY: document.documentElement.scrollHeight <= document.documentElement.clientHeight,
-        hasManualThemeStrip: Boolean(document.querySelector('#menu-theme-strip')),
+        hasRemovedTimeBtn: Boolean(document.querySelector('#btn-menu-solar')),
+        hasRemovedInstallBtn: Boolean(document.querySelector('#btn-menu-install')),
         chapterPillText: document.querySelector('#menu-chapter-label')?.textContent?.trim() ?? '',
         buttons,
       };
@@ -98,7 +102,8 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(menuAudit.viewport).toContain('viewport-fit=cover');
     expect(menuAudit.noOverflowX).toBe(true);
     expect(menuAudit.noOverflowY).toBe(true);
-    expect(menuAudit.hasManualThemeStrip).toBe(false);
+    expect(menuAudit.hasRemovedTimeBtn).toBe(false);
+    expect(menuAudit.hasRemovedInstallBtn).toBe(false);
     expect(menuAudit.chapterPillText).toContain('CHAPTER I');
     for (const btn of menuAudit.buttons) {
       expect(btn.inBounds, `${btn.sel} out of viewport`).toBe(true);
@@ -110,10 +115,12 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(bootState.screen).toBe('menu');
     expect(bootState.timeMode).toBe('auto');
     expect(bootState.themeIndex).toBe(0);
+    expect(bootState.levelsCatalog.source).toBe('network');
+    expect(bootState.levelsCatalog.count).toBe(32);
     expect(bootState.renderer.validationErrors).toEqual([]);
     await page.screenshot({ path: path.join(RESULTS_DIR, 'start-menu.png') });
 
-    // 4. Verify Streamlined Settings Drawer, Direct-Tap iOS Haptic Switch, Install Guide & 24h Solar Override
+    // 4. Verify Settings Drawer, Direct-Tap iOS Haptic Switch, Settings Install Guide & 24h Lighting Override
     const hapticSwitchAudit = await page.evaluate(() => {
       const sw = document.querySelector('#ios-haptic-switch') as HTMLInputElement | null;
       const layer = document.querySelector('#canvas-haptic-layer') as HTMLLabelElement | null;
@@ -127,14 +134,6 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(hapticSwitchAudit.hasSwitch).toBe(true);
     expect(hapticSwitchAudit.notDisplayNone).toBe(true);
     expect(hapticSwitchAudit.hasCanvasLabel).toBe(true);
-
-    // Start Menu Install pill opens the iOS 26 Safari 3-step Add to Home Screen guide cleanly
-    await expect(page.locator('#btn-menu-install')).toBeVisible();
-    await page.locator('#btn-menu-install').click();
-    await expect(page.locator('#overlay-install')).toBeVisible();
-    await page.screenshot({ path: path.join(RESULTS_DIR, 'install-guide.png') });
-    await page.locator('#btn-close-install').click();
-    await expect(page.locator('#overlay-install')).toBeHidden();
 
     await page.locator('#btn-menu-settings').click();
     await expect(page.locator('#overlay-settings')).toBeVisible();
@@ -150,8 +149,13 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     await page.locator('#btn-solar-auto').click();
     const afterAuto = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(afterAuto.timeMode).toBe('auto');
-    await page.locator('#btn-close-settings').click();
-    await expect(page.locator('#overlay-settings')).toBeHidden();
+
+    // Settings Install button opens the iOS 26 Safari 3-step Add to Home Screen guide cleanly
+    await page.locator('#btn-settings-install').click();
+    await expect(page.locator('#overlay-install')).toBeVisible();
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'install-guide.png') });
+    await page.locator('#btn-close-install').click();
+    await expect(page.locator('#overlay-install')).toBeHidden();
 
     // 5. Enter Gameplay via Start Menu "Play Jewel Heart" & audit Gameplay HUD
     await page.locator('#btn-mode-journey').click();
@@ -301,7 +305,11 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
       await page.screenshot({ path: path.join(RESULTS_DIR, 'blocker-feedback.png') });
     }
 
-    // 8b. Verify Zero-Spoiler Periodic Active-Color Pearl Wiggle & ACES-Matched 3D HUD Swatch Variables
+    // 8b. Verify Heart Pearls (1..3 per level), Zero-Spoiler Periodic Wiggle & ACES-Matched 3D HUD Swatch Variables
+    const initialHearts = startSnap.tiles.filter((t) => t.alive && t.isHeart);
+    expect(initialHearts.length).toBeGreaterThanOrEqual(1);
+    expect(initialHearts.length).toBeLessThanOrEqual(3);
+
     const swatchVars = await page.evaluate(() => {
       const dot = document.querySelector('#swatch-list .swatch-dot') as HTMLElement | null;
       return dot
@@ -323,8 +331,11 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const wiggleIdx = await page.evaluate(() => window.__GAME_TEST__!.triggerActiveWiggle());
     const afterWiggle = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(wiggleIdx).toBeGreaterThanOrEqual(0);
-    expect(afterWiggle.tiles[wiggleIdx]?.alive).toBe(true);
-    expect(afterWiggle.activeColors).toContain(afterWiggle.tiles[wiggleIdx]?.color);
+    const wiggledTile = afterWiggle.tiles[wiggleIdx];
+    expect(wiggledTile?.alive).toBe(true);
+    expect(
+      afterWiggle.activeColors.includes(wiggledTile?.color ?? -1) || wiggledTile?.isHeart === true
+    ).toBe(true);
     expect(afterWiggle.isAnimating).toBe(true);
     await page.evaluate(async () => {
       await window.__GAME_TEST__!.stepTicks(40, true);
@@ -413,6 +424,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     expect(completed.maxStreak).toBeGreaterThanOrEqual(4);
     expect(completed.stars).toBeGreaterThanOrEqual(1);
     expect(completed.layersComplete).toBe(completed.totalLayers);
+    expect(completed.events.heartClearEvents).toBeGreaterThanOrEqual(1);
     expect(completed.audio.initialized).toBe(true);
     expect(completed.audio.notesScheduled).toBeGreaterThan(0);
     expect(completed.gallery.completedCuratedIds).toContain(0);
@@ -469,7 +481,7 @@ test.describe('Pearl Loom v2.2 — iPhone 16 WebGPU Raytraced Autonomous E2E Pla
     const customSeedSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(customSeedSt.mode).toBe('mandala');
     expect(customSeedSt.seed).toBe(20261125);
-    expect(customSeedSt.levelName).toBe('Seed #20261125');
+    expect(customSeedSt.levelName).toBe('Pattern #20261125');
     expect(customSeedSt.themeIndex).toBe(dailySt.themeIndex);
     expect(customSeedSt.totalPearls).toBe(dailySt.totalPearls);
 

@@ -317,6 +317,18 @@ fn intersectSphereAA(ro: vec3<f32>, rd: vec3<f32>, center: vec3<f32>, radius: f3
   return res;
 }
 
+// Analytic 2D Heart SDF (point at (0,0), lobes at (+-0.25, 0.75)) for Bonus Heart Pearls
+fn sdHeart2D(pIn: vec2<f32>) -> f32 {
+  let p = vec2<f32>(abs(pIn.x), pIn.y);
+  if (p.y + p.x > 1.0) {
+    let d = p - vec2<f32>(0.25, 0.75);
+    return sqrt(dot(d, d)) - 0.35355339;
+  }
+  let d1 = p - vec2<f32>(0.0, 1.0);
+  let d2 = p - 0.5 * max(p.x + p.y, 0.0);
+  return sqrt(min(dot(d1, d1), dot(d2, d2))) * sign(p.x - p.y);
+}
+
 // Computes the exact 3D center of a board pearl, including pearl-only joyful wiggle & tiny hop
 // decoded from tl.posRad.y (0.22 + JiggleT * 0.10) while the tile card beneath stays rock-solid!
 fn boardPearlCenter(tl: PearlNode, pitch: f32) -> vec3<f32> {
@@ -972,6 +984,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var hitBlocker = false;
   var hitInteriorGlow: f32 = 0.0;
   var hitIsBoard = false;
+  var hitIsHeart = false;
+  var hitCenter = vec3<f32>(0.0);
+  var hitRad: f32 = 0.2;
 
   let hoopC = scene.hoopBounds.xy;
   let hoopR = scene.hoopBounds.z;
@@ -1006,6 +1021,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.0;
         hitIsBoard = false;
+        hitIsHeart = false;
       }
     }
   } else if (abs(pDesk.z - trayZ) < 0.36) {
@@ -1027,6 +1043,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.0;
         hitIsBoard = false;
+        hitIsHeart = false;
       }
     }
   } else if (abs(pDesk.x - boardC.x) < boardHalf.x + 0.42 && abs(pDesk.z - boardC.y) < boardHalf.y + 0.42) {
@@ -1056,6 +1073,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = (flags & 8u) != 0u;
         hitInteriorGlow = tl.props.w;
         hitIsBoard = true;
+        hitIsHeart = (flags & 32u) != 0u;
+        hitCenter = spCenter;
+        hitRad = tl.posRad.w;
       }
     }
   }
@@ -1080,20 +1100,38 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
         hitBlocker = false;
         hitInteriorGlow = 0.45;
         hitIsBoard = false;
+        hitIsHeart = false;
       }
     }
   }
 
   let theme = getTheme();
   var finalCol = vec3<f32>(0.0);
-  if (bestCov >= 0.995) {
-    // Fully inside pearl silhouette -> skip desk shading completely (fast & battery-friendly!)
-    finalCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
-  } else if (bestCov > 0.002) {
-    // Subpixel silhouette rim -> silky-smooth analytic anti-aliased blend over desk/tile!
-    let pearlCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
-    let bgCol = select(skyReflection(rd, theme), shadeAtelierDesk(pDesk, rd, deskAA), tDesk < MAX_DIST);
-    finalCol = mix(bgCol, pearlCol, bestCov);
+  if (bestCov > 0.002) {
+    var pearlCol = shadePearl(hitPos, hitNormal, rd, hitColorLin, hitIrid, hitSpark, hitBlocker, hitInteriorGlow, hitIsBoard);
+    if (hitIsHeart) {
+      // Crisp analytic inlaid Heart Jewel emblem right on the pearl's upper face (keeps pearl color 100% legible!)
+      let hp = vec2<f32>((hitPos.x - hitCenter.x) / hitRad, -(hitPos.z - hitCenter.z) / hitRad) * 1.24 + vec2<f32>(0.0, 0.50);
+      let dHeart = sdHeart2D(hp);
+      let outlineMask = smoothstep(0.14, 0.02, abs(dHeart));
+      let fillMask = smoothstep(0.03, -0.05, dHeart);
+      let pearlLum = dot(hitColorLin, vec3<f32>(0.2126, 0.7152, 0.0722));
+      let isBrightPearl = pearlLum > 0.42;
+      let outlineCol = select(vec3<f32>(0.05, 0.012, 0.028), vec3<f32>(0.18, 0.02, 0.06), isBrightPearl);
+      let heartFill = select(
+        toLinear(vec3<f32>(1.0, 0.95, 0.97)) * 1.12 + toLinear(vec3<f32>(1.0, 0.56, 0.72)) * 0.34,
+        toLinear(vec3<f32>(0.96, 0.14, 0.34)) * 1.15,
+        isBrightPearl
+      );
+      pearlCol = mix(pearlCol, outlineCol, outlineMask * 0.85);
+      pearlCol = mix(pearlCol, heartFill, fillMask * 0.95);
+    }
+    if (bestCov >= 0.995) {
+      finalCol = pearlCol;
+    } else {
+      let bgCol = select(skyReflection(rd, theme), shadeAtelierDesk(pDesk, rd, deskAA), tDesk < MAX_DIST);
+      finalCol = mix(bgCol, pearlCol, bestCov);
+    }
   } else if (tDesk < MAX_DIST) {
     finalCol = shadeAtelierDesk(pDesk, rd, deskAA);
   } else {

@@ -112,3 +112,21 @@ func simTilesPtr() uint32 {
 func simTilesLen() uint32 {
 	return sim.TileTelemetryFloats
 }
+
+//go:wasmexport sim_custom_level_ptr
+func simCustomLevelPtr() uint32 {
+	return uint32(uintptr(unsafe.Pointer(&engine.CustomLevelBuf[0])))
+}
+
+//go:wasmexport sim_custom_level_len
+func simCustomLevelLen() uint32 {
+	return sim.CustomLevelBufFloats
+}
+
+//go:wasmexport sim_load_custom_level
+func simLoadCustomLevel(stitchCount int32) uint32 {
+	if engine.LoadCustomLevel(int(stitchCount)) {
+		return 1
+	}
+	return 0
+}

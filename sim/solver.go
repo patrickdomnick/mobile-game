@@ -20,6 +20,7 @@ type Tile struct {
 	Color       uint8
 	Dir         uint8
 	Alive       bool
+	IsHeart     bool
 	WobbleT     float32
 	JiggleT     float32
 	JiggleDelay float32
@@ -507,6 +508,61 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 	}
 
 	rng := newPRNG(art.Seed)
+
+	if art.NoBlockers {
+		// Sort perimeter-first so every placed cell has an unobstructed outward lane to the board edge!
+		for i := 0; i < len(allCells); i++ {
+			for j := i + 1; j < len(allCells); j++ {
+				ei := min(min(allCells[i].c, art.Cols-1-allCells[i].c), min(allCells[i].r, art.Rows-1-allCells[i].r))
+				ej := min(min(allCells[j].c, art.Cols-1-allCells[j].c), min(allCells[j].r, art.Rows-1-allCells[j].r))
+				if ej < ei {
+					allCells[i], allCells[j] = allCells[j], allCells[i]
+				}
+			}
+		}
+		perim := allCells[:n]
+		for i := 0; i < len(perim); i++ {
+			for j := i + 1; j < len(perim); j++ {
+				if perim[j].r < perim[i].r || (perim[j].r == perim[i].r && perim[j].c < perim[i].c) {
+					perim[i], perim[j] = perim[j], perim[i]
+				}
+			}
+		}
+		tiles := make([]Tile, n)
+		for i, cl := range perim {
+			tiles[i] = Tile{Col: cl.c, Row: cl.r, Alive: true}
+		}
+		fullMask := (uint64(1) << uint(n)) - 1
+		for i := 0; i < n; i++ {
+			bestDir := uint8(DirUp)
+			bestDist := 99
+			for d := uint8(0); d < 4; d++ {
+				tiles[i].Dir = d
+				if isUnblockedMask(tiles, fullMask, i, art.Cols, art.Rows) {
+					de := distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, d)
+					if de < bestDist {
+						bestDist = de
+						bestDir = d
+					}
+				}
+			}
+			tiles[i].Dir = bestDir
+		}
+		idx := 0
+		for qi := 0; qi < colorCount; qi++ {
+			c := colorOrder[qi]
+			for k := 0; k < colorCounts[c]; k++ {
+				tiles[idx].Color = c
+				idx++
+			}
+		}
+		// Gently shuffle colors so active colors are scattered pleasantly across the zero-blocker board
+		for i := n - 1; i > 0; i-- {
+			j := rng.intn(i + 1)
+			tiles[i].Color, tiles[j].Color = tiles[j].Color, tiles[i].Color
+		}
+		return tiles, colorOrder, colorCount
+	}
 
 	for attempt := 0; attempt < 96; attempt++ {
 		tiles := make([]Tile, n)

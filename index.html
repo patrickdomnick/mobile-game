@@ -15,11 +15,11 @@
     <link rel="preload" href="./game.wasm" as="fetch" crossorigin />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-    <title>Pearl Loom — Raytraced Pearl Embroidery</title>
+    <title>Pearl Loom — Cozy Pearl Embroidery</title>
   </head>
   <body>
     <main id="app" data-theme="0" data-lighting="day" data-screen="menu" data-haptics="on">
-      <canvas id="gpu-canvas" aria-label="Pearl Loom Raytraced Atelier"></canvas>
+      <canvas id="gpu-canvas" aria-label="Pearl Loom Board"></canvas>
 
       <!-- iOS 26.5+ Direct-Tap Native Taptic Engine Switch (rendered in-viewport so WebKit never culls it!) -->
       <input
@@ -37,31 +37,21 @@
         aria-hidden="true"
       ></label>
 
-      <!-- Balatro / Vampire Survivors floating score, milestone & rescue callouts -->
+      <!-- Floating score, Heart bonus & milestone callouts -->
       <div id="fx-callout-layer" class="fx-callout-layer" aria-hidden="true"></div>
 
       <!-- =============================================================== -->
-      <!-- STREAMLINED START MENU (Floating over live raytraced 3D scene)  -->
+      <!-- CLEAN START MENU (Floating over live 3D pearl board)            -->
       <!-- =============================================================== -->
       <section id="overlay-start-menu" class="start-menu" role="dialog" aria-label="Pearl Loom Start Menu">
-        <div class="start-top-bar">
-          <button id="btn-menu-solar" class="solar-chip" type="button" aria-label="Open Solar Time Settings">
-            <span id="menu-solar-icon" aria-hidden="true">☀</span>
-            <span id="menu-solar-label">Auto · 12:30</span>
+        <div class="start-top-bar start-top-bar-end">
+          <button id="btn-menu-settings" class="tactile-icon-btn" type="button" aria-label="Open Settings">
+            <span aria-hidden="true">⚙</span>
           </button>
-          <div class="start-top-actions">
-            <button id="btn-menu-install" class="install-chip hidden" type="button" aria-label="Install Pearl Loom on Home Screen">
-              <span aria-hidden="true">＋</span>
-              <span>Install</span>
-            </button>
-            <button id="btn-menu-settings" class="tactile-icon-btn" type="button" aria-label="Open Settings">
-              <span aria-hidden="true">⚙</span>
-            </button>
-          </div>
         </div>
 
         <div class="start-hero">
-          <p class="start-eyebrow">RAYTRACED PEARL CRAFT</p>
+          <p class="start-eyebrow">PEARL EMBROIDERY PUZZLE</p>
           <h1 class="start-title">Pearl Loom</h1>
           <div id="menu-chapter-pill" class="chapter-badge-pill">
             <span id="menu-chapter-label">CHAPTER I · JEWEL ATELIER · 0/8</span>
@@ -72,37 +62,33 @@
           <button id="btn-mode-journey" class="mode-btn mode-btn-primary" type="button">
             <span id="menu-journey-badge" class="mode-btn-badge">CHAPTER I · JEWEL ATELIER</span>
             <span id="menu-journey-main" class="mode-btn-main">Play Jewel Heart</span>
-            <span id="menu-journey-meta" class="mode-btn-sub">4 Themed Chapters · 32 Handcrafted Designs</span>
+            <span id="menu-journey-meta" class="mode-btn-sub">4 Worlds · 32 Handcrafted Patterns</span>
           </button>
 
           <div class="mode-btn-grid">
             <button id="btn-mode-daily" class="mode-btn mode-btn-gold" type="button">
               <span id="menu-daily-badge" class="mode-btn-badge">TODAY · DAILY</span>
               <span class="mode-btn-main">Daily Stitch</span>
-              <span id="menu-daily-meta" class="mode-btn-sub">Fresh themed mandala</span>
+              <span id="menu-daily-meta" class="mode-btn-sub">Fresh daily pattern</span>
             </button>
             <button id="btn-mode-endless" class="mode-btn mode-btn-prism" type="button">
-              <span class="mode-btn-badge">PROCEDURAL · SEED</span>
+              <span class="mode-btn-badge">ENDLESS</span>
               <span class="mode-btn-main">Endless</span>
-              <span id="menu-endless-meta" class="mode-btn-sub">Random seed · 3★ verified</span>
+              <span id="menu-endless-meta" class="mode-btn-sub">Fresh pattern every time</span>
             </button>
           </div>
         </div>
 
-        <div class="start-footer-row">
+        <div class="start-footer-row start-footer-single">
           <button id="btn-menu-gallery" class="tactile-pill-btn" type="button">
             <span aria-hidden="true">✦</span>
-            <span>Chapters &amp; Seeds</span>
-          </button>
-          <button id="btn-menu-open-settings" class="tactile-pill-btn" type="button">
-            <span aria-hidden="true">☀</span>
-            <span>Time &amp; Settings</span>
+            <span>Browse Patterns</span>
           </button>
         </div>
       </section>
 
       <!-- =============================================================== -->
-      <!-- GAMEPLAY HUD (Vibrant, Crisp, Safe-Area Compliant)              -->
+      <!-- GAMEPLAY HUD (Crisp, Safe-Area Compliant)                       -->
       <!-- =============================================================== -->
       <header id="hud-top" class="hud-top hidden" aria-label="Pattern Status">
         <div class="hud-row">
@@ -110,7 +96,7 @@
             <button id="btn-home" class="pill pill-btn icon-pill" type="button" aria-label="Open Start Menu">
               <span aria-hidden="true">☰</span>
             </button>
-            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Open Chapters Gallery">
+            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Browse Patterns">
               <span id="hud-pattern-name" class="pattern-name">Jewel Heart</span>
               <span id="hud-progress" class="pill-value">0/21</span>
               <span class="caret" aria-hidden="true">▾</span>
@@ -118,7 +104,7 @@
           </div>
 
           <div class="hud-group">
-            <div class="pill score-pill" aria-label="Luster Score and Multiplier">
+            <div class="pill score-pill" aria-label="Score and Streak Multiplier">
               <span id="hud-score" class="score-value">0</span>
               <span id="hud-mult" class="mult-badge">×1</span>
             </div>
@@ -141,24 +127,24 @@
           <div id="hud-active-swatches" class="pill swatch-pill" aria-label="Active Stitch Colors">
             <span id="swatch-caption" class="swatch-caption">STITCH</span>
             <div id="swatch-list" class="swatch-list"></div>
-            <span id="swatch-next-wrap" class="swatch-next-wrap hidden" title="Next queued color">
+            <span id="swatch-next-wrap" class="swatch-next-wrap hidden" title="Next color">
               <span class="next-label">NEXT</span>
               <span id="swatch-next-dot" class="swatch-dot swatch-dot-sm"></span>
             </span>
           </div>
-          <div class="pill ring-pill" aria-label="Mandala Rings Progress">
+          <div class="pill ring-pill" aria-label="Rings Progress">
             <span class="ring-label">RING</span>
             <span id="hud-layers" class="pill-value">0/3</span>
           </div>
         </div>
       </header>
 
-      <footer id="hud-bottom" class="hud-bottom hidden" aria-label="Craft Controls">
+      <footer id="hud-bottom" class="hud-bottom hidden" aria-label="Controls">
         <button id="btn-undo" class="pill pill-btn control-btn control-undo" type="button" aria-label="Undo last move (-150 pts)" disabled>
           <span class="btn-icon" aria-hidden="true">↶</span>
           <span>Undo</span>
         </button>
-        <button id="btn-hint" class="pill pill-btn control-btn control-hint" type="button" aria-label="Show smart hint (-250 pts)">
+        <button id="btn-hint" class="pill pill-btn control-btn control-hint" type="button" aria-label="Show hint (-250 pts)">
           <span class="btn-icon" aria-hidden="true">✦</span>
           <span>Hint</span>
         </button>
@@ -169,12 +155,12 @@
       </footer>
 
       <!-- =============================================================== -->
-      <!-- STREAMLINED SETTINGS DRAWER (24h Solar Cycle, Sound, Haptics)   -->
+      <!-- SETTINGS DRAWER (Lighting, Sound, Touch Feedback, Install App)  -->
       <!-- =============================================================== -->
-      <section id="overlay-settings" class="sheet-panel hidden" role="dialog" aria-label="Atelier Settings">
+      <section id="overlay-settings" class="sheet-panel hidden" role="dialog" aria-label="Settings">
         <div class="sheet-header">
           <div>
-            <p class="modal-eyebrow">ATELIER PREFERENCES</p>
+            <p class="modal-eyebrow">PREFERENCES</p>
             <h2 class="sheet-title">Settings</h2>
           </div>
           <button id="btn-close-settings" class="pill pill-btn icon-pill" type="button" aria-label="Close Settings">
@@ -185,8 +171,8 @@
         <div class="settings-card">
           <div class="settings-card-head">
             <div>
-              <h3 class="settings-heading">Day &amp; Night Solar Cycle</h3>
-              <p id="settings-solar-readout" class="settings-sub">Auto · Real-world time (12:30 · Noon)</p>
+              <h3 class="settings-heading">Day &amp; Night Lighting</h3>
+              <p id="settings-solar-readout" class="settings-sub">Auto · 12:30 (Noon)</p>
             </div>
             <button id="btn-solar-auto" class="toggle-chip is-on" type="button" aria-pressed="true">
               Auto
@@ -203,12 +189,12 @@
               max="23.75"
               step="0.25"
               value="12.5"
-              aria-label="Solar Time of Day Override"
+              aria-label="Time of Day"
             />
             <span class="slider-end">24:00</span>
           </div>
 
-          <div class="solar-presets" role="group" aria-label="Time of Day Presets">
+          <div class="solar-presets" role="group" aria-label="Lighting Presets">
             <button class="preset-chip" type="button" data-solar-preset="6.5">Dawn</button>
             <button class="preset-chip" type="button" data-solar-preset="12.5">Noon</button>
             <button class="preset-chip" type="button" data-solar-preset="18.25">Sunset</button>
@@ -219,8 +205,8 @@
         <div class="settings-card settings-toggle-list">
           <div class="settings-toggle-row">
             <div>
-              <h3 class="settings-heading">Soundscape &amp; Chimes</h3>
-              <p class="settings-sub">Rising streak chimes &amp; solar ambient harp</p>
+              <h3 class="settings-heading">Sound &amp; Chimes</h3>
+              <p class="settings-sub">Gentle chimes &amp; ambient harp</p>
             </div>
             <button id="btn-settings-sound" class="toggle-chip is-on" type="button" aria-pressed="true">
               On
@@ -228,8 +214,8 @@
           </div>
           <div class="settings-toggle-row">
             <div>
-              <h3 class="settings-heading">Haptics &amp; Tactile Feedback</h3>
-              <p class="settings-sub">Direct-tap iPhone Taptic click (needs System Haptics On)</p>
+              <h3 class="settings-heading">Touch Feedback</h3>
+              <p class="settings-sub">Light tap feel (needs System Haptics On)</p>
             </div>
             <div class="haptic-controls-inline">
               <label id="btn-test-haptic" class="haptic-test-btn" for="ios-haptic-switch">Test</label>
@@ -253,23 +239,23 @@
         </div>
 
         <div class="settings-card">
-          <h3 class="settings-heading">Limitless Hints &amp; Undo</h3>
+          <h3 class="settings-heading">Heart Pearls &amp; Hints</h3>
           <p class="settings-sub">
-            Hints (-250 pts) &amp; Undos (-150 pts) are always unlimited — and if you reach a pinch, Hint guides you straight to Undo.
+            Place ♥ Heart Pearls early for extra bonus points! Hints (-250) &amp; Undo (-150) are always unlimited.
           </p>
         </div>
       </section>
 
       <!-- =============================================================== -->
-      <!-- CHAPTER-TABBED PATTERN GALLERY + PROCEDURAL CUSTOM SEED INPUT   -->
+      <!-- PATTERNS GALLERY + CUSTOM PATTERN CODE                          -->
       <!-- =============================================================== -->
-      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Atelier Chapters Gallery">
+      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Patterns Gallery">
         <div class="sheet-header">
           <div>
-            <p class="modal-eyebrow">4 THEMED CHAPTERS · 32 PATTERNS</p>
-            <h2 class="sheet-title">Chapters &amp; Seeds</h2>
+            <p id="gallery-eyebrow" class="modal-eyebrow">4 WORLDS · 32 PATTERNS</p>
+            <h2 class="sheet-title">Patterns</h2>
           </div>
-          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Gallery">
+          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Patterns">
             ✕
           </button>
         </div>
@@ -278,16 +264,16 @@
           <button id="btn-daily-stitch" class="gallery-special-card" type="button">
             <span id="gallery-daily-tag" class="special-tag">TODAY</span>
             <strong>Daily Stitch</strong>
-            <span id="daily-status" class="gallery-meta">Calendar seed</span>
+            <span id="daily-status" class="gallery-meta">Daily pattern</span>
           </button>
           <button id="btn-endless-mandala" class="gallery-special-card" type="button">
-            <span class="special-tag">RANDOM SEED</span>
+            <span class="special-tag">ENDLESS</span>
             <strong>New Endless</strong>
-            <span id="mandala-status" class="gallery-meta">0 stitched</span>
+            <span id="mandala-status" class="gallery-meta">0 completed</span>
           </button>
         </div>
 
-        <form id="seed-form" class="seed-input-row" aria-label="Play Custom Procedural Seed">
+        <form id="seed-form" class="seed-input-row" aria-label="Play Custom Pattern Code">
           <input
             id="input-custom-seed"
             class="seed-input"
@@ -296,13 +282,13 @@
             maxlength="24"
             autocomplete="off"
             spellcheck="false"
-            placeholder="Enter seed (number or word)"
-            aria-label="Custom Seed Input"
+            placeholder="Enter a pattern code"
+            aria-label="Pattern Code"
           />
-          <button id="btn-play-seed" class="seed-play-btn" type="submit">Play Seed</button>
+          <button id="btn-play-seed" class="seed-play-btn" type="submit">Play</button>
         </form>
 
-        <div id="chapter-tabs" class="chapter-tabs" role="tablist" aria-label="Atelier Chapters"></div>
+        <div id="chapter-tabs" class="chapter-tabs" role="tablist" aria-label="Worlds"></div>
 
         <div id="chapter-banner" class="chapter-banner">
           <div>
@@ -312,16 +298,16 @@
           <span id="chapter-banner-progress" class="pill-value">0/8</span>
         </div>
 
-        <div id="gallery-grid" class="gallery-grid" aria-label="Chapter Embroidery Patterns"></div>
+        <div id="gallery-grid" class="gallery-grid" aria-label="Patterns"></div>
       </section>
 
       <!-- =============================================================== -->
-      <!-- SILK TRAY FULL MODAL                                            -->
+      <!-- TRAY FULL MODAL                                                 -->
       <!-- =============================================================== -->
-      <section id="overlay-tray-full" class="modal-card hidden" role="dialog" aria-label="Silk Tray Full">
-        <p class="modal-eyebrow">HOLDING TRAY FULL</p>
+      <section id="overlay-tray-full" class="modal-card hidden" role="dialog" aria-label="Tray Full">
+        <p class="modal-eyebrow">TRAY FULL</p>
         <h2 class="modal-title">All 5 slots occupied</h2>
-        <p class="modal-copy">Step back with Undo (-150 pts) to open a direct stitch, or restart fresh.</p>
+        <p class="modal-copy">Step back with Undo (-150 pts) to open a direct stitch, or start fresh.</p>
         <div class="modal-actions">
           <button id="btn-tray-undo" class="modal-btn modal-btn-primary" type="button">Undo Move</button>
           <button id="btn-tray-restart" class="modal-btn" type="button">Restart</button>
@@ -329,27 +315,27 @@
       </section>
 
       <!-- =============================================================== -->
-      <!-- CELEBRATORY COMPLETION MODAL (Score, Stars, Streak, Clean %)    -->
+      <!-- COMPLETION MODAL                                                -->
       <!-- =============================================================== -->
       <section id="overlay-complete" class="modal-card modal-complete hidden" role="dialog" aria-label="Pattern Complete">
-        <p id="complete-eyebrow" class="modal-eyebrow">MASTERPIECE COMPLETE</p>
-        <div id="complete-stars" class="complete-stars" aria-label="Mastery Stars">★★★</div>
+        <p id="complete-eyebrow" class="modal-eyebrow">PATTERN COMPLETE</p>
+        <div id="complete-stars" class="complete-stars" aria-label="Stars">★★★</div>
         <h2 id="complete-title" class="modal-title">Jewel Heart</h2>
         <div class="complete-metrics">
           <div class="metric-tile">
-            <span class="metric-label">LUSTER SCORE</span>
+            <span class="metric-label">SCORE</span>
             <strong id="complete-score" class="metric-value">0</strong>
           </div>
           <div class="metric-tile">
-            <span class="metric-label">PEAK STREAK</span>
+            <span class="metric-label">BEST STREAK</span>
             <strong id="complete-streak" class="metric-value">0×</strong>
           </div>
           <div class="metric-tile">
-            <span class="metric-label">DIRECT CRAFT</span>
+            <span class="metric-label">CLEAN STITCH</span>
             <strong id="complete-clean" class="metric-value">100%</strong>
           </div>
         </div>
-        <p id="complete-bonus-line" class="modal-copy">Saved to Atelier Gallery.</p>
+        <p id="complete-bonus-line" class="modal-copy">Saved to your collection.</p>
         <div class="modal-actions">
           <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
           <button id="btn-replay-level" class="modal-btn" type="button">Replay</button>
@@ -357,7 +343,7 @@
       </section>
 
       <!-- =============================================================== -->
-      <!-- iOS 26 SAFARI PWA INSTALL GUIDE MODAL                           -->
+      <!-- iOS 26 SAFARI ADD TO HOME SCREEN GUIDE MODAL (From Settings)    -->
       <!-- =============================================================== -->
       <section id="overlay-install" class="modal-card hidden" role="dialog" aria-label="Install Pearl Loom">
         <p class="modal-eyebrow">PLAY FULL-SCREEN ON IPHONE</p>
@@ -382,9 +368,9 @@
       </section>
 
       <div id="fallback-banner" class="fallback hidden" role="alert">
-        <h1>WebGPU Required</h1>
+        <h1>Browser Update Needed</h1>
         <p id="fallback-message">
-          Pearl Loom uses hardware-accelerated WebGPU raytracing (Safari 26+ on iPhone 16).
+          Pearl Loom requires modern graphics support (Safari 26+ on iPhone or a current Chrome/Edge browser).
         </p>
       </div>
     </main>

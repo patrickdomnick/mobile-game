@@ -2,11 +2,10 @@ import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
 import { EmbroideryGalleryStore, getTodayDateKey } from './gallery';
+import { loadLevelsCatalog, type RemoteLevelDef } from './levels';
 import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import {
-  CHAPTERS,
-  CURATED_LEVELS,
   VISUAL_THEMES,
   WasmSimulation,
   getDailyThemeForDateKey,
@@ -22,6 +21,12 @@ export interface GameTestState extends SimSnapshot {
   screen: ScreenMode;
   timeMode: 'auto' | 'manual';
   hapticsEnabled: boolean;
+  levelsCatalog: {
+    source: 'network' | 'cache' | 'builtin';
+    version: number;
+    count: number;
+    chapters: number;
+  };
   audio: {
     initialized: boolean;
     muted: boolean;
@@ -89,6 +94,9 @@ function describeSolarPhase(hours: number): { icon: string; name: string } {
 
 async function bootstrap(): Promise<void> {
   setupSafariPwaShell();
+  if (isStandalonePwa()) {
+    document.documentElement.classList.add('is-standalone');
+  }
 
   const canvas = document.getElementById('gpu-canvas') as HTMLCanvasElement | null;
   const canvasHapticLayer = document.getElementById('canvas-haptic-layer');
@@ -97,16 +105,12 @@ async function bootstrap(): Promise<void> {
 
   // Start Menu elements
   const startMenuEl = document.getElementById('overlay-start-menu');
-  const menuSolarBtn = document.getElementById('btn-menu-solar');
-  const menuSolarIcon = document.getElementById('menu-solar-icon');
-  const menuSolarLabel = document.getElementById('menu-solar-label');
-  const menuInstallBtn = document.getElementById('btn-menu-install');
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
-  const menuOpenSettingsBtn = document.getElementById('btn-menu-open-settings');
   const menuGalleryBtn = document.getElementById('btn-menu-gallery');
   const menuChapterLabel = document.getElementById('menu-chapter-label');
   const menuJourneyBadge = document.getElementById('menu-journey-badge');
   const menuJourneyMain = document.getElementById('menu-journey-main');
+  const menuJourneyMeta = document.getElementById('menu-journey-meta');
   const menuDailyBadge = document.getElementById('menu-daily-badge');
   const menuDailyMeta = document.getElementById('menu-daily-meta');
   const menuEndlessMeta = document.getElementById('menu-endless-meta');
@@ -146,8 +150,9 @@ async function bootstrap(): Promise<void> {
   const settingsInstallStatus = document.getElementById('settings-install-status');
   const settingsInstallBtn = document.getElementById('btn-settings-install') as HTMLButtonElement | null;
 
-  // Chapter Gallery drawer elements
+  // Patterns Gallery drawer elements
   const gallerySheet = document.getElementById('overlay-gallery');
+  const galleryEyebrowEl = document.getElementById('gallery-eyebrow');
   const closeGalleryBtn = document.getElementById('btn-close-gallery');
   const dailyBtn = document.getElementById('btn-daily-stitch');
   const galleryDailyTag = document.getElementById('gallery-daily-tag');
@@ -196,9 +201,10 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    const [sim, renderer] = await Promise.all([
+    const [sim, renderer, levelsCatalog] = await Promise.all([
       WasmSimulation.load('./game.wasm'),
       WebGPURaytracer.create(canvas, SCENE_BUFFER_BYTES),
+      loadLevelsCatalog('./levels.json'),
     ]);
     const soundscape = new ProceduralSoundscape();
     const gallery = new EmbroideryGalleryStore();
@@ -221,14 +227,35 @@ async function bootstrap(): Promise<void> {
     let prevStitchEvents = 0;
     let prevColorClearEvents = 0;
     let prevLayerClearEvents = 0;
+    let prevHeartClearEvents = 0;
     let prevBlockedEvents = 0;
     let prevHintEvents = 0;
     let prevUndoEvents = 0;
 
-    // Load next uncompleted Journey level onto the live 3D canvas behind the Start Menu
-    const initialJourneyIdx = gallery.getNextJourneyLevel();
-    sim.loadLevel(initialJourneyIdx);
-    activeGalleryChapter = (CURATED_LEVELS[initialJourneyIdx] ?? CURATED_LEVELS[0]).chapter;
+    const findCatalogLevel = (levelId: number): RemoteLevelDef => {
+      return (
+        levelsCatalog.levels.find((l) => l.id === levelId) ??
+        levelsCatalog.levels[levelId % Math.max(1, levelsCatalog.levels.length)] ??
+        levelsCatalog.levels[0]
+      );
+    };
+
+    const loadCatalogLevelById = (levelId: number): RemoteLevelDef => {
+      const def = findCatalogLevel(levelId);
+      if (def && def.stitches && def.stitches.length > 0) {
+        sim.loadCustomLevel(def);
+      } else {
+        sim.loadLevel(def ? def.id : levelId);
+      }
+      if (def) {
+        activeGalleryChapter = def.chapter;
+      }
+      return def;
+    };
+
+    // Load next uncompleted curated pattern onto the live 3D board behind the Start Menu
+    const initialJourneyId = gallery.getNextJourneyLevel(levelsCatalog.levels.map((l) => l.id));
+    loadCatalogLevelById(initialJourneyId);
 
     const getAspect = (): number => {
       const rect = canvas.getBoundingClientRect();
@@ -254,7 +281,7 @@ async function bootstrap(): Promise<void> {
 
     const spawnCallout = (
       text: string,
-      variant: 'score' | 'streak' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
+      variant: 'score' | 'streak' | 'heart' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
       screenX: number,
       screenY: number,
     ): void => {
@@ -265,15 +292,16 @@ async function bootstrap(): Promise<void> {
       el.style.left = `${Math.max(14, Math.min(86, screenX * 100))}%`;
       el.style.top = `${Math.max(16, Math.min(84, screenY * 100))}%`;
       fxLayer.append(el);
-      window.setTimeout(() => el.remove(), variant === 'rescue' || variant === 'milestone' ? 1650 : 1020);
+      window.setTimeout(
+        () => el.remove(),
+        variant === 'rescue' || variant === 'milestone' || variant === 'heart' ? 1650 : 1020,
+      );
     };
 
     const updateSolarUi = (hours: number): void => {
       const clock = formatHourClock(hours);
       const phase = describeSolarPhase(hours);
       const modeTag = settings.timeMode === 'auto' ? 'Auto' : 'Manual';
-      if (menuSolarIcon) menuSolarIcon.textContent = phase.icon;
-      if (menuSolarLabel) menuSolarLabel.textContent = `${modeTag} · ${clock}`;
       if (solarReadoutEl) solarReadoutEl.textContent = `${modeTag} · ${clock} (${phase.name})`;
       if (solarAutoBtn) {
         const isAuto = settings.timeMode === 'auto';
@@ -313,9 +341,6 @@ async function bootstrap(): Promise<void> {
 
     const updateInstallUi = (): void => {
       const standalone = isStandalonePwa();
-      if (menuInstallBtn) {
-        menuInstallBtn.classList.toggle('hidden', standalone);
-      }
       if (settingsInstallStatus) {
         settingsInstallStatus.textContent = standalone
           ? 'Running as installed full-screen app ✦'
@@ -354,10 +379,11 @@ async function bootstrap(): Promise<void> {
     };
 
     const refreshStartMenuCopy = (): void => {
-      const nextIdx = gallery.getNextJourneyLevel();
-      const nextLvl = CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0];
-      const ch = CHAPTERS[nextLvl.chapter] ?? CHAPTERS[0];
-      const chProg = gallery.getChapterCompletion(ch.id);
+      const allIds = levelsCatalog.levels.map((l) => l.id);
+      const nextId = gallery.getNextJourneyLevel(allIds);
+      const nextLvl = findCatalogLevel(nextId);
+      const ch = levelsCatalog.chapters.find((c) => c.id === nextLvl.chapter) ?? levelsCatalog.chapters[0];
+      const chProg = gallery.getChapterCompletion(ch.id, ch.levelIds);
       const today = getTodayDateKey();
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
       const prog = gallery.getSnapshot();
@@ -372,15 +398,18 @@ async function bootstrap(): Promise<void> {
       if (menuJourneyMain) {
         menuJourneyMain.textContent = `Play ${nextLvl.name}`;
       }
+      if (menuJourneyMeta) {
+        menuJourneyMeta.textContent = `${levelsCatalog.chapters.length} Worlds · ${levelsCatalog.levels.length} Handcrafted Patterns`;
+      }
       if (menuDailyBadge) {
-        menuDailyBadge.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()} EDITION`;
+        menuDailyBadge.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
       }
       if (menuDailyMeta) {
         menuDailyMeta.textContent = dailyDone ? `✦ Completed (${today.label})` : today.label;
       }
       if (menuEndlessMeta) {
         menuEndlessMeta.textContent =
-          prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} stitched · Random theme` : 'Random theme · Infinite';
+          prog.mandalasCompleted > 0 ? `${prog.mandalasCompleted} completed · Infinite` : 'Fresh pattern every time';
       }
     };
 
@@ -412,6 +441,7 @@ async function bootstrap(): Promise<void> {
       soundscape.unlock();
       updateSolarUi(getEffectiveHours());
       updateAudioUi();
+      updateInstallUi();
       gallerySheet?.classList.add('hidden');
       settingsSheet?.classList.remove('hidden');
     };
@@ -422,22 +452,24 @@ async function bootstrap(): Promise<void> {
       const dailyDone = prog.completedDailyDates.includes(today.label);
       const dailyTheme = getDailyThemeForDateKey(today.keyNum);
 
+      if (galleryEyebrowEl) {
+        galleryEyebrowEl.textContent = `${levelsCatalog.chapters.length} WORLDS · ${levelsCatalog.levels.length} PATTERNS`;
+      }
       if (galleryDailyTag) {
         galleryDailyTag.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
       }
       if (dailyStatusEl) {
-        dailyStatusEl.textContent = dailyDone ? `★★★ Stitched (${today.label})` : today.label;
+        dailyStatusEl.textContent = dailyDone ? `★★★ Completed (${today.label})` : today.label;
       }
       if (mandalaStatusEl) {
-        mandalaStatusEl.textContent = `${prog.mandalasCompleted} stitched`;
+        mandalaStatusEl.textContent = `${prog.mandalasCompleted} completed`;
       }
 
-      // Render 5 Chapter Tabs
       if (chapterTabsEl) {
         chapterTabsEl.innerHTML = '';
-        CHAPTERS.forEach((ch) => {
+        levelsCatalog.chapters.forEach((ch) => {
           const theme = VISUAL_THEMES[ch.themeId] ?? VISUAL_THEMES[0];
-          const chProg = gallery.getChapterCompletion(ch.id);
+          const chProg = gallery.getChapterCompletion(ch.id, ch.levelIds);
           const tab = document.createElement('button');
           tab.type = 'button';
           tab.className = `chapter-tab${activeGalleryChapter === ch.id ? ' is-active' : ''}`;
@@ -467,8 +499,8 @@ async function bootstrap(): Promise<void> {
         });
       }
 
-      const activeCh = CHAPTERS[activeGalleryChapter] ?? CHAPTERS[0];
-      const chProg = gallery.getChapterCompletion(activeCh.id);
+      const activeCh = levelsCatalog.chapters.find((c) => c.id === activeGalleryChapter) ?? levelsCatalog.chapters[0];
+      const chProg = gallery.getChapterCompletion(activeCh.id, activeCh.levelIds);
       if (chapterBannerTitle) chapterBannerTitle.textContent = `Chapter ${activeCh.roman} · ${activeCh.name}`;
       if (chapterBannerSub) chapterBannerSub.textContent = activeCh.subtitle;
       if (chapterBannerProgress) chapterBannerProgress.textContent = `${chProg.done}/${chProg.total}`;
@@ -477,7 +509,7 @@ async function bootstrap(): Promise<void> {
       galleryGridEl.innerHTML = '';
 
       const pal = getThemePalette(activeCh.themeId);
-      const chapterLevels = CURATED_LEVELS.slice(activeCh.startIndex, activeCh.startIndex + activeCh.count);
+      const chapterLevels = levelsCatalog.levels.filter((l) => l.chapter === activeCh.id);
       chapterLevels.forEach((lvl) => {
         const done = prog.completedCurated[lvl.id];
         const btn = document.createElement('button');
@@ -517,9 +549,10 @@ async function bootstrap(): Promise<void> {
         btn.addEventListener('click', () => {
           soundscape.unlock();
           soundscape.playUiTap(settings.hapticsEnabled);
+          lastUserTapAt = performance.now();
           recordedCompleteKey = '';
           displayedScore = 0;
-          sim.loadLevel(lvl.id);
+          loadCatalogLevelById(lvl.id);
           closeGallery();
           setScreen('playing');
           updateHud(sim.readState(getAspect()));
@@ -533,6 +566,7 @@ async function bootstrap(): Promise<void> {
       prevStitchEvents = snap.events.stitchEvents;
       prevColorClearEvents = snap.events.colorClearEvents;
       prevLayerClearEvents = snap.events.layerClearEvents;
+      prevHeartClearEvents = snap.events.heartClearEvents;
       prevBlockedEvents = snap.events.blockedEvents;
       prevHintEvents = snap.events.hintEvents;
       prevUndoEvents = snap.events.undoEvents;
@@ -553,11 +587,15 @@ async function bootstrap(): Promise<void> {
         lastSwatchKey = '';
       }
 
-      // Floating callouts for rewards, milestones, blocker impacts, and Hint/Undo penalties & pinch rescue!
+      // Floating callouts for Heart bonuses, milestones, streaks, blocker impacts, and Hint/Undo
+      if (snap.events.heartClearEvents > prevHeartClearEvents && snap.lastHeartBonus > 0) {
+        spawnCallout(`♥ HEART +${snap.lastHeartBonus}!`, 'heart', 0.5, 0.23);
+      }
+
       if (snap.events.layerClearEvents > prevLayerClearEvents) {
-        spawnCallout(`★ RING ${snap.layersComplete}/${snap.totalLayers} +750!`, 'milestone', 0.5, 0.28);
+        spawnCallout(`★ RING ${snap.layersComplete}/${snap.totalLayers} +750!`, 'milestone', 0.5, 0.30);
       } else if (snap.events.colorClearEvents > prevColorClearEvents) {
-        spawnCallout(`✦ COLOR CLEAR +500!`, 'milestone', 0.5, 0.34);
+        spawnCallout(`✦ COLOR CLEAR +500!`, 'milestone', 0.5, 0.36);
       } else if (snap.events.stitchEvents > prevStitchEvents && snap.lastScoreDelta > 0) {
         const proj = projectWorldToScreen(snap.lastEventWorldX, 0.2, snap.lastEventWorldZ, getAspect());
         const multLabel = snap.multiplier > 1 ? ` ×${snap.multiplier}!` : '';
@@ -701,34 +739,37 @@ async function bootstrap(): Promise<void> {
             snap.totalPearls > 0 ? Math.min(100, Math.round((snap.directCount / snap.totalPearls) * 100)) : 100;
           if (completeCleanEl) completeCleanEl.textContent = `${directPct}%`;
 
-          // Celebrate Chapter clearance when finishing the 8th pattern of a Chapter!
-          const isEndOfChapter =
-            snap.mode === 'curated' &&
-            (snap.levelIndex + 1) % 8 === 0 &&
-            snap.levelIndex + 1 < CURATED_LEVELS.length;
-          const nextChapter = isEndOfChapter
-            ? CHAPTERS[Math.floor((snap.levelIndex + 1) / 8)]
-            : null;
+          // Celebrate Chapter clearance when finishing the final pattern of a Chapter!
+          const curIdxInCat = levelsCatalog.levels.findIndex((l) => l.id === snap.levelIndex);
+          const nextCatLvl =
+            snap.mode === 'curated' && curIdxInCat >= 0 && curIdxInCat + 1 < levelsCatalog.levels.length
+              ? levelsCatalog.levels[curIdxInCat + 1]
+              : null;
+          const nextChapter =
+            nextCatLvl && nextCatLvl.chapter !== snap.chapterIndex
+              ? levelsCatalog.chapters.find((c) => c.id === nextCatLvl.chapter) ?? null
+              : null;
+          const curCh = levelsCatalog.chapters.find((c) => c.id === snap.chapterIndex);
 
           if (completeEyebrowEl) {
             completeEyebrowEl.textContent = nextChapter
-              ? `CHAPTER ${CHAPTERS[snap.chapterIndex]?.roman ?? 'I'} COMPLETE!`
-              : 'MASTERPIECE COMPLETE';
+              ? `CHAPTER ${curCh?.roman ?? 'I'} COMPLETE!`
+              : 'PATTERN COMPLETE';
           }
           if (nextLevelBtn) {
             nextLevelBtn.textContent = nextChapter
               ? `Enter ${nextChapter.name} →`
-              : snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVELS.length
+              : nextCatLvl
                 ? 'Next Pattern'
-                : 'New Seed';
+                : 'New Pattern';
           }
           if (completeBonusLine) {
             const badges: string[] = [];
-            if (snap.mode !== 'curated' && snap.seed > 0) badges.push(`Seed #${snap.seed}`);
-            if (snap.trayUses === 0) badges.push('Pure No-Tray +1,500');
-            if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('Flawless +750');
+            if (snap.mode !== 'curated' && snap.seed > 0) badges.push(`Code #${snap.seed}`);
+            if (snap.trayUses === 0) badges.push('No Tray Bonus +1,500');
+            if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('No Hints Bonus +750');
             completeBonusLine.textContent =
-              badges.length > 0 ? `${badges.join(' · ')} · Saved to Chapters.` : 'Saved to Chapters Gallery.';
+              badges.length > 0 ? `${badges.join(' · ')} · Saved to your collection.` : 'Saved to your collection.';
           }
         }
       }
@@ -810,10 +851,7 @@ async function bootstrap(): Promise<void> {
     canvasHapticLayer?.addEventListener('pointerdown', handleBoardPointerDown);
     canvas.addEventListener('pointerdown', handleBoardPointerDown);
 
-    // Start Menu & Install Guide button wiring
-    menuInstallBtn?.addEventListener('click', () => {
-      void openInstallGuide();
-    });
+    // Settings Install Guide & Start Menu button wiring
     settingsInstallBtn?.addEventListener('click', () => {
       void openInstallGuide();
     });
@@ -829,9 +867,8 @@ async function bootstrap(): Promise<void> {
       lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
-      const nextIdx = gallery.getNextJourneyLevel();
-      sim.loadLevel(nextIdx);
-      activeGalleryChapter = (CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0]).chapter;
+      const nextId = gallery.getNextJourneyLevel(levelsCatalog.levels.map((l) => l.id));
+      loadCatalogLevelById(nextId);
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
     });
@@ -865,9 +902,7 @@ async function bootstrap(): Promise<void> {
       gallerySheet?.classList.remove('hidden');
     });
 
-    menuSolarBtn?.addEventListener('click', openSettings);
     menuSettingsIconBtn?.addEventListener('click', openSettings);
-    menuOpenSettingsBtn?.addEventListener('click', openSettings);
     settingsBtn?.addEventListener('click', openSettings);
     closeSettingsBtn?.addEventListener('click', closeSettings);
 
@@ -878,7 +913,7 @@ async function bootstrap(): Promise<void> {
       setScreen('menu');
     });
 
-    // Settings Solar 24h controls (Real-world Auto default + full manual override!)
+    // Settings Lighting 24h controls (Real-world Auto default + full manual override!)
     solarAutoBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
@@ -952,10 +987,9 @@ async function bootstrap(): Promise<void> {
       recordedCompleteKey = '';
       displayedScore = 0;
       const snap = sim.readState(getAspect());
-      if (snap.mode === 'curated' && snap.levelIndex + 1 < CURATED_LEVELS.length) {
-        const nextIdx = snap.levelIndex + 1;
-        sim.loadLevel(nextIdx);
-        activeGalleryChapter = (CURATED_LEVELS[nextIdx] ?? CURATED_LEVELS[0]).chapter;
+      const curIdx = levelsCatalog.levels.findIndex((l) => l.id === snap.levelIndex);
+      if (snap.mode === 'curated' && curIdx >= 0 && curIdx + 1 < levelsCatalog.levels.length) {
+        loadCatalogLevelById(levelsCatalog.levels[curIdx + 1].id);
       } else {
         sim.loadMandala(gallery.nextMandalaSeed());
       }
@@ -1034,11 +1068,14 @@ async function bootstrap(): Promise<void> {
     window.addEventListener('pageshow', () => soundscape.handleForegroundResume());
     window.addEventListener('focus', () => soundscape.handleForegroundResume());
 
-    window.addEventListener('resize', () => {
+    const handleViewportResize = (): void => {
       renderer.resize();
       wakeRenderer();
       renderNonBlocking();
-    });
+    };
+    window.addEventListener('resize', handleViewportResize);
+    window.addEventListener('orientationchange', handleViewportResize);
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
 
     // Expose deterministic AI playtest & E2E verification bridge (Spec 02)
     window.__GAME_TEST__ = {
@@ -1051,6 +1088,12 @@ async function bootstrap(): Promise<void> {
           screen: screenMode,
           timeMode: settings.timeMode,
           hapticsEnabled: settings.hapticsEnabled,
+          levelsCatalog: {
+            source: levelsCatalog.source,
+            version: levelsCatalog.version,
+            count: levelsCatalog.levels.length,
+            chapters: levelsCatalog.chapters.length,
+          },
           ...sim.readState(getAspect()),
           audio: soundscape.getDiagnostics(),
           gallery: {
@@ -1125,7 +1168,7 @@ async function bootstrap(): Promise<void> {
         lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
-        sim.loadLevel(levelIndex);
+        loadCatalogLevelById(levelIndex);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },

@@ -147,7 +147,31 @@ Informed by real-device iPhone 16 Safari playtesting of v2.5:
 
 ---
 
-## 8. Iteration Log
+## 8. Pearl Loom v2.7 Design Delta (`Status: Locked`)
+
+Informed by real-device standalone PWA playtesting of v2.6:
+
+1. **True Edge-to-Edge Standalone iOS PWA Full-Screen Fix**:
+   - Fix the iOS standalone PWA bottom black chin caused by `100dvh` + `height: 100%` shrinking short of the Home Indicator safe area under `viewport-fit=cover` + `black-translucent`.
+   - Use `@media (display-mode: standalone)` + `.is-standalone` rules (`height: 100vh; min-height: 100lvh; min-height: calc(100dvh + env(safe-area-inset-bottom, 0px))`), dynamic `visualViewport` resize hooks, and `Math.max(rect.height, window.innerHeight)` in `WebGPURaytracer.resize()`.
+2. **Cleaner, Warmer, Less-Technical UI**:
+   - Remove the Start Menu `+ Install` pill (keeping **Install on Home Screen** cleanly inside Settings; iOS Safari does not allow web apps to automate Add to Home Screen).
+   - Remove the redundant Start Menu Time button (`#btn-menu-solar` & `#btn-menu-open-settings`) so Settings lives in one unmistakable spot (`⚙`).
+   - Replace technical labels (`Raytraced`, `Procedural · Seed`, `Luster Score`, `Direct Craft`) with warm, cozy craft language.
+3. **Bonus Heart Pearls (Up to 3 per Level)**:
+   - Spawn 1–3 special **Heart Pearls** per level (`Tile.IsHeart`, encoded on GPU via bit 5 `flags |= 32` with zero ABI change).
+   - Rendered with a crisp contrast-adaptive analytic ♥ emblem directly on the pearl sphere (preserving underlying color readability on every light & dark pearl!) and periodically wiggling to invite early placement.
+   - **Early-Placement Bonus**: Placing a Heart Pearl early awards up to **`+600` bonus points** (scaling linearly down to `+150` based on remaining pearls when placed), paired with a floating `♥ HEART +N!` callout and a brand-new warm crystalline **Heart Chime** sound effect (`HeartClearEvents`).
+4. **Remote-Fetchable & Offline-Cached Curated Levels JSON (`public/levels.json`)**:
+   - Represent all curated levels in `public/levels.json` (fetched network-first on startup, cached in Service Worker + `localStorage` for offline play, with compiled fallback).
+   - Load JSON levels dynamically into WASM via a zero-alloc flat staging buffer (`sim_custom_level_ptr` / `sim_load_custom_level`) so new or updated levels can be pushed to the server without rebuilding or updating the app binary.
+   - Gallery UI, Chapter counts, and Journey progression react dynamically to the loaded catalog.
+5. **200-Level 4-Campaign Architecture Plan (Plan Only — Not Yet Built)**:
+   - Captured in [`docs/specs/03-campaign-200-plan.md`](file:///home/antigravity/patrickdomnick/mobile-game/docs/specs/03-campaign-200-plan.md) for review before authoring all 200 levels.
+
+---
+
+## 9. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -158,5 +182,6 @@ Informed by real-device iPhone 16 Safari playtesting of v2.5:
 | 2026-11-25 | **Pearl Loom v2.3 — Spotlight Antipattern, Material Polish, Guaranteed 3-Star & Seed Input** | **Shipped & Playtested** | Sleek 3D Neon orbs & dot-free Pop Art cel pearls; tray-budgeted solver proving 3-star achievability on 100% of puzzles; 5-archetype procedural seed generator + custom seed input. Playtest revealed: darkening non-target pearls felt reversed/off, completion result screen lagged ~2s waiting for `CelebrateT`, and `navigator.vibrate` is ignored on iOS Safari. |
 | 2026-11-25 | **Pearl Loom v2.4 — Pure Additive Interior Pulse, Instant Completion & iOS Safari Taptics** | **Shipped & Playtested** | Default zero glow / zero dimming; pure 3.5s double-beat chromatic interior glow strictly on starting & newly unlocked colors; instant `~0.35s` completion modal as final pearl lands; native iOS Safari `<input switch>` Taptic Engine clicks. Playtest requested: playful pearl-only wiggles on load/unlock + periodic ~1.2s random active-color pearl wiggle, plus closer 1-to-1 color matching between top-left HUD swatches and 3D board pearls. |
 | 2026-11-25 | **Pearl Loom v2.5 — Playful Active-Pearl Wiggles & 1-to-1 Color-Matched Swatches** | **Shipped & Playtested** | Pearl-only 3D wiggle + hop on level load & color unlock + periodic random active-color wiggle (~1.25s, zero-spoiler, 0-FPS between wiggles); sharper 6-color hue separation across all 4 themes + ACES-matched miniature 3D HUD pearl swatches (`pearl-loom-v9`). Playtest revealed: iOS 26.5 blocked programmatic switch `.click()` haptics, Safari audio needed `audioSession='playback'` + `'interrupted'`/frozen-clock self-healing, wiggles fired too immediately/frequently, and iOS 26 Safari hides *Add to Home Screen* behind `•••` → Share. |
-| 2026-11-25 | **Pearl Loom v2.6 — iOS 26.5 Direct-Tap Haptics, Bulletproof Audio, Delayed Wiggles & Install Guide** | **Shipped & Verified** | Direct-tap transparent switch/label overlay haptics + Settings Test Haptic; `audioSession='playback'` + interrupted/frozen-clock self-healing audio; `+0.70s`/`+0.85s` delayed calm wiggles + `3.0s` quiet-hand ambient cadence; in-app iOS 26 Safari PWA Install Guide (`pearl-loom-v10`). |
+| 2026-11-25 | **Pearl Loom v2.6 — iOS 26.5 Direct-Tap Haptics, Bulletproof Audio, Delayed Wiggles & Install Guide** | **Shipped & Playtested** | Direct-tap transparent switch/label overlay haptics + Settings Test Haptic; `audioSession='playback'` + interrupted/frozen-clock self-healing audio; `+0.70s`/`+0.85s` delayed calm wiggles + `3.0s` quiet-hand ambient cadence; in-app iOS 26 Safari PWA Install Guide (`pearl-loom-v10`). Playtest revealed: standalone PWA had a bottom black chin (`100dvh` WebKit quirk), Start Menu had duplicate Time & unnecessary Install buttons, UI copy felt too technical; requested Heart Pearls (max 3/level with early-placement bonus & chime), remote-cached `levels.json`, and a 200-level 4-campaign roadmap plan. |
+| 2026-11-25 | **Pearl Loom v2.7 — Full-Screen Standalone Fix, Cozy UI, Heart Pearls & Remote Cached `levels.json`** | **Shipped & Verified** | Edge-to-edge standalone PWA height fix; clean non-technical UI without redundant Time/Install buttons; 1–3 Bonus Heart Pearls with contrast-adaptive ♥ inlay, early-placement score scaling, periodic wiggle & crystalline chime; remote-fetched + offline-cached `public/levels.json` loaded dynamically into WASM (`pearl-loom-v11`); plus `03-campaign-200-plan.md` roadmap. |
 

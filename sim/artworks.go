@@ -81,6 +81,8 @@ type ArtworkDef struct {
 	Rows       int
 	Difficulty int // 1..4
 	Seed       uint32
+	NoBlockers bool // When true, every starting tile has an unobstructed outward lane
+	MaxHearts  int  // 0 = auto (2..3), capped strictly at MaxHeartsPerLevel (3)
 	Stitches   []StitchPoint
 }
 

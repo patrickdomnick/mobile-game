@@ -139,8 +139,12 @@ export class WebGPURaytracer {
     const cap = this.isSoftwareAdapter ? 0.50 : maxDpr;
     const dpr = Math.min(window.devicePixelRatio || 1, cap);
     const rect = this.canvas.getBoundingClientRect();
+    const standalone = document.documentElement.classList.contains('is-standalone');
     const cssW = Math.max(1, Math.floor(rect.width || window.innerWidth));
-    const cssH = Math.max(1, Math.floor(rect.height || window.innerHeight));
+    const cssH = Math.max(
+      1,
+      Math.floor(standalone ? Math.max(rect.height, window.innerHeight) : rect.height || window.innerHeight),
+    );
     const nextW = Math.max(1, Math.floor(cssW * dpr));
     const nextH = Math.max(1, Math.floor(cssH * dpr));
 
