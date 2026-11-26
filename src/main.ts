@@ -4,7 +4,7 @@ import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
 import { loadGameConfig, type GameConfig } from './config';
 import { EmbroideryGalleryStore, getTodayDateKey, type SeenSpecialKind } from './gallery';
 import { loadLevelsCatalog, type RemoteLevelDef } from './levels';
-import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
+import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupPwaUpdateManager, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
 import { CoachTooltipController } from './ui/coach';
 import { MenuSheetsController, customPrefsToMask, type SheetName } from './ui/sheets';
@@ -25,6 +25,7 @@ export interface GameTestState extends SimSnapshot {
   ready: boolean;
   screen: ScreenMode;
   activeSheet: SheetName;
+  updateAvailable: boolean;
   tutorialActive: boolean;
   tutorialStep: number;
   activeTooltipTitle: string | null;
@@ -89,6 +90,7 @@ export interface GameTestBridge {
   startIntro(): void;
   skipIntro(): void;
   openSheet(name: SheetName): void;
+  simulateUpdateAvailable(): void;
 }
 
 declare global {
@@ -139,6 +141,9 @@ async function bootstrap(): Promise<void> {
   const introSkipBtn = document.getElementById('btn-intro-skip');
   const introCaptionEl = document.getElementById('intro-caption');
   const tooltipDismissBtn = document.getElementById('btn-tooltip-dismiss');
+  const updateBannerEl = document.getElementById('update-banner');
+  const applyUpdateBtn = document.getElementById('btn-apply-update') as HTMLButtonElement | null;
+  const dismissUpdateBtn = document.getElementById('btn-dismiss-update');
 
   const startMenuEl = document.getElementById('overlay-start-menu');
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
@@ -415,6 +420,22 @@ async function bootstrap(): Promise<void> {
     };
 
     const installCtrl = setupInstallPrompt(() => updateInstallUi());
+    let updateBannerDismissed = false;
+    let lastKnownPhase: SimSnapshot['phase'] = 'playing';
+
+    const syncUpdateBanner = (): void => {
+      if (!updateBannerEl) return;
+      const safeContext =
+        (screenMode === 'menu' || (screenMode === 'playing' && lastKnownPhase === 'complete')) &&
+        !sheets.isAnySheetOpen();
+      const shouldShow = updateMgr.hasUpdate() && !updateBannerDismissed && safeContext;
+      updateBannerEl.classList.toggle('hidden', !shouldShow);
+    };
+
+    const updateMgr = setupPwaUpdateManager(() => {
+      updateBannerDismissed = false;
+      syncUpdateBanner();
+    });
 
     const updateInstallUi = (): void => {
       const standalone = isStandalonePwa();
@@ -447,6 +468,7 @@ async function bootstrap(): Promise<void> {
       }
       sheets.closeAll();
       sheets.installModal?.classList.remove('hidden');
+      syncUpdateBanner();
     };
 
     const setScreen = (next: ScreenMode): void => {
@@ -464,8 +486,11 @@ async function bootstrap(): Promise<void> {
         completeModal?.classList.add('hidden');
       }
       if (next === 'menu') {
+        updateBannerDismissed = false;
         sheets.refreshStartMenuCopy();
+        void updateMgr.checkForUpdate();
       }
+      syncUpdateBanner();
       wakeRenderer();
     };
 
@@ -501,6 +526,7 @@ async function bootstrap(): Promise<void> {
       updateInstallUi();
       sheets.closeAll();
       sheets.settingsSheet?.classList.remove('hidden');
+      syncUpdateBanner();
     };
 
     const launchCustomFromPrefs = (): void => {
@@ -645,11 +671,15 @@ async function bootstrap(): Promise<void> {
 
       syncEventCountersBaseline(snap);
 
+      lastKnownPhase = snap.phase;
+
       // Persist completion + miniature embroidery preview snapshot once per solve
       if (snap.phase === 'complete') {
         const key = `${snap.mode}:${snap.levelIndex}:${snap.seed}:${snap.events.completeEvents}`;
         if (key !== recordedCompleteKey) {
           recordedCompleteKey = key;
+          updateBannerDismissed = false;
+          void updateMgr.checkForUpdate();
           const stitches = sim.readHoopPreviewStitches();
           gallery.recordCompletion(snap.mode, snap.levelIndex, snap.score, snap.stars, snap.maxStreak, {
             seed: snap.seed,
@@ -669,6 +699,7 @@ async function bootstrap(): Promise<void> {
           sheets.refreshAll();
         }
       }
+      syncUpdateBanner();
 
       const nextLighting = snap.daylightFactor < 0.45 ? 'night' : 'day';
       if (appEl && nextLighting !== lastLightingTheme) {
@@ -914,7 +945,22 @@ async function bootstrap(): Promise<void> {
     canvasHapticLayer?.addEventListener('pointerdown', handleBoardPointerDown);
     canvas.addEventListener('pointerdown', handleBoardPointerDown);
 
-    // Intro, Tooltip, Settings & Menu wiring
+    // Intro, Tooltip, Update Banner, Settings & Menu wiring
+    applyUpdateBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      soundscape.playUiTap(settings.hapticsEnabled);
+      if (applyUpdateBtn) {
+        applyUpdateBtn.disabled = true;
+        applyUpdateBtn.textContent = 'Updating…';
+      }
+      void updateMgr.applyUpdate();
+    });
+    dismissUpdateBtn?.addEventListener('click', () => {
+      soundscape.unlock();
+      soundscape.playUiTap(settings.hapticsEnabled);
+      updateBannerDismissed = true;
+      syncUpdateBanner();
+    });
     introSkipBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
@@ -930,6 +976,7 @@ async function bootstrap(): Promise<void> {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
       sheets.closeAll();
+      syncUpdateBanner();
       wakeRenderer();
     });
     replayTutorialBtn?.addEventListener('click', () => {
@@ -962,6 +1009,7 @@ async function bootstrap(): Promise<void> {
       sheets.renderDailyLibraryUi();
       sheets.closeAll();
       sheets.dailyLibrarySheet?.classList.remove('hidden');
+      syncUpdateBanner();
     });
     modeRandomBtn?.addEventListener('click', () => {
       soundscape.unlock();
@@ -969,6 +1017,7 @@ async function bootstrap(): Promise<void> {
       sheets.renderRandomStudioUi();
       sheets.closeAll();
       sheets.randomSheet?.classList.remove('hidden');
+      syncUpdateBanner();
     });
     modeCustomBtn?.addEventListener('click', () => {
       soundscape.unlock();
@@ -976,6 +1025,7 @@ async function bootstrap(): Promise<void> {
       sheets.renderCustomBuilderUi();
       sheets.closeAll();
       sheets.customSheet?.classList.remove('hidden');
+      syncUpdateBanner();
     });
     menuGalleryBtn?.addEventListener('click', () => {
       soundscape.unlock();
@@ -983,11 +1033,13 @@ async function bootstrap(): Promise<void> {
       sheets.renderGalleryUi();
       sheets.closeAll();
       sheets.gallerySheet?.classList.remove('hidden');
+      syncUpdateBanner();
     });
 
     for (const btn of [closeGalleryBtn, closeDailyLibraryBtn, closeRandomBtn, closeCustomBtn, closeSettingsBtn]) {
       btn?.addEventListener('click', () => {
         sheets.closeAll();
+        syncUpdateBanner();
         wakeRenderer();
       });
     }
@@ -1169,20 +1221,35 @@ async function bootstrap(): Promise<void> {
     window.addEventListener('pointerdown', handleGlobalAudioUnlock, { capture: true, passive: true });
     window.addEventListener('touchend', handleGlobalAudioUnlock, { capture: true, passive: true });
 
-    document.addEventListener('visibilitychange', () => {
-      soundscape.setVisibilityHidden(document.visibilityState === 'hidden');
-    });
-    window.addEventListener('pageshow', () => soundscape.handleForegroundResume());
-    window.addEventListener('focus', () => soundscape.handleForegroundResume());
-
     const handleViewportResize = (): void => {
       renderer.resize();
       wakeRenderer();
       renderNonBlocking();
     };
+
+    document.addEventListener('visibilitychange', () => {
+      const hidden = document.visibilityState === 'hidden';
+      soundscape.setVisibilityHidden(hidden);
+      if (!hidden) {
+        handleViewportResize();
+        if (screenMode === 'menu' || lastKnownPhase === 'complete') {
+          void updateMgr.checkForUpdate();
+        }
+      }
+    });
+    window.addEventListener('pageshow', () => {
+      soundscape.handleForegroundResume();
+      handleViewportResize();
+      if (screenMode === 'menu' || lastKnownPhase === 'complete') {
+        void updateMgr.checkForUpdate();
+      }
+    });
+    window.addEventListener('focus', () => soundscape.handleForegroundResume());
     window.addEventListener('resize', handleViewportResize);
     window.addEventListener('orientationchange', handleViewportResize);
     window.visualViewport?.addEventListener('resize', handleViewportResize);
+    // Guard against iOS standalone PWA viewport settling 100-250ms after cold start or reload!
+    window.setTimeout(handleViewportResize, 220);
 
     // Deterministic AI Playtest & E2E Bridge (Spec 02)
     window.__GAME_TEST__ = {
@@ -1194,6 +1261,7 @@ async function bootstrap(): Promise<void> {
           ready: isReady,
           screen: screenMode,
           activeSheet: sheets.getActiveSheet(),
+          updateAvailable: updateMgr.hasUpdate(),
           tutorialActive: coach.isTutorialActive(),
           tutorialStep: coach.getTutorialStep(),
           activeTooltipTitle: coach.getActiveTooltipTitle(),
@@ -1386,7 +1454,11 @@ async function bootstrap(): Promise<void> {
         } else if (name === 'install') {
           sheets.installModal?.classList.remove('hidden');
         }
+        syncUpdateBanner();
         wakeRenderer();
+      },
+      simulateUpdateAvailable: () => {
+        updateMgr.simulateUpdateAvailable();
       },
     };
 

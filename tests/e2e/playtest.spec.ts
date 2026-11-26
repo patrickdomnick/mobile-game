@@ -506,6 +506,12 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     await expect(page.locator('#swatch-caption')).toHaveText('FINISH');
 
     // 12. Reload -> Returning player must skip intro straight to Start Menu with all archives persisted!
+    const versionRes = await request.get('/version.json');
+    expect(versionRes.status()).toBe(200);
+    const versionJson = await versionRes.json();
+    expect(typeof versionJson.buildId).toBe('string');
+    expect(versionJson.buildId.length).toBeGreaterThan(4);
+
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Boolean(window.__GAME_TEST__), undefined, { timeout: 15_000 });
     await page.evaluate(async () => {
@@ -518,6 +524,18 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     expect(reloaded.gallery.dailyHistoryCount).toBeGreaterThanOrEqual(1);
     expect(reloaded.gallery.randomHistoryCount).toBeGreaterThanOrEqual(1);
     expect(reloaded.gallery.customHistoryCount).toBeGreaterThanOrEqual(1);
+
+    // 13. Verify In-App PWA Update Banner appears cleanly on Start Menu, stays hidden during active gameplay, and dismisses cleanly!
+    await expect(page.locator('#update-banner')).toBeHidden();
+    await page.evaluate(() => window.__GAME_TEST__!.simulateUpdateAvailable());
+    await expect(page.locator('#update-banner')).toBeVisible();
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'update-banner.png') });
+    await page.evaluate(() => window.__GAME_TEST__!.enterGame());
+    await expect(page.locator('#update-banner')).toBeHidden();
+    await page.evaluate(() => window.__GAME_TEST__!.openStartMenu());
+    await expect(page.locator('#update-banner')).toBeVisible();
+    await page.locator('#btn-dismiss-update').click();
+    await expect(page.locator('#update-banner')).toBeHidden();
 
     expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
     expect(pageErrors, `Page errors: ${pageErrors.join('\n')}`).toEqual([]);

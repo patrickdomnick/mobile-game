@@ -54,10 +54,46 @@ function watchSimWasmPlugin(): Plugin {
   };
 }
 
+const APP_BUILD_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+/**
+ * Emits a tiny `version.json` into dist/ (and serves it in dev) matching `__APP_BUILD_ID__`
+ * so installed iOS standalone PWAs can reliably detect newly deployed builds on menu return
+ * or level completion even when WebKit throttles Service Worker polling.
+ */
+function emitVersionJsonPlugin(): Plugin {
+  const payload = JSON.stringify({ buildId: APP_BUILD_ID, builtAt: new Date().toISOString() });
+  return {
+    name: 'emit-version-json',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const cleanUrl = (req.url ?? '').split('?')[0];
+        if (cleanUrl === '/version.json' || cleanUrl.endsWith('/version.json')) {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(payload);
+          return;
+        }
+        next();
+      });
+    },
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: payload,
+      });
+    },
+  };
+}
+
 export default defineConfig({
   // Relative base so the same dist/ works at both http://localhost:4173/ and GitHub Pages (/mobile-game/)
   base: './',
-  plugins: [watchSimWasmPlugin()],
+  define: {
+    __APP_BUILD_ID__: JSON.stringify(APP_BUILD_ID),
+  },
+  plugins: [watchSimWasmPlugin(), emitVersionJsonPlugin()],
   server: {
     host: true,
     port: 5173,

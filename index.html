@@ -77,6 +77,27 @@
       </aside>
 
       <!-- =============================================================== -->
+      <!-- IN-APP PWA UPDATE BANNER (Shown only on Start Menu / Complete)  -->
+      <!-- =============================================================== -->
+      <aside
+        id="update-banner"
+        class="update-banner hidden"
+        role="status"
+        aria-live="polite"
+        aria-label="App Update Available"
+      >
+        <span class="update-banner-icon" aria-hidden="true">✦</span>
+        <div class="update-banner-copy">
+          <strong>New version ready</strong>
+          <span>Tap to load the latest polish</span>
+        </div>
+        <button id="btn-apply-update" class="update-banner-btn" type="button">Update</button>
+        <button id="btn-dismiss-update" class="update-banner-close" type="button" aria-label="Dismiss update notice">
+          ✕
+        </button>
+      </aside>
+
+      <!-- =============================================================== -->
       <!-- REFINED 4-ROW START MENU (Floating over live 3D pearl board)    -->
       <!-- =============================================================== -->
       <section id="overlay-start-menu" class="start-menu" role="dialog" aria-label="Pearl Loom Start Menu">

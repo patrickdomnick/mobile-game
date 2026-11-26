@@ -1540,10 +1540,124 @@ html.is-standalone #app {
   opacity: 0.92;
 }
 
+/* ========================================================================= */
+/* IN-APP PWA UPDATE BANNER (Safe-Area Top Floating Pill)                    */
+/* ========================================================================= */
+.update-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(358px, calc(100vw - 24px));
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 18px;
+  background: var(--modal-bg);
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: var(--ink);
+  animation: updateDropIn 0.24s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+}
+
+@keyframes updateDropIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.update-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--primary-grad);
+  color: var(--primary-ink);
+  font-size: 15px;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.update-banner-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.update-banner-copy strong {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.update-banner-copy span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  line-height: 1.25;
+}
+
+.update-banner-btn {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: none;
+  background: var(--primary-grad);
+  color: var(--primary-ink);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s ease, opacity 0.15s ease;
+}
+
+.update-banner-btn:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+.update-banner-btn:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.update-banner-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sheet-panel,
   .modal-card,
-  .score-value.is-pop {
+  .score-value.is-pop,
+  .update-banner {
     animation: none !important;
   }
 }
