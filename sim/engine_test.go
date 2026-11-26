@@ -847,4 +847,133 @@ func TestOptimalHintNeverSabotagesWhenNoDirectColorAvailable(t *testing.T) {
 	}
 }
 
+func TestIntroUnravelAnimationLifecycle(t *testing.T) {
+	var e Engine
+	e.LoadCuratedLevel(0)
+	e.StartIntroUnravel()
+
+	if !e.IntroActive || e.State[64] != 1 {
+		t.Fatalf("expected IntroActive=true and State[64]=1 immediately after StartIntroUnravel")
+	}
+	if !e.IsAnimating() {
+		t.Fatalf("expected IsAnimating()=true while IntroActive")
+	}
+	// All 14 hoop pearls should initially be stitched on hoop, and all 14 board tiles hidden in GPU scene buffer!
+	for h := 0; h < e.HoopCount; h++ {
+		if !e.HoopPearls[h].Stitched {
+			t.Fatalf("hoop pearl %d should start stitched during intro", h)
+		}
+	}
+	for i := 0; i < e.TileCount; i++ {
+		flags := uint32(e.Scene[SceneTileOffset+i*8+6])
+		if (flags & 1) != 0 {
+			t.Fatalf("board tile %d should be hidden (alive GPU bit 0) at intro start", i)
+		}
+	}
+	// Taps must be ignored while intro is playing
+	if e.TapTile(0) {
+		t.Fatalf("TapTile must return false while IntroActive")
+	}
+
+	// Step 220 ticks (~3.66s at 60Hz) — intro should complete naturally and reveal every board tile!
+	for s := 0; s < 220; s++ {
+		e.Step(FixedDT)
+	}
+	if e.IntroActive || e.State[64] != 0 {
+		t.Fatalf("expected IntroActive to finish within 3.6s, elapsed=%.2f hiddenMask=%x", e.IntroElapsed, e.IntroHiddenMask)
+	}
+	for h := 0; h < e.HoopCount; h++ {
+		if e.HoopPearls[h].Stitched {
+			t.Fatalf("hoop pearl %d should be unstitched after intro finishes", h)
+		}
+	}
+	for i := 0; i < e.TileCount; i++ {
+		flags := uint32(e.Scene[SceneTileOffset+i*8+6])
+		if (flags & 1) == 0 {
+			t.Fatalf("board tile %d should be visible (GPU bit 1) after intro finishes", i)
+		}
+	}
+
+	// Also verify SkipIntroUnravel finishes immediately on frame 0
+	e.StartIntroUnravel()
+	if !e.IntroActive {
+		t.Fatalf("expected IntroActive after restart")
+	}
+	e.SkipIntroUnravel()
+	if e.IntroActive || e.IntroHiddenMask != 0 {
+		t.Fatalf("expected SkipIntroUnravel to clear IntroActive & IntroHiddenMask immediately")
+	}
+}
+
+func TestLoadMandalaStyledThemeOverride(t *testing.T) {
+	var e Engine
+	for theme := 0; theme < NumThemes; theme++ {
+		e.LoadMandalaStyled(424242, SeedDiffEasy, theme)
+		if e.Mode != 1 {
+			t.Fatalf("expected Mode=1, got %d", e.Mode)
+		}
+		if e.ThemeIndex != theme {
+			t.Fatalf("expected explicit theme %d, got %d", theme, e.ThemeIndex)
+		}
+		if e.GridCols != 5 || e.GridRows != 5 {
+			t.Fatalf("expected Easy 5x5 grid, got %dx%d", e.GridCols, e.GridRows)
+		}
+	}
+	// Negative theme falls back to deterministic ThemeForMandala(seed)
+	e.LoadMandalaStyled(424242, SeedDiffHard, -1)
+	wantTheme := ThemeForMandala(424242)
+	if e.ThemeIndex != wantTheme {
+		t.Fatalf("expected random theme %d for theme=-1, got %d", wantTheme, e.ThemeIndex)
+	}
+	if e.GridCols != 7 || e.GridRows != 7 {
+		t.Fatalf("expected Hard 7x7 grid, got %dx%d", e.GridCols, e.GridRows)
+	}
+}
+
+func TestCustomModeGeneratorSolvableAndThreeStar(t *testing.T) {
+	cases := []struct {
+		name   string
+		seed   uint32
+		theme  int
+		cols   int
+		rows   int
+		colors int
+		mask   uint32
+	}{
+		{"5x5_3col_plain", 111111, 0, 5, 5, 3, 0},
+		{"6x5_4col_hearts_rainbow", 222222, 1, 6, 5, 4, SpecialMaskHeart | SpecialMaskRainbow},
+		{"7x6_5col_hidden_locked", 333333, 2, 7, 6, 5, SpecialMaskHidden | SpecialMaskLocked},
+		{"8x8_6col_all_specials", 444444, 3, 8, 8, 6, SpecialMaskHeart | SpecialMaskRainbow | SpecialMaskHidden | SpecialMaskLocked},
+	}
+
+	for _, tc := range cases {
+		var e Engine
+		e.LoadCustomGenerated(tc.seed, tc.theme, tc.cols, tc.rows, tc.colors, tc.mask)
+		if e.Mode != 3 {
+			t.Fatalf("%s: expected Mode=3 (custom), got %d", tc.name, e.Mode)
+		}
+		if e.ThemeIndex != tc.theme {
+			t.Fatalf("%s: expected theme %d, got %d", tc.name, tc.theme, e.ThemeIndex)
+		}
+		if e.GridCols != tc.cols || e.GridRows != tc.rows {
+			t.Fatalf("%s: expected grid %dx%d, got %dx%d", tc.name, tc.cols, tc.rows, e.GridCols, e.GridRows)
+		}
+
+		// Verify board is solvable to PhaseComplete via ComputeHint()!
+		for step := 0; step < e.TileCount+12 && e.Phase != PhaseComplete; step++ {
+			mv := e.ComputeHint()
+			if mv < 0 {
+				t.Fatalf("%s: ComputeHint returned %d at step %d (not cleanly solvable!)", tc.name, mv, step)
+			}
+			if !e.TapTile(mv) {
+				t.Fatalf("%s: TapTile(%d) failed at step %d", tc.name, mv, step)
+			}
+		}
+		if e.Phase != PhaseComplete {
+			t.Fatalf("%s: failed to complete custom board, phase=%d", tc.name, e.Phase)
+		}
+	}
+}
+
+
 

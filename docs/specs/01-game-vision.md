@@ -231,7 +231,41 @@ Elevating end-of-puzzle momentum and making Hints genuinely trustworthy on hard 
 
 ---
 
-## 12. Iteration Log
+## 12. Pearl Loom v3.0 Design Delta — Out-of-Game Experience, Animated Unravel Onboarding & Custom Mode (`Status: Locked`)
+
+Polishing first impressions, menu hierarchy, visual browseability, and sandbox play:
+
+1. **First-Load 3D Unravel Intro & Guided Level 1 Tutorial**:
+   - Fresh players (no prior campaign progress and `onboardingCompleted !== true`) launch straight into an **in-game 3D intro animation**: the **Pearl Loom** title appears while Jewel Atelier Level 1 (`Sunbeam Brooch`) starts **fully embroidered on the hoop**, then smoothly unravels its 14 pearls off the hoop and down onto the board tiles (`StartIntroUnravel()`).
+   - Inside Tutorial Level 1, concise, non-blocking floating coach tooltips (`#tutorial-tooltip`) teach:
+     - Active colors at top-left & tapping matching pearls on the board.
+     - Arrow slide direction & the 5-slot holding tray.
+     - Undo, Hint, and Restart controls.
+   - Upon finishing Tutorial Level 1, the completion modal includes a clear **How Scoring & Stars Work** debrief (streak multiplier, clean stitch / 3-star rating, early Heart bonuses) with **Continue** (to Level 2) or **Start Menu** buttons.
+   - Returning players skip straight to the Start Menu and can replay the intro/tutorial anytime from Settings.
+2. **First-Encounter Special Pearl Tooltips & Spacious Settings Guide**:
+   - The first time a player encounters each special pearl (`♥ Heart`, `🌈 Rainbow`, `? Hidden`, `🔒 Locked`) on a live board (`seenSpecials` persisted in `localStorage`), a compact, non-intrusive floating tooltip explains only the essential rule and dismisses cleanly on tap or `Got it`.
+   - In the Settings drawer, each of the 4 special pearls gets its own spacious individual card/row with icon badge, title, and concise copy instead of one crammed paragraph.
+3. **Redesigned 4-Row Start Menu**:
+   - Removes the 4-campaign switcher strip from the Start Menu.
+   - **Row 1 (Full-Width Primary CTA)**: Next Campaign Level hero button.
+   - **Row 2 (2 Columns — Daily)**: Left = Today's **Daily Stitch**; Right = **Daily Library** (completed dailies archive with miniature embroidery previews & 1-tap replay).
+   - **Row 3 (2 Columns — Random & Custom)**: Left = **Random** (dedicated studio screen — no instant-start); Right = **Custom** (new full puzzle builder).
+   - **Row 4 (Bottom / Last Button)**: **Level Select** (opens Campaigns & Level Select).
+4. **Theme-Synced 1-Column Square Level Select (`#overlay-gallery`)**:
+   - Switching campaign tabs (`Jewel / Neon / Pop / Prism`) styles both the sheet (`data-view-theme`) and live 3D WebGPU background to match that world.
+   - Displays **1-column square cards** featuring a crisp Retina **miniature SVG preview of the finished embroidery** (`src/preview.ts`), grid dimensions, level name, difficulty tier, colors, special badges, stars/best score, and frosted lock treatment for locked levels.
+   - Removes Endless and Seed controls completely from Level Select.
+5. **Dedicated Daily Library (`#overlay-daily-library`) & Random Studio (`#overlay-random`)**:
+   - **Daily Library**: 1-column square archive of all completed Daily Stitches (miniature embroidery preview, date, style, stars, score, 1-tap Replay).
+   - **Random Studio**: Top controls with **Seed input at the very top**, **Style selector** (`Random` or explicit `Jewel / Neon / Pop / Prism`), **Difficulty selector** (`Easy 5×5` → `Extreme 8×8`), and **Start** button; scrollable 1-column archive of all completed Random levels below.
+6. **New Custom Mode Builder (`#overlay-custom`)**:
+   - Configure **Board Size** (`5×5` to `8×8`, independent cols & rows), **Color Count** (`3`–`6`), **Special Pearl Toggles** (`♥`, `🌈`, `?`, `🔒`), and **Style** (`Jewel / Neon / Pop / Prism`).
+   - Generated on the fly in TinyGo WASM (`GenerateCustomArtwork` / `LoadCustomGenerated`) with guaranteed solvability and verified 3-star paths.
+
+---
+
+## 13. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -247,4 +281,6 @@ Elevating end-of-puzzle momentum and making Hints genuinely trustworthy on hard 
 | 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Playtested** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). Confirmed `8×8` is ideal upper bound on iPhone 16 and ramp feels great! |
 | 2026-11-25 | **Pearl Loom v2.9 — Special Pearls Suite (3D Heart, Rainbow, Hidden, Locked), Live `config.json` & Seeded Difficulties** | **Shipped & Verified** | True 3D raymarched heart pearl; Rainbow wild pearls (surplus pearl + independent jiggle + shimmer arp); Obsidian Hidden pearls (reveal when stitchable + chime); 4-neighbor Locked pearls (directional clasp overlay + latch-release audio); remote-cached `public/config.json`; 4 seeded difficulty tiers (`Easy 5×5` → `Extreme 8×8`) (`pearl-loom-v13`). |
 | 2026-11-25 | **Pearl Loom v2.10 — Final-Color Victory Rush, Auto-Resolve Queue & Optimal Solver Hints** | **Shipped & Verified** | Final-color rush mode: upbeat victory music, snappier flight/UI, zero jiggles & zero gem highlights, zero-error click-to-queue auto-resolve domino cascade; iterative-deepening minimum-tray-cost optimal Hint solver that always picks the best winning path (`pearl-loom-v14`). |
+| 2026-11-25 | **Pearl Loom v3.0 — Animated Unravel Onboarding, Refined Menus, Miniature Embroidery Previews & Custom Mode** | **Shipped & Verified** | Live 3D hoop-to-board unravel intro + guided Level 1 tooltips & post-level scoring debrief; first-encounter Special Pearl tooltips + spacious per-pearl Settings guide; 4-row Start Menu; theme-synced 1-column square Level Select with Retina SVG embroidery previews; Daily Library archive; Random Studio (seed/style/difficulty + completed archive); Custom Mode builder (`5×5`–`8×8`, `3–6` colors, special toggles, style) (`pearl-loom-v15`). |
+
 

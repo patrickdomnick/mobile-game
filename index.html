@@ -41,7 +41,43 @@
       <div id="fx-callout-layer" class="fx-callout-layer" aria-hidden="true"></div>
 
       <!-- =============================================================== -->
-      <!-- CAMPAIGN-FIRST START MENU (Floating over live 3D pearl board)   -->
+      <!-- FIRST-LOAD 3D UNRAVEL INTRO OVERLAY                             -->
+      <!-- =============================================================== -->
+      <section id="overlay-intro" class="intro-overlay hidden" role="dialog" aria-label="Welcome to Pearl Loom">
+        <div class="intro-top-bar">
+          <button id="btn-intro-skip" class="pill pill-btn intro-skip-btn" type="button">
+            Skip ›
+          </button>
+        </div>
+        <div class="intro-title-stage">
+          <p class="start-eyebrow">PEARL EMBROIDERY PUZZLE</p>
+          <h1 class="intro-title">Pearl Loom</h1>
+          <p id="intro-caption" class="intro-caption">Watch the embroidery unravel into your first puzzle…</p>
+        </div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- CONTEXTUAL TUTORIAL & FIRST-ENCOUNTER SPECIAL PEARL TOOLTIP     -->
+      <!-- =============================================================== -->
+      <aside
+        id="tutorial-tooltip"
+        class="coach-tooltip hidden"
+        data-anchor="top"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="coach-tooltip-icon" id="tooltip-icon" aria-hidden="true">✦</div>
+        <div class="coach-tooltip-body">
+          <strong id="tooltip-title" class="coach-tooltip-title">Match the active colors</strong>
+          <p id="tooltip-text" class="coach-tooltip-text">Tap pearls matching the colors shown at top-left.</p>
+        </div>
+        <button id="btn-tooltip-dismiss" class="coach-tooltip-btn" type="button" aria-label="Dismiss tip">
+          Got it
+        </button>
+      </aside>
+
+      <!-- =============================================================== -->
+      <!-- REFINED 4-ROW START MENU (Floating over live 3D pearl board)    -->
       <!-- =============================================================== -->
       <section id="overlay-start-menu" class="start-menu" role="dialog" aria-label="Pearl Loom Start Menu">
         <div class="start-top-bar start-top-bar-end">
@@ -58,32 +94,47 @@
           </div>
         </div>
 
-        <div class="start-modes" aria-label="Campaigns and Modes">
-          <div id="menu-campaign-strip" class="menu-campaign-strip" role="tablist" aria-label="Choose Campaign"></div>
-
+        <div class="start-modes" aria-label="Game Modes">
+          <!-- Row 1: Primary Next Campaign Level Hero CTA -->
           <button id="btn-mode-journey" class="mode-btn mode-btn-primary" type="button">
             <span id="menu-journey-badge" class="mode-btn-badge">JEWEL ATELIER · LEVEL 1 OF 13</span>
             <span id="menu-journey-main" class="mode-btn-main">Play Sunbeam Brooch</span>
             <span id="menu-journey-meta" class="mode-btn-sub">5×5 · Warm-Up · No Blockers</span>
           </button>
 
-          <button id="btn-menu-gallery" class="tactile-pill-btn menu-levels-btn" type="button">
-            <span aria-hidden="true">✦</span>
-            <span id="menu-gallery-label">View All 13 Levels</span>
-          </button>
-
+          <!-- Row 2: Daily Stitch (Left) + Daily Library (Right) -->
           <div class="mode-btn-grid">
             <button id="btn-mode-daily" class="mode-btn mode-btn-gold mode-btn-compact" type="button">
               <span id="menu-daily-badge" class="mode-btn-badge">TODAY · DAILY</span>
               <span class="mode-btn-main">Daily Stitch</span>
               <span id="menu-daily-meta" class="mode-btn-sub">Fresh daily pattern</span>
             </button>
-            <button id="btn-mode-endless" class="mode-btn mode-btn-prism mode-btn-compact" type="button">
-              <span class="mode-btn-badge">ENDLESS</span>
-              <span class="mode-btn-main">Endless</span>
-              <span id="menu-endless-meta" class="mode-btn-sub">Fresh pattern every time</span>
+            <button id="btn-mode-daily-library" class="mode-btn mode-btn-surface mode-btn-compact" type="button">
+              <span class="mode-btn-badge">ARCHIVE</span>
+              <span class="mode-btn-main">Daily Library</span>
+              <span id="menu-daily-lib-meta" class="mode-btn-sub">0 completed</span>
             </button>
           </div>
+
+          <!-- Row 3: Random Studio (Left) + Custom Builder (Right) -->
+          <div class="mode-btn-grid">
+            <button id="btn-mode-random" class="mode-btn mode-btn-prism mode-btn-compact" type="button">
+              <span class="mode-btn-badge">SEEDED STUDIO</span>
+              <span class="mode-btn-main">Random</span>
+              <span id="menu-random-meta" class="mode-btn-sub">Style, seed &amp; history</span>
+            </button>
+            <button id="btn-mode-custom" class="mode-btn mode-btn-teal mode-btn-compact" type="button">
+              <span class="mode-btn-badge">SANDBOX</span>
+              <span class="mode-btn-main">Custom</span>
+              <span id="menu-custom-meta" class="mode-btn-sub">5×5–8×8 · Your rules</span>
+            </button>
+          </div>
+
+          <!-- Row 4 (Bottom / Last Button): Level Select / Campaigns -->
+          <button id="btn-menu-gallery" class="tactile-pill-btn menu-levels-btn" type="button">
+            <span aria-hidden="true">✦</span>
+            <span id="menu-gallery-label">Level Select · 4 Campaigns</span>
+          </button>
         </div>
       </section>
 
@@ -96,9 +147,9 @@
             <button id="btn-home" class="pill pill-btn icon-pill" type="button" aria-label="Open Start Menu">
               <span aria-hidden="true">☰</span>
             </button>
-            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Browse Patterns">
-              <span id="hud-pattern-name" class="pattern-name">Jewel Heart</span>
-              <span id="hud-progress" class="pill-value">0/21</span>
+            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Browse Levels">
+              <span id="hud-pattern-name" class="pattern-name">Sunbeam Brooch</span>
+              <span id="hud-progress" class="pill-value">0/14</span>
               <span class="caret" aria-hidden="true">▾</span>
             </button>
           </div>
@@ -155,7 +206,7 @@
       </footer>
 
       <!-- =============================================================== -->
-      <!-- SETTINGS DRAWER (Lighting, Sound, Touch Feedback, Install App)  -->
+      <!-- SETTINGS DRAWER (Spacious Individual Special Pearls Guide)      -->
       <!-- =============================================================== -->
       <section id="overlay-settings" class="sheet-panel hidden" role="dialog" aria-label="Settings">
         <div class="sheet-header">
@@ -239,23 +290,70 @@
         </div>
 
         <div class="settings-card">
-          <h3 class="settings-heading">Special Pearls</h3>
-          <p class="settings-sub">
-            ♥ 3D Hearts give early bonus points · 🌈 Rainbow matches any active color · ? Hidden reveals when stitchable · 🔒 Locked opens once its 4 adjacent pearls clear.
-          </p>
+          <div class="settings-toggle-row">
+            <div>
+              <h3 class="settings-heading">Intro &amp; Guided Tutorial</h3>
+              <p class="settings-sub">Watch the opening animation &amp; replay Level 1 tips</p>
+            </div>
+            <button id="btn-replay-tutorial" class="toggle-chip" type="button">
+              Replay
+            </button>
+          </div>
+        </div>
+
+        <!-- Spacious Individual Special Pearls Guide -->
+        <div class="settings-section-label">SPECIAL PEARLS GUIDE</div>
+        <div class="special-guide-list" aria-label="Special Pearls Guide">
+          <article class="special-guide-card">
+            <div class="special-guide-badge special-badge-heart" aria-hidden="true">♥</div>
+            <div class="special-guide-copy">
+              <h3 class="settings-heading">Heart Pearl</h3>
+              <p class="settings-sub">Sculpted bonus pearl. Stitch it early in the level to earn up to +500 extra points.</p>
+            </div>
+          </article>
+
+          <article class="special-guide-card">
+            <div class="special-guide-badge special-badge-rainbow" aria-hidden="true">🌈</div>
+            <div class="special-guide-copy">
+              <h3 class="settings-heading">Rainbow Pearl</h3>
+              <p class="settings-sub">Wild pearl that fills any active color. One matching pearl stays as a bonus spare.</p>
+            </div>
+          </article>
+
+          <article class="special-guide-card">
+            <div class="special-guide-badge special-badge-hidden" aria-hidden="true">?</div>
+            <div class="special-guide-copy">
+              <h3 class="settings-heading">Hidden Pearl</h3>
+              <p class="settings-sub">Starts dark obsidian. Its true color reveals the moment its lane opens and can be stitched.</p>
+            </div>
+          </article>
+
+          <article class="special-guide-card">
+            <div class="special-guide-badge special-badge-locked" aria-hidden="true">🔒</div>
+            <div class="special-guide-copy">
+              <h3 class="settings-heading">Locked Pearl</h3>
+              <p class="settings-sub">Clamped by gold bars. Clear all pearls directly touching its 4 sides to unlock it.</p>
+            </div>
+          </article>
         </div>
       </section>
 
       <!-- =============================================================== -->
-      <!-- CAMPAIGNS MAP + SIDE MODES & PATTERN CODE                       -->
+      <!-- THEME-SYNCED LEVEL SELECT / CAMPAIGNS (1-Column Square Cards)   -->
       <!-- =============================================================== -->
-      <section id="overlay-gallery" class="sheet-panel hidden" role="dialog" aria-label="Campaigns">
+      <section
+        id="overlay-gallery"
+        class="sheet-panel sheet-themed hidden"
+        data-view-theme="0"
+        role="dialog"
+        aria-label="Level Select"
+      >
         <div class="sheet-header">
           <div>
             <p id="gallery-eyebrow" class="modal-eyebrow">4 CAMPAIGNS · 52 LEVELS</p>
-            <h2 class="sheet-title">Campaigns</h2>
+            <h2 class="sheet-title">Level Select</h2>
           </div>
-          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Campaigns">
+          <button id="btn-close-gallery" class="pill pill-btn icon-pill" type="button" aria-label="Close Level Select">
             ✕
           </button>
         </div>
@@ -278,41 +376,160 @@
           </div>
         </div>
 
-        <div id="gallery-grid" class="gallery-grid" aria-label="Campaign Levels"></div>
+        <div id="gallery-grid" class="gallery-grid-single" aria-label="Campaign Levels"></div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- DAILY STITCH LIBRARY (Completed Dailies Archive + Replay)       -->
+      <!-- =============================================================== -->
+      <section id="overlay-daily-library" class="sheet-panel hidden" role="dialog" aria-label="Daily Library">
+        <div class="sheet-header">
+          <div>
+            <p id="daily-lib-eyebrow" class="modal-eyebrow">DAILY STITCH ARCHIVE</p>
+            <h2 class="sheet-title">Daily Library</h2>
+          </div>
+          <button id="btn-close-daily-library" class="pill pill-btn icon-pill" type="button" aria-label="Close Daily Library">
+            ✕
+          </button>
+        </div>
+
+        <div class="settings-card daily-lib-hero-card">
+          <div class="settings-toggle-row">
+            <div>
+              <h3 class="settings-heading" id="daily-lib-today-title">Today's Daily Stitch</h3>
+              <p class="settings-sub" id="daily-lib-today-sub">Fresh 6×6 pattern · Hearts &amp; Rainbow</p>
+            </div>
+            <button id="btn-daily-lib-play-today" class="seed-play-btn" type="button">
+              Play Today
+            </button>
+          </div>
+        </div>
+
+        <div id="daily-library-grid" class="gallery-grid-single" aria-label="Completed Daily Stitches"></div>
+      </section>
+
+      <!-- =============================================================== -->
+      <!-- RANDOM MODE STUDIO (Seed + Style + Difficulty + Archive)        -->
+      <!-- =============================================================== -->
+      <section
+        id="overlay-random"
+        class="sheet-panel sheet-themed hidden"
+        data-view-theme="0"
+        role="dialog"
+        aria-label="Random Mode"
+      >
+        <div class="sheet-header">
+          <div>
+            <p class="modal-eyebrow">SEEDED STUDIO</p>
+            <h2 class="sheet-title">Random</h2>
+          </div>
+          <button id="btn-close-random" class="pill pill-btn icon-pill" type="button" aria-label="Close Random Mode">
+            ✕
+          </button>
+        </div>
+
+        <!-- Seed input right at the very top! -->
+        <div class="studio-control-card">
+          <label class="studio-field-label" for="input-custom-seed">PLAY A SPECIFIC SEED</label>
+          <form id="seed-form" class="seed-input-row" aria-label="Play Specific Pattern Seed">
+            <input
+              id="input-custom-seed"
+              class="seed-input"
+              type="text"
+              inputmode="text"
+              maxlength="24"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Enter seed number or word…"
+              aria-label="Pattern Seed"
+            />
+            <button id="btn-play-seed" class="seed-play-btn" type="submit">Play Seed</button>
+          </form>
+
+          <div class="studio-field-block">
+            <span class="studio-field-label">STYLE</span>
+            <div id="random-style-picker" class="style-pill-row" role="radiogroup" aria-label="Choose Style"></div>
+          </div>
+
+          <div class="studio-field-block">
+            <span class="studio-field-label">DIFFICULTY</span>
+            <div id="seed-diff-picker" class="seed-diff-row" role="radiogroup" aria-label="Random Difficulty"></div>
+          </div>
+
+          <button id="btn-start-random" class="mode-btn mode-btn-primary studio-start-btn" type="button">
+            <span id="random-start-badge" class="mode-btn-badge">RANDOM STYLE · MEDIUM 6×6</span>
+            <span class="mode-btn-main">Start Random Pattern</span>
+          </button>
+        </div>
 
         <div class="gallery-side-divider">
-          <span>ENDLESS &amp; CUSTOM SEED DIFFICULTY</span>
+          <span id="random-archive-heading">COMPLETED RANDOM PATTERNS (0)</span>
         </div>
 
-        <div id="seed-diff-picker" class="seed-diff-row" role="radiogroup" aria-label="Endless and Seed Difficulty"></div>
+        <div id="random-history-grid" class="gallery-grid-single" aria-label="Completed Random Patterns"></div>
+      </section>
 
-        <div class="gallery-special-row">
-          <button id="btn-daily-stitch" class="gallery-special-card" type="button">
-            <span id="gallery-daily-tag" class="special-tag">TODAY</span>
-            <strong>Daily Stitch</strong>
-            <span id="daily-status" class="gallery-meta">Daily pattern</span>
-          </button>
-          <button id="btn-endless-mandala" class="gallery-special-card" type="button">
-            <span id="gallery-endless-tag" class="special-tag">MEDIUM · 6×6</span>
-            <strong>New Endless</strong>
-            <span id="mandala-status" class="gallery-meta">0 completed</span>
+      <!-- =============================================================== -->
+      <!-- NEW CUSTOM MODE BUILDER (5x5..8x8, Colors, Specials, Style)     -->
+      <!-- =============================================================== -->
+      <section
+        id="overlay-custom"
+        class="sheet-panel sheet-themed hidden"
+        data-view-theme="0"
+        role="dialog"
+        aria-label="Custom Mode Builder"
+      >
+        <div class="sheet-header">
+          <div>
+            <p class="modal-eyebrow">SANDBOX BUILDER</p>
+            <h2 class="sheet-title">Custom Pattern</h2>
+          </div>
+          <button id="btn-close-custom" class="pill pill-btn icon-pill" type="button" aria-label="Close Custom Builder">
+            ✕
           </button>
         </div>
 
-        <form id="seed-form" class="seed-input-row" aria-label="Play Custom Pattern Code">
-          <input
-            id="input-custom-seed"
-            class="seed-input"
-            type="text"
-            inputmode="text"
-            maxlength="24"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Enter a pattern code"
-            aria-label="Pattern Code"
-          />
-          <button id="btn-play-seed" class="seed-play-btn" type="submit">Play</button>
-        </form>
+        <div class="studio-control-card">
+          <div class="studio-field-block">
+            <span class="studio-field-label">STYLE</span>
+            <div id="custom-style-picker" class="custom-style-grid" role="radiogroup" aria-label="Custom Style"></div>
+          </div>
+
+          <div class="studio-field-block">
+            <div class="studio-field-head">
+              <span class="studio-field-label">BOARD SIZE</span>
+              <strong id="custom-size-readout" class="studio-readout">6 × 6</strong>
+            </div>
+            <div class="custom-dim-rows">
+              <div class="custom-dim-row">
+                <span class="custom-dim-tag">Width</span>
+                <div id="custom-cols-picker" class="seg-row" role="radiogroup" aria-label="Board Columns"></div>
+              </div>
+              <div class="custom-dim-row">
+                <span class="custom-dim-tag">Height</span>
+                <div id="custom-rows-picker" class="seg-row" role="radiogroup" aria-label="Board Rows"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="studio-field-block">
+            <div class="studio-field-head">
+              <span class="studio-field-label">COLORS</span>
+              <div id="custom-color-preview" class="custom-color-preview" aria-hidden="true"></div>
+            </div>
+            <div id="custom-colors-picker" class="seg-row" role="radiogroup" aria-label="Color Count"></div>
+          </div>
+
+          <div class="studio-field-block">
+            <span class="studio-field-label">SPECIAL PEARLS</span>
+            <div id="custom-specials-picker" class="custom-specials-grid" role="group" aria-label="Special Pearl Toggles"></div>
+          </div>
+
+          <button id="btn-start-custom" class="mode-btn mode-btn-primary studio-start-btn" type="button">
+            <span id="custom-start-badge" class="mode-btn-badge">JEWEL · 6×6 · 5 COLORS</span>
+            <span class="mode-btn-main">Create &amp; Play</span>
+          </button>
+        </div>
       </section>
 
       <!-- =============================================================== -->
@@ -329,12 +546,12 @@
       </section>
 
       <!-- =============================================================== -->
-      <!-- COMPLETION MODAL                                                -->
+      <!-- COMPLETION MODAL (Includes Tutorial Scoring & Stars Debrief)    -->
       <!-- =============================================================== -->
       <section id="overlay-complete" class="modal-card modal-complete hidden" role="dialog" aria-label="Pattern Complete">
         <p id="complete-eyebrow" class="modal-eyebrow">PATTERN COMPLETE</p>
         <div id="complete-stars" class="complete-stars" aria-label="Stars">★★★</div>
-        <h2 id="complete-title" class="modal-title">Jewel Heart</h2>
+        <h2 id="complete-title" class="modal-title">Sunbeam Brooch</h2>
         <div class="complete-metrics">
           <div class="metric-tile">
             <span class="metric-label">SCORE</span>
@@ -349,11 +566,25 @@
             <strong id="complete-clean" class="metric-value">100%</strong>
           </div>
         </div>
+
+        <!-- Shown after completing Tutorial Level 1 to teach scoring & 3-star ratings -->
+        <div id="complete-tutorial-guide" class="tutorial-scoring-card hidden" aria-label="How Scoring Works">
+          <p class="tutorial-scoring-heading">HOW SCORING &amp; STARS WORK</p>
+          <ul class="tutorial-scoring-list">
+            <li><strong>Streak Multiplier (×1, ×2, …):</strong> Direct stitches grow your multiplier; using the tray resets it.</li>
+            <li><strong>3 Stars (★★★):</strong> Keep tray drops low and avoid Undo/Hint penalties for a clean stitch.</li>
+            <li><strong>Special Pearls:</strong> New gems unlock as you progress—we'll give you a quick tip when each appears!</li>
+          </ul>
+        </div>
+
         <p id="complete-bonus-line" class="modal-copy">Saved to your collection.</p>
         <div class="modal-actions">
           <button id="btn-next-level" class="modal-btn modal-btn-primary" type="button">Next Pattern</button>
           <button id="btn-replay-level" class="modal-btn" type="button">Replay</button>
         </div>
+        <button id="btn-complete-menu" class="modal-link-btn hidden" type="button">
+          Back to Start Menu
+        </button>
       </section>
 
       <!-- =============================================================== -->

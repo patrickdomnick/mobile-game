@@ -23,8 +23,8 @@ const (
 	SceneFlyingOffset  = SceneTrayOffset + TrayCapacity*8
 	SceneFloats        = SceneFlyingOffset + MaxFlying*8
 
-	// Telemetry / state buffer layout for JS & E2E bridge (64 floats incl. seed halves + all Special Pearl events)
-	StateFloats          = 64
+	// Telemetry / state buffer layout for JS & E2E bridge (68 floats incl. seed halves, Special Pearl events & intro state)
+	StateFloats          = 68
 	MaxHeartsPerLevel    = 3
 	CustomLevelHeaderLen = 14
 	CustomLevelBufFloats = CustomLevelHeaderLen + MaxHoopPearls*4
@@ -104,7 +104,7 @@ type HoopPearl struct {
 	ShimmerPulse float32
 }
 
-// FlyingPearl animates a freed pearl gliding from board/tray to hoop/tray.
+// FlyingPearl animates a freed pearl gliding from board/tray to hoop/tray, or unraveling hoop -> board tile.
 type FlyingPearl struct {
 	Active      bool
 	Color       uint8
@@ -122,6 +122,7 @@ type FlyingPearl struct {
 	Delay       float32
 	Duration    float32
 	ToHoop      bool
+	ToTile      bool
 	TargetIndex int
 }
 
@@ -152,15 +153,25 @@ type Engine struct {
 	TimeOfDayHours float32
 	ThemeIndex     int
 
-	LevelIndex     int
-	ChapterIndex   int
-	Mode           int // 0=curated, 1=mandala, 2=daily
-	SeedDifficulty int // 0=Easy 5x5, 1=Medium 6x6, 2=Hard 7x7, 3=Extreme 8x8
-	Phase          int
-	LastSeed       uint32
-	hasCustomLevel bool
-	lastCustomArt  ArtworkDef
-	Tuning         Tuning
+	LevelIndex        int
+	ChapterIndex      int
+	Mode              int // 0=curated, 1=mandala/random, 2=daily, 3=custom
+	SeedDifficulty    int // 0=Easy 5x5, 1=Medium 6x6, 2=Hard 7x7, 3=Extreme 8x8
+	CustomSpecialMask uint32
+	Phase             int
+	LastSeed          uint32
+	hasCustomLevel    bool
+	lastCustomArt     ArtworkDef
+	Tuning            Tuning
+
+	// First-load 3D Unravel Intro Animation state (zero GPU ABI overhead!)
+	IntroActive       bool
+	IntroElapsed      float32
+	IntroDuration     float32
+	IntroHiddenMask   uint64
+	IntroTileForHoop  [MaxHoopPearls]int
+	IntroLaunchTime   [MaxHoopPearls]float32
+	IntroLaunchedMask uint64
 
 	// Meaningful Balatro-style mastery & scoring state
 	Score            uint32
@@ -449,8 +460,9 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	return true
 }
 
-// LoadMandalaWithDifficulty procedurally generates a verified 3-star puzzle for any uint32 seed and difficulty tier (0..3).
-func (e *Engine) LoadMandalaWithDifficulty(seed uint32, diffTier int) {
+// LoadMandalaStyled procedurally generates a verified 3-star puzzle for any uint32 seed, difficulty tier (0..3),
+// and optional explicit theme override (theme < 0 picks deterministic seed-derived theme).
+func (e *Engine) LoadMandalaStyled(seed uint32, diffTier int, theme int) {
 	if seed == 0 {
 		seed = 1
 	}
@@ -463,15 +475,23 @@ func (e *Engine) LoadMandalaWithDifficulty(seed uint32, diffTier int) {
 	e.LevelIndex = int(seed & 0x7FFF)
 	e.Mode = 1
 	e.SeedDifficulty = diffTier
+	e.CustomSpecialMask = 0
 	e.LastSeed = seed
 	e.hasCustomLevel = false
-	theme := ThemeForMandala(seed)
+	if theme < 0 || theme >= NumThemes {
+		theme = ThemeForMandala(seed)
+	}
 	e.loadArtwork(GenerateMandalaArtworkWithDifficulty(seed, theme, diffTier))
+}
+
+// LoadMandalaWithDifficulty procedurally generates a verified 3-star puzzle for any uint32 seed and difficulty tier (0..3).
+func (e *Engine) LoadMandalaWithDifficulty(seed uint32, diffTier int) {
+	e.LoadMandalaStyled(seed, diffTier, -1)
 }
 
 // LoadMandala procedurally generates a default Medium (6x6) seeded puzzle (backward compatible).
 func (e *Engine) LoadMandala(seed uint32) {
-	e.LoadMandalaWithDifficulty(seed, SeedDiffMedium)
+	e.LoadMandalaStyled(seed, SeedDiffMedium, -1)
 }
 
 // LoadDaily loads the deterministic calendar-seeded Daily Stitch (Medium 6x6 with Hearts + Rainbow!).
@@ -482,13 +502,157 @@ func (e *Engine) LoadDaily(dateKey uint32) {
 	e.LevelIndex = int(dateKey % 100000)
 	e.Mode = 2
 	e.SeedDifficulty = SeedDiffMedium
+	e.CustomSpecialMask = 0
 	e.LastSeed = dateKey
 	e.hasCustomLevel = false
 	theme := ThemeForDaily(dateKey)
 	e.loadArtwork(GenerateMandalaArtworkWithDifficulty(dateKey, theme, SeedDiffMedium))
 }
 
+// LoadCustomGenerated creates a verified 3-star custom sandbox pattern (5x5..8x8, 3..6 colors, custom specials & style).
+func (e *Engine) LoadCustomGenerated(seed uint32, theme, cols, rows, colorCount int, specialMask uint32) {
+	if seed == 0 {
+		seed = 1
+	}
+	if theme < 0 || theme >= NumThemes {
+		theme = ThemeForMandala(seed)
+	}
+	e.LevelIndex = int(seed & 0x7FFF)
+	e.Mode = 3
+	e.CustomSpecialMask = specialMask & 0x0F
+	e.LastSeed = seed
+	e.hasCustomLevel = false
+	art := GenerateCustomArtwork(seed, theme, cols, rows, colorCount, specialMask)
+	e.lastCustomArt = art
+	e.loadArtwork(art)
+}
+
+// StartIntroUnravel prepares the first-load 3D animation on Level 1 (Sunbeam Brooch):
+// the embroidery starts fully stitched on the hoop while board tiles are hidden, then pearls
+// gracefully peel off the hoop outside-in and arc down onto the board tiles!
+func (e *Engine) StartIntroUnravel() {
+	if e.Mode != 0 || e.LevelIndex != 0 || e.HoopCount == 0 {
+		e.LoadCuratedLevel(0)
+	}
+	e.IntroActive = true
+	e.IntroElapsed = 0
+	e.IntroHiddenMask = 0
+	e.IntroLaunchedMask = 0
+
+	// Pair each hoop pearl 1-to-1 with a matching-color tile on the board
+	var usedTile uint64
+	for h := 0; h < e.HoopCount; h++ {
+		e.IntroTileForHoop[h] = -1
+		targetCol := e.HoopPearls[h].Color
+		for ti := 0; ti < e.TileCount; ti++ {
+			if (usedTile&(uint64(1)<<uint(ti))) != 0 {
+				continue
+			}
+			if e.Tiles[ti].Color == targetCol {
+				usedTile |= (uint64(1) << uint(ti))
+				e.IntroTileForHoop[h] = ti
+				break
+			}
+		}
+		// Fallback to any remaining tile if counts ever differed
+		if e.IntroTileForHoop[h] < 0 {
+			for ti := 0; ti < e.TileCount; ti++ {
+				if (usedTile&(uint64(1)<<uint(ti))) == 0 {
+					usedTile |= (uint64(1) << uint(ti))
+					e.IntroTileForHoop[h] = ti
+					break
+				}
+			}
+		}
+		if e.IntroTileForHoop[h] >= 0 {
+			e.IntroHiddenMask |= (uint64(1) << uint(e.IntroTileForHoop[h]))
+		}
+		e.HoopPearls[h].Stitched = true
+		e.HoopPearls[h].BloomT = 1.0
+		e.HoopPearls[h].ShimmerPulse = 0.25
+		e.HoopPearls[h].Claimed = false
+	}
+
+	// Sort hoop indices outer-to-inner so the finished brooch unravels cleanly from rim to core
+	var order [MaxHoopPearls]int
+	var distSq [MaxHoopPearls]float32
+	for h := 0; h < e.HoopCount; h++ {
+		order[h] = h
+		dx := e.HoopPearls[h].WorldX - HoopCenterX
+		dz := e.HoopPearls[h].WorldZ - HoopCenterZ
+		distSq[h] = dx*dx + dz*dz
+	}
+	for i := 1; i < e.HoopCount; i++ {
+		key := order[i]
+		kd := distSq[key]
+		j := i - 1
+		for j >= 0 && distSq[order[j]] < kd {
+			order[j+1] = order[j]
+			j--
+		}
+		order[j+1] = key
+	}
+
+	const holdSec = float32(0.85)
+	const stepSec = float32(0.10)
+	const flightSec = float32(0.32)
+	for rank := 0; rank < e.HoopCount; rank++ {
+		h := order[rank]
+		e.IntroLaunchTime[h] = holdSec + float32(rank)*stepSec
+	}
+	e.IntroDuration = holdSec + float32(e.HoopCount)*stepSec + flightSec
+
+	// Keep tiles calm until unravel finishes
+	for c := 0; c < NumColors; c++ {
+		e.ColorGlowT[c] = 0
+	}
+	for i := 0; i < e.TileCount; i++ {
+		e.Tiles[i].JiggleDelay = 0
+		e.Tiles[i].JiggleT = 0
+	}
+	for i := range e.Flying {
+		e.Flying[i].Active = false
+		e.Flying[i].ToTile = false
+	}
+	e.syncBuffers()
+}
+
+// SkipIntroUnravel immediately finishes the 3D unravel intro, revealing all Level 1 board tiles.
+func (e *Engine) SkipIntroUnravel() {
+	if !e.IntroActive {
+		return
+	}
+	e.IntroActive = false
+	e.IntroHiddenMask = 0
+	e.IntroLaunchedMask = ^uint64(0)
+	for h := 0; h < e.HoopCount; h++ {
+		e.HoopPearls[h].Stitched = false
+		e.HoopPearls[h].BloomT = 0
+		e.HoopPearls[h].ShimmerPulse = 0
+		e.HoopPearls[h].Claimed = false
+	}
+	for i := range e.Flying {
+		if e.Flying[i].ToTile {
+			e.Flying[i].Active = false
+			e.Flying[i].ToTile = false
+		}
+	}
+	for slot := 0; slot < ActiveSlots; slot++ {
+		c := e.Active[slot]
+		if c >= 0 && c < NumColors && e.Remain[c] > 0 {
+			e.ColorGlowT[c] = 1.0
+			e.triggerColorJiggle(uint8(c), 0.35)
+		}
+	}
+	e.syncBuffers()
+}
+
 func (e *Engine) loadArtwork(art ArtworkDef) {
+	e.IntroActive = false
+	e.IntroElapsed = 0
+	e.IntroDuration = 0
+	e.IntroHiddenMask = 0
+	e.IntroLaunchedMask = 0
 	e.Phase = PhasePlaying
 	e.ThemeIndex = art.Theme % NumThemes
 	e.ChapterIndex = art.Chapter
@@ -521,6 +685,7 @@ func (e *Engine) loadArtwork(art ArtworkDef) {
 
 	for i := range e.Flying {
 		e.Flying[i].Active = false
+		e.Flying[i].ToTile = false
 	}
 	for i := range e.TrayPulse {
 		e.TrayPulse[i] = 0
@@ -1296,7 +1461,7 @@ func (e *Engine) TapWorld(wx, wz float32) bool {
 
 // TapTile attempts to untangle tile idx. Returns true if the tile was freed (or queued in Final-Color Mode).
 func (e *Engine) TapTile(idx int) bool {
-	if e.Phase == PhaseComplete || idx < 0 || idx >= e.TileCount || !e.Tiles[idx].Alive {
+	if e.IntroActive || e.Phase == PhaseComplete || idx < 0 || idx >= e.TileCount || !e.Tiles[idx].Alive {
 		return false
 	}
 
@@ -1598,9 +1763,9 @@ func (e *Engine) ComputeHint() int {
 	return HintNeedsUndo
 }
 
-// IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, or queued cascade needs 60 FPS.
+// IsAnimating reports whether any pearl flight, wobble, bloom, shockwave, shake, intro unravel, or queued cascade needs 60 FPS.
 func (e *Engine) IsAnimating() bool {
-	if e.CelebrateT > 0.005 || e.HintTileIdx >= 0 || e.ShakeAmt > 0.005 ||
+	if e.IntroActive || e.CelebrateT > 0.005 || e.HintTileIdx >= 0 || e.ShakeAmt > 0.005 ||
 		e.ColorBurstPulse > 0.005 || e.LayerBurstPulse > 0.005 || e.BlockerFlashT > 0.005 ||
 		e.hasReadyQueuedTile() {
 		return true
@@ -1631,6 +1796,86 @@ func (e *Engine) IsAnimating() bool {
 		}
 	}
 	return false
+}
+
+func (e *Engine) spawnIntroUnravelFlight(hoopIdx, tileIdx int) bool {
+	if hoopIdx < 0 || hoopIdx >= e.HoopCount || tileIdx < 0 || tileIdx >= e.TileCount {
+		return false
+	}
+	slot := -1
+	for i := range e.Flying {
+		if !e.Flying[i].Active {
+			slot = i
+			break
+		}
+	}
+	if slot < 0 {
+		return false
+	}
+	hp := e.HoopPearls[hoopIdx]
+	tx, tz := e.tileWorldPos(e.Tiles[tileIdx].Col, e.Tiles[tileIdx].Row)
+	midX := (hp.WorldX + tx) * 0.5
+	midZ := (hp.WorldZ + tz) * 0.5
+	e.Flying[slot] = FlyingPearl{
+		Active:      true,
+		Color:       hp.Color,
+		Special:     0,
+		StartX:      hp.WorldX,
+		StartY:      0.20,
+		StartZ:      hp.WorldZ,
+		CtrlX:       midX * 1.15,
+		CtrlY:       1.28,
+		CtrlZ:       midZ,
+		EndX:        tx,
+		EndY:        0.22,
+		EndZ:        tz,
+		Progress:    0,
+		Delay:       0,
+		Duration:    0.32,
+		ToHoop:      false,
+		ToTile:      true,
+		TargetIndex: tileIdx,
+	}
+	return true
+}
+
+func (e *Engine) stepIntroUnravel(dt float32) {
+	if !e.IntroActive {
+		return
+	}
+	e.IntroElapsed += dt
+
+	allLaunched := true
+	for h := 0; h < e.HoopCount; h++ {
+		bit := uint64(1) << uint(h)
+		if (e.IntroLaunchedMask & bit) != 0 {
+			continue
+		}
+		if e.IntroElapsed >= e.IntroLaunchTime[h] {
+			ti := e.IntroTileForHoop[h]
+			if e.spawnIntroUnravelFlight(h, ti) {
+				e.HoopPearls[h].Stitched = false
+				e.HoopPearls[h].BloomT = 0
+				e.HoopPearls[h].ShimmerPulse = 0.85
+				e.IntroLaunchedMask |= bit
+			} else {
+				allLaunched = false
+			}
+		} else {
+			allLaunched = false
+		}
+	}
+
+	if allLaunched && e.IntroHiddenMask == 0 {
+		e.IntroActive = false
+		for slot := 0; slot < ActiveSlots; slot++ {
+			c := e.Active[slot]
+			if c >= 0 && c < NumColors && e.Remain[c] > 0 {
+				e.ColorGlowT[c] = 1.0
+				e.triggerColorJiggle(uint8(c), 0.35)
+			}
+		}
+	}
 }
 
 // processAutoQueue automatically resolves queued Final-Color gems the instant their lane/locks clear!
@@ -1683,6 +1928,11 @@ func (e *Engine) Step(dt float32) {
 
 	e.FrameCount++
 	e.ElapsedSec += dt
+
+	// Drive first-load 3D Unravel Intro animation if active
+	if e.IntroActive {
+		e.stepIntroUnravel(dt)
+	}
 
 	// Auto-resolve queued Final-Color gems as soon as their blockers/locks vanish!
 	e.processAutoQueue(dt)
@@ -1761,10 +2011,35 @@ func (e *Engine) Step(dt float32) {
 		f.Progress += dt / f.Duration
 		if f.Progress >= 1.0 {
 			f.Active = false
-			if f.ToHoop && f.TargetIndex >= 0 && f.TargetIndex < e.HoopCount {
+			if f.ToTile && f.TargetIndex >= 0 && f.TargetIndex < e.TileCount {
+				e.IntroHiddenMask &^= (uint64(1) << uint(f.TargetIndex))
+				e.Tiles[f.TargetIndex].JiggleT = 0.65
+				f.ToTile = false
+			} else if f.ToHoop && f.TargetIndex >= 0 && f.TargetIndex < e.HoopCount {
 				e.HoopPearls[f.TargetIndex].Stitched = true
 				e.HoopPearls[f.TargetIndex].BloomT = 0.25
 				e.HoopPearls[f.TargetIndex].ShimmerPulse = 1.0
+			}
+		}
+	}
+
+	// Re-check intro completion immediately if final landing cleared IntroHiddenMask this tick
+	if e.IntroActive && e.IntroHiddenMask == 0 {
+		allLaunched := true
+		for h := 0; h < e.HoopCount; h++ {
+			if (e.IntroLaunchedMask & (uint64(1) << uint(h))) == 0 {
+				allLaunched = false
+				break
+			}
+		}
+		if allLaunched {
+			e.IntroActive = false
+			for slot := 0; slot < ActiveSlots; slot++ {
+				c := e.Active[slot]
+				if c >= 0 && c < NumColors && e.Remain[c] > 0 {
+					e.ColorGlowT[c] = 1.0
+					e.triggerColorJiggle(uint8(c), 0.35)
+				}
 			}
 		}
 	}
@@ -2017,8 +2292,9 @@ func (e *Engine) syncBuffers() {
 		// Bit 128 (128) = Hidden Pearl (currently concealed black)
 		// Bit 256 (256) = Locked Pearl (currently locked by adjacent pearls)
 		// Bits 1024/2048/4096/8192 = N/E/S/W orthogonal neighbor lock bars!
+		introHidden := e.IntroActive && (e.IntroHiddenMask&(uint64(1)<<uint(i))) != 0
 		flags := uint32(0)
-		if t.Alive {
+		if t.Alive && !introHidden {
 			flags |= 1
 		}
 		if i == e.HintTileIdx {
@@ -2046,7 +2322,7 @@ func (e *Engine) syncBuffers() {
 		// Suppress interior active-color glow on concealed Hidden pearls, Rainbow pearls, AND Final-Color Mode!
 		finalModeNow := e.IsFinalColorMode()
 		glowVal := e.ColorGlowT[t.Color] * e.Tuning.GlowIntensity
-		if hiddenConcealed || t.Special == SpecialRainbow || finalModeNow {
+		if hiddenConcealed || t.Special == SpecialRainbow || finalModeNow || e.IntroActive {
 			glowVal = 0
 		}
 
@@ -2128,7 +2404,7 @@ func (e *Engine) syncBuffers() {
 			bloom = easeOutCubic(hp.BloomT)
 		}
 		activeFlag := float32(0)
-		if !hp.Claimed && e.isActiveColor(hp.Color) {
+		if !hp.Claimed && !e.IntroActive && e.isActiveColor(hp.Color) {
 			activeFlag = 1
 		}
 
@@ -2149,7 +2425,7 @@ func (e *Engine) syncBuffers() {
 		occupied := i < e.TrayLen
 		inbound := false
 		for fi := range e.Flying {
-			if e.Flying[fi].Active && !e.Flying[fi].ToHoop && e.Flying[fi].TargetIndex == i {
+			if e.Flying[fi].Active && !e.Flying[fi].ToHoop && !e.Flying[fi].ToTile && e.Flying[fi].TargetIndex == i {
 				inbound = true
 				break
 			}
@@ -2195,7 +2471,7 @@ func (e *Engine) syncBuffers() {
 		e.Scene[base+7] = float32(f.Special)
 	}
 
-	// --- Compact Telemetry State Buffer (64 floats) ---
+	// --- Compact Telemetry State Buffer (68 floats) ---
 	e.State[0] = float32(e.FrameCount)
 	e.State[1] = e.ElapsedSec
 	e.State[2] = float32(e.LevelIndex)
@@ -2272,4 +2548,21 @@ func (e *Engine) syncBuffers() {
 	}
 	e.State[62] = float32(e.AutoQueueLen)
 	e.State[63] = float32(e.QueueEvents)
+	if e.IntroActive {
+		e.State[64] = 1
+		if e.IntroDuration > 0.01 {
+			p := e.IntroElapsed / e.IntroDuration
+			if p > 1 {
+				p = 1
+			}
+			e.State[65] = p
+		} else {
+			e.State[65] = 0
+		}
+	} else {
+		e.State[64] = 0
+		e.State[65] = 1
+	}
+	e.State[66] = float32(e.CustomSpecialMask)
+	e.State[67] = 0
 }

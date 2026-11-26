@@ -1,9 +1,16 @@
 import { projectWorldToScreen } from './camera';
 
-export type GameMode = 'curated' | 'mandala' | 'daily';
+export type GameMode = 'curated' | 'mandala' | 'daily' | 'custom';
 export type GamePhase = 'playing' | 'tray_full' | 'complete';
 
 export const HINT_NEEDS_UNDO = -2;
+
+export const SPECIAL_MASK = {
+  HEART: 1 << 0,
+  RAINBOW: 1 << 1,
+  HIDDEN: 1 << 2,
+  LOCKED: 1 << 3,
+} as const;
 
 export interface PearlColorInfo {
   name: string;
@@ -311,6 +318,9 @@ export interface SimSnapshot {
   chapterIndex: number;
   seed: number;
   seedDifficulty: SeedDifficultyTier;
+  customSpecialMask: number;
+  introActive: boolean;
+  introProgress: number;
   finalColorMode: boolean;
   queuedCount: number;
   levelName: string;
@@ -380,6 +390,17 @@ interface SimExports {
   sim_load_level: (idx: number) => void;
   sim_load_mandala: (seed: number) => void;
   sim_load_mandala_diff?: (seed: number, diffTier: number) => void;
+  sim_load_mandala_styled?: (seed: number, diffTier: number, theme: number) => void;
+  sim_load_custom_gen?: (
+    seed: number,
+    theme: number,
+    cols: number,
+    rows: number,
+    colorCount: number,
+    specialMask: number,
+  ) => void;
+  sim_start_intro_unravel?: () => void;
+  sim_skip_intro_unravel?: () => void;
   sim_load_daily: (dateKey: number) => void;
   sim_step: (dt: number) => void;
   sim_set_time_of_day: (hours: number) => void;
@@ -402,7 +423,7 @@ interface SimExports {
   sim_load_custom_level?: (stitchCount: number) => number;
 }
 
-const MODE_MAP: GameMode[] = ['curated', 'mandala', 'daily'];
+const MODE_MAP: GameMode[] = ['curated', 'mandala', 'daily', 'custom'];
 const PHASE_MAP: GamePhase[] = ['playing', 'tray_full', 'complete'];
 
 export class WasmSimulation {
@@ -554,14 +575,47 @@ export class WasmSimulation {
     return ok;
   }
 
-  loadMandala(seed: number, diffTier?: SeedDifficultyTier): void {
+  loadMandala(seed: number, diffTier?: SeedDifficultyTier, theme = -1): void {
     this.activeCustomName = null;
     const s = Math.max(1, Math.floor(seed)) >>> 0;
-    if (typeof diffTier === 'number' && this.exports.sim_load_mandala_diff) {
-      this.exports.sim_load_mandala_diff(s, Math.max(0, Math.min(3, Math.floor(diffTier))));
+    const d = typeof diffTier === 'number' ? Math.max(0, Math.min(3, Math.floor(diffTier))) : 1;
+    if (this.exports.sim_load_mandala_styled) {
+      this.exports.sim_load_mandala_styled(s, d, Math.floor(theme));
+    } else if (typeof diffTier === 'number' && this.exports.sim_load_mandala_diff) {
+      this.exports.sim_load_mandala_diff(s, d);
     } else {
       this.exports.sim_load_mandala(s);
     }
+  }
+
+  loadCustomGenerated(opts: {
+    seed: number;
+    theme: number;
+    cols: number;
+    rows: number;
+    colorCount: number;
+    specialMask: number;
+  }): void {
+    this.activeCustomName = null;
+    const s = Math.max(1, Math.floor(opts.seed)) >>> 0;
+    const cols = Math.max(5, Math.min(8, Math.floor(opts.cols)));
+    const rows = Math.max(5, Math.min(8, Math.floor(opts.rows)));
+    const colors = Math.max(3, Math.min(6, Math.floor(opts.colorCount)));
+    const theme = Math.max(0, Math.min(VISUAL_THEMES.length - 1, Math.floor(opts.theme)));
+    const mask = (opts.specialMask >>> 0) & 0x0f;
+    if (this.exports.sim_load_custom_gen) {
+      this.exports.sim_load_custom_gen(s, theme, cols, rows, colors, mask);
+    } else {
+      this.loadMandala(s, 1, theme);
+    }
+  }
+
+  startIntroUnravel(): void {
+    this.exports.sim_start_intro_unravel?.();
+  }
+
+  skipIntroUnravel(): void {
+    this.exports.sim_skip_intro_unravel?.();
   }
 
   loadDaily(dateKey: number): void {
@@ -613,6 +667,28 @@ export class WasmSimulation {
     return new Float32Array(this.exports.memory.buffer, this.scenePtr, this.sceneLen);
   }
 
+  /**
+   * Snapshots the current pattern's normalized hoop stitches [normX, normZ, colorIdx] directly
+   * from WASM SceneHoopOffset (offset 600) for compact localStorage embroidery archive previews!
+   */
+  readHoopPreviewStitches(): [number, number, number][] {
+    const s = new Float32Array(this.exports.memory.buffer, this.statePtr, this.stateLen);
+    const hoopCount = Math.max(0, Math.min(64, Math.round(s[10] ?? 0)));
+    const scene = this.sceneView();
+    const SCENE_HOOP_OFFSET = 64 + 6 * 4 + 64 * 8; // 600
+    const HOOP_CENTER_Z = -1.84;
+    const HOOP_SPAN = 1.38 * 0.86;
+    const out: [number, number, number][] = [];
+    for (let i = 0; i < hoopCount; i++) {
+      const base = SCENE_HOOP_OFFSET + i * 8;
+      const nx = Math.round((scene[base + 0] / HOOP_SPAN) * 1000) / 1000;
+      const nz = Math.round(((scene[base + 2] - HOOP_CENTER_Z) / HOOP_SPAN) * 1000) / 1000;
+      const color = Math.max(0, Math.min(5, Math.round(scene[base + 4])));
+      out.push([nx, nz, color]);
+    }
+    return out;
+  }
+
   /** Zero-allocation read of current simulation phase (0=playing, 1=tray_full, 2=complete). */
   phase(): number {
     const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 4 * 4, 1);
@@ -638,6 +714,13 @@ export class WasmSimulation {
     return view[0] > 0.5;
   }
 
+  /** Zero-allocation check for whether the 3D First-Load Unravel Intro is still playing. */
+  isIntroActive(): boolean {
+    if (this.stateLen <= 64) return false;
+    const view = new Float32Array(this.exports.memory.buffer, this.statePtr + 64 * 4, 1);
+    return view[0] > 0.5;
+  }
+
   readState(aspect: number): SimSnapshot {
     const s = new Float32Array(this.exports.memory.buffer, this.statePtr, this.stateLen);
     const tBuf = new Float32Array(this.exports.memory.buffer, this.tilesPtr, this.tilesLen);
@@ -656,6 +739,9 @@ export class WasmSimulation {
     const seedDifficulty = Math.max(0, Math.min(3, rawDiff)) as SeedDifficultyTier;
     const finalColorMode = s.length > 61 ? s[61] > 0.5 : false;
     const queuedCount = s.length > 62 ? Math.round(s[62]) : 0;
+    const introActive = s.length > 64 ? s[64] > 0.5 : false;
+    const introProgress = s.length > 65 ? s[65] : 1;
+    const customSpecialMask = s.length > 66 ? Math.round(s[66]) : 0;
 
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
@@ -717,7 +803,9 @@ export class WasmSimulation {
         ? (this.activeCustomName ?? CURATED_LEVEL_NAMES[levelIndex % CURATED_LEVEL_NAMES.length] ?? `Pattern ${levelIndex + 1}`)
         : mode === 'daily'
           ? `Daily #${seed || levelIndex}`
-          : `${diffLabel} #${seed || levelIndex}`;
+          : mode === 'custom'
+            ? `Custom ${Math.round(s[22])}×${Math.round(s[23])}`
+            : `${diffLabel} #${seed || levelIndex}`;
 
     const hintTileIndex = Math.round(s[21]);
 
@@ -728,6 +816,9 @@ export class WasmSimulation {
       chapterIndex,
       seed,
       seedDifficulty,
+      customSpecialMask,
+      introActive,
+      introProgress,
       finalColorMode,
       queuedCount,
       levelName,

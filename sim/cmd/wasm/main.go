@@ -34,6 +34,26 @@ func simLoadMandalaDiff(seed uint32, diff uint32) {
 	engine.LoadMandalaWithDifficulty(seed, int(diff))
 }
 
+//go:wasmexport sim_load_mandala_styled
+func simLoadMandalaStyled(seed uint32, diff uint32, theme int32) {
+	engine.LoadMandalaStyled(seed, int(diff), int(theme))
+}
+
+//go:wasmexport sim_load_custom_gen
+func simLoadCustomGen(seed uint32, theme int32, cols uint32, rows uint32, colorCount uint32, specialMask uint32) {
+	engine.LoadCustomGenerated(seed, int(theme), int(cols), int(rows), int(colorCount), specialMask)
+}
+
+//go:wasmexport sim_start_intro_unravel
+func simStartIntroUnravel() {
+	engine.StartIntroUnravel()
+}
+
+//go:wasmexport sim_skip_intro_unravel
+func simSkipIntroUnravel() {
+	engine.SkipIntroUnravel()
+}
+
 //go:wasmexport sim_load_daily
 func simLoadDaily(dateKey uint32) {
 	engine.LoadDaily(dateKey)

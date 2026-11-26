@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pearl-loom-v14';
+const CACHE_NAME = 'pearl-loom-v15';
 const PRECACHE_URLS = [
   './',
   './index.html',
