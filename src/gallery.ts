@@ -36,6 +36,22 @@ export interface RandomCompletionRecord {
   stitches: [number, number, number][];
 }
 
+export interface CustomCompletionRecord {
+  seed: number;
+  theme: number;
+  cols: number;
+  rows: number;
+  colorCount: number;
+  specialMask: number;
+  bestScore: number;
+  bestStars: number;
+  bestMaxStreak: number;
+  grid: string;
+  pearls: number;
+  completedAt: string;
+  stitches: [number, number, number][];
+}
+
 export interface CustomModePrefs {
   cols: number;
   rows: number;
@@ -58,6 +74,7 @@ export interface GalleryProgress {
   completedDailyDates: string[];
   dailyHistory: DailyCompletionRecord[];
   randomHistory: RandomCompletionRecord[];
+  customHistory: CustomCompletionRecord[];
   mandalasCompleted: number;
   lastMandalaSeed: number;
   selectedCampaign: number;
@@ -96,6 +113,7 @@ function emptyProgress(): GalleryProgress {
     completedDailyDates: [],
     dailyHistory: [],
     randomHistory: [],
+    customHistory: [],
     mandalasCompleted: 0,
     lastMandalaSeed: 1,
     selectedCampaign: 0,
@@ -183,12 +201,16 @@ export class EmbroideryGalleryStore {
       const randomHistory: RandomCompletionRecord[] = Array.isArray(parsed.randomHistory)
         ? parsed.randomHistory.slice(0, 80)
         : [];
+      const customHistory: CustomCompletionRecord[] = Array.isArray(parsed.customHistory)
+        ? parsed.customHistory.slice(0, 80)
+        : [];
 
       return {
         completedCurated,
         completedDailyDates: Array.isArray(parsed.completedDailyDates) ? parsed.completedDailyDates : [],
         dailyHistory,
         randomHistory,
+        customHistory,
         mandalasCompleted: typeof parsed.mandalasCompleted === 'number' ? parsed.mandalasCompleted : 0,
         lastMandalaSeed: typeof parsed.lastMandalaSeed === 'number' ? parsed.lastMandalaSeed : 1,
         selectedCampaign: selCamp,
@@ -301,6 +323,10 @@ export class EmbroideryGalleryStore {
       seed?: number;
       theme?: number;
       difficulty?: SeedDifficultyTier;
+      cols?: number;
+      rows?: number;
+      colorCount?: number;
+      specialMask?: number;
       grid?: string;
       pearls?: number;
       stitches?: [number, number, number][];
@@ -374,6 +400,45 @@ export class EmbroideryGalleryStore {
       if (this.data.randomHistory.length > 80) {
         this.data.randomHistory.length = 80;
       }
+    } else if (mode === 'custom') {
+      const seed = meta?.seed || levelIndex || 1;
+      const theme = meta?.theme ?? this.data.customPrefs.theme;
+      const cols = meta?.cols ?? this.data.customPrefs.cols;
+      const rows = meta?.rows ?? this.data.customPrefs.rows;
+      const colorCount = meta?.colorCount && meta.colorCount >= 3 ? meta.colorCount : this.data.customPrefs.colorCount;
+      const specialMask = typeof meta?.specialMask === 'number' ? meta.specialMask : 0;
+      const existingIdx = this.data.customHistory.findIndex(
+        (r) =>
+          r.seed === seed &&
+          r.theme === theme &&
+          r.cols === cols &&
+          r.rows === rows &&
+          r.colorCount === colorCount &&
+          r.specialMask === specialMask,
+      );
+      const prev = existingIdx >= 0 ? this.data.customHistory[existingIdx] : null;
+      const rec: CustomCompletionRecord = {
+        seed,
+        theme,
+        cols,
+        rows,
+        colorCount,
+        specialMask,
+        bestScore: prev ? Math.max(prev.bestScore, score) : score,
+        bestStars: prev ? Math.max(prev.bestStars, stars) : stars,
+        bestMaxStreak: prev ? Math.max(prev.bestMaxStreak, maxStreak) : maxStreak,
+        grid: meta?.grid ?? `${cols}×${rows}`,
+        pearls: meta?.pearls ?? prev?.pearls ?? 30,
+        completedAt: today.label,
+        stitches: meta?.stitches && meta.stitches.length > 0 ? meta.stitches : (prev?.stitches ?? []),
+      };
+      if (existingIdx >= 0) {
+        this.data.customHistory.splice(existingIdx, 1);
+      }
+      this.data.customHistory.unshift(rec);
+      if (this.data.customHistory.length > 80) {
+        this.data.customHistory.length = 80;
+      }
     }
     this.save();
   }
@@ -384,6 +449,10 @@ export class EmbroideryGalleryStore {
 
   getRandomHistory(): readonly RandomCompletionRecord[] {
     return this.data.randomHistory;
+  }
+
+  getCustomHistory(): readonly CustomCompletionRecord[] {
+    return this.data.customHistory;
   }
 
   /**
@@ -474,6 +543,7 @@ export class EmbroideryGalleryStore {
       completedDailyDates: [...this.data.completedDailyDates],
       dailyHistory: this.data.dailyHistory.map((d) => ({ ...d, stitches: [...d.stitches] })),
       randomHistory: this.data.randomHistory.map((r) => ({ ...r, stitches: [...r.stitches] })),
+      customHistory: this.data.customHistory.map((c) => ({ ...c, stitches: [...c.stitches] })),
       mandalasCompleted: this.data.mandalasCompleted,
       lastMandalaSeed: this.data.lastMandalaSeed,
       selectedCampaign: this.data.selectedCampaign,

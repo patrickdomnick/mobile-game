@@ -73,15 +73,21 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     expect(introBoot.renderer.validationErrors).toEqual([]);
     await expect(page.locator('#overlay-intro')).toBeVisible();
 
-    // Advance mid-unravel so pearls are visibly flying from hoop to board & capture screenshot
+    // At 1.5s (90 ticks) the logo & finished embroidery should still be held serenely intact!
     await page.evaluate(async () => {
-      await window.__GAME_TEST__!.stepTicks(68, false);
+      await window.__GAME_TEST__!.stepTicks(90, true);
+    });
+    expect((await page.evaluate(() => window.__GAME_TEST__!.getState())).introActive).toBe(true);
+
+    // Advance mid-unravel (~3.1s) so pearls are visibly gliding from hoop to board & capture screenshot
+    await page.evaluate(async () => {
+      await window.__GAME_TEST__!.stepTicks(95, false);
     });
     await page.screenshot({ path: path.join(RESULTS_DIR, 'intro-unravel.png') });
 
-    // Let the 3D unravel finish naturally -> transitions automatically into Guided Tutorial Level 1!
+    // Let the calmer 3D unravel finish naturally (~5.3s total) -> transitions automatically into Guided Tutorial Level 1!
     await page.evaluate(async () => {
-      await window.__GAME_TEST__!.stepTicks(160, false);
+      await window.__GAME_TEST__!.stepTicks(200, false);
     });
     const afterIntro = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(afterIntro.introActive).toBe(false);
@@ -106,7 +112,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
         window.__GAME_TEST__!.tapTile(t.index);
         await window.__GAME_TEST__!.stepTicks(24, true);
       }
-      await window.__GAME_TEST__!.stepTicks(4, false);
+      await window.__GAME_TEST__!.stepTicks(4, true);
     });
     const midTut1 = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(midTut1.tutorialStep).toBe(1);
@@ -120,7 +126,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
         window.__GAME_TEST__!.tapTile(t.index);
         await window.__GAME_TEST__!.stepTicks(24, true);
       }
-      await window.__GAME_TEST__!.stepTicks(4, false);
+      await window.__GAME_TEST__!.stepTicks(4, true);
     });
     const midTut2 = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(midTut2.tutorialStep).toBe(2);
@@ -295,7 +301,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
         window.__GAME_TEST__!.tapTile(mv);
         await window.__GAME_TEST__!.stepTicks(20, true);
       }
-      await window.__GAME_TEST__!.stepTicks(24, false);
+      await window.__GAME_TEST__!.stepTicks(24, true);
     });
     const dailySolved = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(dailySolved.phase).toBe('complete');
@@ -339,7 +345,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
         window.__GAME_TEST__!.tapTile(mv);
         await window.__GAME_TEST__!.stepTicks(20, true);
       }
-      await window.__GAME_TEST__!.stepTicks(24, false);
+      await window.__GAME_TEST__!.stepTicks(24, true);
     });
     await page.evaluate(() => window.__GAME_TEST__!.openStartMenu());
     await page.locator('#btn-mode-random').click();
@@ -361,7 +367,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
 
     await page.locator('#btn-start-custom').click();
     await expect(page.locator('#overlay-custom')).toBeHidden();
-    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3));
+    await page.evaluate(() => window.__GAME_TEST__!.stepTicks(3, true));
     const customSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(customSt.mode).toBe('custom');
     expect(customSt.themeIndex).toBe(3);
@@ -369,11 +375,38 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     expect(customSt.gridRows).toBe(5);
     expect(customSt.renderer.validationErrors).toEqual([]);
 
-    // 10. Verify First-Encounter Special Pearl Tooltips (clear seenSpecials first via fresh level check)
+    // Solve this Custom pattern and verify it is saved into Custom Mode's Completed Archive with SVG preview!
     await page.evaluate(async () => {
+      for (let i = 0; i < 42; i++) {
+        const cur = window.__GAME_TEST__!.getState();
+        if (cur.phase === 'complete') break;
+        const mv = window.__GAME_TEST__!.hint();
+        if (mv < 0) break;
+        window.__GAME_TEST__!.tapTile(mv);
+        await window.__GAME_TEST__!.stepTicks(18, true);
+      }
+      await window.__GAME_TEST__!.stepTicks(24, true);
+    });
+    const customDone = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(customDone.phase).toBe('complete');
+    expect(customDone.gallery.customHistoryCount).toBeGreaterThanOrEqual(1);
+
+    await page.evaluate(() => window.__GAME_TEST__!.openStartMenu());
+    await page.locator('#btn-mode-custom').click();
+    await expect(page.locator('#custom-history-grid .square-level-card')).toHaveCount(1);
+    await expect(page.locator('#custom-history-grid .embroidery-preview-svg')).toHaveCount(1);
+    await page.locator('#overlay-custom').evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'custom-archive.png') });
+    await page.locator('#btn-close-custom').click();
+
+    // 10. Verify First-Encounter Special Pearl Tooltips
+    await page.evaluate(async () => {
+      window.__GAME_TEST__!.enterGame();
       // Load 8x8 finale (Level 12) which has Hidden & Locked pearls not yet encountered in Easy/Daily!
       window.__GAME_TEST__!.loadLevel(12);
-      await window.__GAME_TEST__!.stepTicks(3);
+      await window.__GAME_TEST__!.stepTicks(3, false);
     });
     const specialTipSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
     expect(specialTipSt.activeTooltipTitle, 'First-encounter Special Pearl tooltip should appear').toBeTruthy();
@@ -390,12 +423,12 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     const themeCaptures: Buffer[] = [];
     await page.evaluate(async () => {
       window.__GAME_TEST__!.setTimeOfDayOverride(12.5);
-      await window.__GAME_TEST__!.stepTicks(3);
+      await window.__GAME_TEST__!.stepTicks(2, true);
     });
     for (const sample of chapterSamples) {
       await page.evaluate(async (lvl) => {
         window.__GAME_TEST__!.loadLevel(lvl);
-        await window.__GAME_TEST__!.stepTicks(4);
+        await window.__GAME_TEST__!.stepTicks(3, false);
       }, sample.level);
       const st = await page.evaluate(() => window.__GAME_TEST__!.getState());
       expect(st.themeIndex).toBe(sample.expectedTheme);
@@ -484,6 +517,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     expect(reloaded.gallery.completedCuratedIds).toContain(0);
     expect(reloaded.gallery.dailyHistoryCount).toBeGreaterThanOrEqual(1);
     expect(reloaded.gallery.randomHistoryCount).toBeGreaterThanOrEqual(1);
+    expect(reloaded.gallery.customHistoryCount).toBeGreaterThanOrEqual(1);
 
     expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
     expect(pageErrors, `Page errors: ${pageErrors.join('\n')}`).toEqual([]);

@@ -875,12 +875,20 @@ func TestIntroUnravelAnimationLifecycle(t *testing.T) {
 		t.Fatalf("TapTile must return false while IntroActive")
 	}
 
-	// Step 220 ticks (~3.66s at 60Hz) — intro should complete naturally and reveal every board tile!
-	for s := 0; s < 220; s++ {
+	// At 1.5s (90 ticks) the welcome logo & finished embroidery should still be held serenely intact!
+	for s := 0; s < 90; s++ {
+		e.Step(FixedDT)
+	}
+	if !e.IntroActive {
+		t.Fatalf("expected IntroActive=true at 1.5s during unhurried welcome hold")
+	}
+
+	// Step another 280 ticks (total ~6.16s at 60Hz) — intro should complete naturally and reveal every board tile!
+	for s := 0; s < 280; s++ {
 		e.Step(FixedDT)
 	}
 	if e.IntroActive || e.State[64] != 0 {
-		t.Fatalf("expected IntroActive to finish within 3.6s, elapsed=%.2f hiddenMask=%x", e.IntroElapsed, e.IntroHiddenMask)
+		t.Fatalf("expected IntroActive to finish within 6.2s, elapsed=%.2f hiddenMask=%x", e.IntroElapsed, e.IntroHiddenMask)
 	}
 	for h := 0; h < e.HoopCount; h++ {
 		if e.HoopPearls[h].Stitched {

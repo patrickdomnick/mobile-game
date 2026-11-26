@@ -158,6 +158,7 @@ type Engine struct {
 	Mode              int // 0=curated, 1=mandala/random, 2=daily, 3=custom
 	SeedDifficulty    int // 0=Easy 5x5, 1=Medium 6x6, 2=Hard 7x7, 3=Extreme 8x8
 	CustomSpecialMask uint32
+	CustomColorCount  int
 	Phase             int
 	LastSeed          uint32
 	hasCustomLevel    bool
@@ -520,6 +521,13 @@ func (e *Engine) LoadCustomGenerated(seed uint32, theme, cols, rows, colorCount 
 	e.LevelIndex = int(seed & 0x7FFF)
 	e.Mode = 3
 	e.CustomSpecialMask = specialMask & 0x0F
+	if colorCount < 3 {
+		colorCount = 3
+	}
+	if colorCount > NumColors {
+		colorCount = NumColors
+	}
+	e.CustomColorCount = colorCount
 	e.LastSeed = seed
 	e.hasCustomLevel = false
 	art := GenerateCustomArtwork(seed, theme, cols, rows, colorCount, specialMask)
@@ -593,9 +601,10 @@ func (e *Engine) StartIntroUnravel() {
 		order[j+1] = key
 	}
 
-	const holdSec = float32(0.85)
-	const stepSec = float32(0.10)
-	const flightSec = float32(0.32)
+	// Calm, unhurried welcome reveal: ~2.2s logo & finished embroidery hold, then graceful 0.19s pearl lift-offs
+	const holdSec = float32(2.20)
+	const stepSec = float32(0.19)
+	const flightSec = float32(0.55)
 	for rank := 0; rank < e.HoopCount; rank++ {
 		h := order[rank]
 		e.IntroLaunchTime[h] = holdSec + float32(rank)*stepSec
@@ -1831,7 +1840,7 @@ func (e *Engine) spawnIntroUnravelFlight(hoopIdx, tileIdx int) bool {
 		EndZ:        tz,
 		Progress:    0,
 		Delay:       0,
-		Duration:    0.32,
+		Duration:    0.55,
 		ToHoop:      false,
 		ToTile:      true,
 		TargetIndex: tileIdx,
@@ -2564,5 +2573,5 @@ func (e *Engine) syncBuffers() {
 		e.State[65] = 1
 	}
 	e.State[66] = float32(e.CustomSpecialMask)
-	e.State[67] = 0
+	e.State[67] = float32(e.CustomColorCount)
 }

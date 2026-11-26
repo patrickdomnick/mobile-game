@@ -319,6 +319,7 @@ export interface SimSnapshot {
   seed: number;
   seedDifficulty: SeedDifficultyTier;
   customSpecialMask: number;
+  customColorCount: number;
   introActive: boolean;
   introProgress: number;
   finalColorMode: boolean;
@@ -742,6 +743,7 @@ export class WasmSimulation {
     const introActive = s.length > 64 ? s[64] > 0.5 : false;
     const introProgress = s.length > 65 ? s[65] : 1;
     const customSpecialMask = s.length > 66 ? Math.round(s[66]) : 0;
+    const customColorCount = s.length > 67 ? Math.round(s[67]) : 0;
 
     const activeColors: number[] = [];
     const activeRemain: number[] = [];
@@ -817,6 +819,7 @@ export class WasmSimulation {
       seed,
       seedDifficulty,
       customSpecialMask,
+      customColorCount,
       introActive,
       introProgress,
       finalColorMode,

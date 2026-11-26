@@ -259,9 +259,10 @@ Polishing first impressions, menu hierarchy, visual browseability, and sandbox p
 5. **Dedicated Daily Library (`#overlay-daily-library`) & Random Studio (`#overlay-random`)**:
    - **Daily Library**: 1-column square archive of all completed Daily Stitches (miniature embroidery preview, date, style, stars, score, 1-tap Replay).
    - **Random Studio**: Top controls with **Seed input at the very top**, **Style selector** (`Random` or explicit `Jewel / Neon / Pop / Prism`), **Difficulty selector** (`Easy 5×5` → `Extreme 8×8`), and **Start** button; scrollable 1-column archive of all completed Random levels below.
-6. **New Custom Mode Builder (`#overlay-custom`)**:
+6. **New Custom Mode Builder & Completed Archive (`#overlay-custom`)**:
    - Configure **Board Size** (`5×5` to `8×8`, independent cols & rows), **Color Count** (`3`–`6`), **Special Pearl Toggles** (`♥`, `🌈`, `?`, `🔒`), and **Style** (`Jewel / Neon / Pop / Prism`).
    - Generated on the fly in TinyGo WASM (`GenerateCustomArtwork` / `LoadCustomGenerated`) with guaranteed solvability and verified 3-star paths.
+   - Scrollable **Completed Custom Patterns** 1-column square archive below the builder saving miniature embroidery previews, board rules, stars, best score, and 1-tap Replay.
 
 ---
 

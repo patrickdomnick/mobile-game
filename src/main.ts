@@ -61,6 +61,7 @@ export interface GameTestState extends SimSnapshot {
     dailyCompletedToday: boolean;
     dailyHistoryCount: number;
     randomHistoryCount: number;
+    customHistoryCount: number;
     seedDifficulty: SeedDifficultyTier;
   };
   renderer: RendererDiagnostics;
@@ -294,6 +295,8 @@ async function bootstrap(): Promise<void> {
   const customSpecialsPickerEl = document.getElementById('custom-specials-picker');
   const customStartBadge = document.getElementById('custom-start-badge');
   const startCustomBtn = document.getElementById('btn-start-custom');
+  const customArchiveHeading = document.getElementById('custom-archive-heading');
+  const customHistoryGridEl = document.getElementById('custom-history-grid');
 
   // Modals
   const trayFullModal = document.getElementById('overlay-tray-full');
@@ -697,7 +700,10 @@ async function bootstrap(): Promise<void> {
         menuRandomMeta.textContent = `${diffDef.name} ${diffDef.grid} · ${prog.randomHistory.length} done`;
       }
       if (menuCustomMeta) {
-        menuCustomMeta.textContent = `${cp.cols}×${cp.rows} · ${cp.colorCount} colors`;
+        menuCustomMeta.textContent =
+          prog.customHistory.length > 0
+            ? `${cp.cols}×${cp.rows} · ${prog.customHistory.length} done`
+            : `${cp.cols}×${cp.rows} · ${cp.colorCount} colors`;
       }
       if (menuGalleryLabel) {
         menuGalleryLabel.textContent = `Level Select · ${totalDone}/${levelsCatalog.levels.length} Mastered`;
@@ -1354,6 +1360,85 @@ async function bootstrap(): Promise<void> {
           customSpecialsPickerEl.append(btn);
         }
       }
+
+      const customHistory = gallery.getCustomHistory();
+      if (customArchiveHeading) {
+        customArchiveHeading.textContent = `COMPLETED CUSTOM PATTERNS (${customHistory.length})`;
+      }
+      if (customHistoryGridEl) {
+        customHistoryGridEl.innerHTML = '';
+        if (customHistory.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'empty-archive-card';
+          empty.innerHTML =
+            `<span class="empty-archive-icon" aria-hidden="true">✦</span>` +
+            `<strong>Your Custom Collection</strong>` +
+            `<p>Design your own board above—every custom embroidery you complete will be saved here to admire or replay.</p>`;
+          customHistoryGridEl.append(empty);
+        } else {
+          for (const rec of customHistory) {
+            const recTheme = VISUAL_THEMES[rec.theme] ?? VISUAL_THEMES[0];
+            const specIcons: string[] = [];
+            if ((rec.specialMask & SPECIAL_MASK.HEART) !== 0) specIcons.push('♥');
+            if ((rec.specialMask & SPECIAL_MASK.RAINBOW) !== 0) specIcons.push('🌈');
+            if ((rec.specialMask & SPECIAL_MASK.HIDDEN) !== 0) specIcons.push('?');
+            if ((rec.specialMask & SPECIAL_MASK.LOCKED) !== 0) specIcons.push('🔒');
+
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'square-level-card is-completed';
+            card.dataset.customSeed = String(rec.seed);
+
+            const head = document.createElement('div');
+            head.className = 'square-card-head';
+            head.innerHTML =
+              `<span class="gallery-lvl-badges">` +
+                `<span class="gallery-lvl-num">${rec.grid}</span>` +
+                `<span class="gallery-lvl-grid">${recTheme.shortName} · ${rec.colorCount}c${specIcons.length > 0 ? ` · ${specIcons.join('')}` : ''}</span>` +
+              `</span>` +
+              `<span class="gallery-star">${'★'.repeat(Math.max(1, rec.bestStars))}</span>`;
+
+            const preview = document.createElement('div');
+            preview.className = 'square-card-preview';
+            preview.innerHTML = renderEmbroideryPreviewSvg(rec.stitches, rec.theme, { size: 196 });
+
+            const foot = document.createElement('div');
+            foot.className = 'square-card-foot';
+            foot.innerHTML =
+              `<div class="square-card-title-row">` +
+                `<span class="square-card-name">Custom #${rec.seed}</span>` +
+                `<span class="square-card-score">${rec.bestScore.toLocaleString()} pts</span>` +
+              `</div>` +
+              `<div class="square-card-meta-row">` +
+                `<span class="square-card-sub">${rec.pearls} pearls · ${rec.completedAt}</span>` +
+                `<span class="gallery-play-chip">REPLAY</span>` +
+              `</div>`;
+
+            card.append(head, preview, foot);
+            card.addEventListener('click', () => {
+              soundscape.unlock();
+              soundscape.playUiTap(settings.hapticsEnabled);
+              tutorialActive = false;
+              lastUserTapAt = performance.now();
+              recordedCompleteKey = '';
+              displayedScore = 0;
+              sim.loadCustomGenerated({
+                seed: rec.seed,
+                theme: rec.theme,
+                cols: rec.cols,
+                rows: rec.rows,
+                colorCount: rec.colorCount,
+                specialMask: rec.specialMask,
+              });
+              closeAllSheets();
+              setScreen('playing');
+              updateHud(sim.readState(getAspect()));
+              wakeRenderer();
+            });
+            customHistoryGridEl.append(card);
+          }
+        }
+      }
     };
 
     const launchCustomFromPrefs = (): void => {
@@ -1479,6 +1564,10 @@ async function bootstrap(): Promise<void> {
             seed: snap.seed,
             theme: snap.themeIndex,
             difficulty: snap.seedDifficulty,
+            cols: snap.gridCols,
+            rows: snap.gridRows,
+            colorCount: snap.customColorCount,
+            specialMask: snap.customSpecialMask,
             grid: `${snap.gridCols}×${snap.gridRows}`,
             pearls: snap.totalPearls,
             stitches,
@@ -1490,6 +1579,7 @@ async function bootstrap(): Promise<void> {
           renderGalleryUi();
           renderDailyLibraryUi();
           renderRandomStudioUi();
+          renderCustomBuilderUi();
         }
       }
 
@@ -2097,6 +2187,7 @@ async function bootstrap(): Promise<void> {
             dailyCompletedToday: prog.completedDailyDates.includes(today),
             dailyHistoryCount: prog.dailyHistory.length,
             randomHistoryCount: prog.randomHistory.length,
+            customHistoryCount: prog.customHistory.length,
             seedDifficulty: prog.seedDifficulty,
           },
           renderer: renderer.getDiagnostics(),
