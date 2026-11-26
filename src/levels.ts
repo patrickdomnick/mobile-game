@@ -1,9 +1,10 @@
 import { CHAPTERS, CURATED_LEVELS, type ChapterDef } from './wasmBridge';
 
-const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v3';
+const LEVELS_CACHE_KEY = 'pearl-loom-levels-catalog-v4';
 
-export function getLevelTierLabel(lvl: { noBlockers?: boolean; difficulty: number }): string {
+export function getLevelTierLabel(lvl: { noBlockers?: boolean; boardShape?: number; difficulty: number }): string {
   if (lvl.noBlockers || lvl.difficulty <= 0) return 'Warm-Up';
+  if (lvl.boardShape && lvl.boardShape > 0) return 'Fun Shape';
   if (lvl.difficulty <= 2) return 'Easy';
   if (lvl.difficulty <= 4) return 'Medium';
   if (lvl.difficulty <= 6) return 'Challenging';
@@ -29,6 +30,7 @@ export interface RemoteLevelDef {
   maxRainbows?: number;
   maxHidden?: number;
   maxLocked?: number;
+  boardShape?: number;
   stitches?: readonly RemoteStitchTuple[];
   // Derived UI summary fields
   grid: string;
@@ -71,6 +73,7 @@ interface RawLevelsPayload {
     maxRainbows?: number;
     maxHidden?: number;
     maxLocked?: number;
+    boardShape?: number;
     stitches: RemoteStitchTuple[];
   }>;
 }
@@ -113,6 +116,7 @@ function normalizePayload(raw: RawLevelsPayload, source: 'network' | 'cache'): L
       maxRainbows: typeof item.maxRainbows === 'number' ? item.maxRainbows : 0,
       maxHidden: typeof item.maxHidden === 'number' ? item.maxHidden : 0,
       maxLocked: typeof item.maxLocked === 'number' ? item.maxLocked : 0,
+      boardShape: typeof item.boardShape === 'number' ? item.boardShape : 0,
       stitches: item.stitches,
       grid: `${item.cols}×${item.rows}`,
       pearls: item.stitches.length,
@@ -162,6 +166,7 @@ export function getBuiltinLevelsCatalog(): LevelsCatalog {
       maxRainbows: l.maxRainbows,
       maxHidden: l.maxHidden,
       maxLocked: l.maxLocked,
+      boardShape: l.boardShape,
       seed: (l.id + 1) * 1001,
       grid: l.grid,
       pearls: l.pearls,
@@ -179,7 +184,7 @@ export function getBuiltinLevelsCatalog(): LevelsCatalog {
   });
 
   return {
-    version: 3,
+    version: 4,
     source: 'builtin',
     chapters,
     levels,

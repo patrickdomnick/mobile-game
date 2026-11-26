@@ -32,6 +32,7 @@ type levelJSON struct {
 	MaxRainbows int          `json:"maxRainbows,omitempty"`
 	MaxHidden   int          `json:"maxHidden,omitempty"`
 	MaxLocked   int          `json:"maxLocked,omitempty"`
+	BoardShape  uint8        `json:"boardShape,omitempty"`
 	Stitches    [][4]float64 `json:"stitches"`
 }
 
@@ -47,7 +48,7 @@ func round3(v float32) float64 {
 
 func main() {
 	cat := catalogJSON{
-		Version: 3,
+		Version: 4,
 		Chapters: []chapterJSON{
 			{ID: 0, Roman: "I", Name: "Jewel Atelier", ShortName: "Jewel", ThemeID: 0, Subtitle: "Sunlit gemstones & artisan brooches"},
 			{ID: 1, Roman: "II", Name: "Cyber Arcade", ShortName: "Neon", ThemeID: 1, Subtitle: "Electric synthwave grids & pulses"},
@@ -76,11 +77,12 @@ func main() {
 			MaxRainbows: art.MaxRainbows,
 			MaxHidden:   art.MaxHidden,
 			MaxLocked:   art.MaxLocked,
+			BoardShape:  art.BoardShape,
 			Stitches:    st,
 		})
 	}
 
-	data, err := json.MarshalIndent(cat, "", "  ")
+	data, err := json.Marshal(cat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "marshal failed: %v\n", err)
 		os.Exit(1)

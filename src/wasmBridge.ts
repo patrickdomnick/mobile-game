@@ -109,10 +109,10 @@ export interface ChapterDef {
 }
 
 export const CHAPTERS: readonly ChapterDef[] = [
-  { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 13 },
-  { id: 1, roman: 'II', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 13, count: 13 },
-  { id: 2, roman: 'III', name: 'Pop Studio', shortName: 'Pop', themeId: 2, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 26, count: 13 },
-  { id: 3, roman: 'IV', name: 'Cathedral Glass', shortName: 'Prism', themeId: 3, subtitle: 'Grand rose windows & glowing glass', startIndex: 39, count: 13 },
+  { id: 0, roman: 'I', name: 'Jewel Atelier', shortName: 'Jewel', themeId: 0, subtitle: 'Sunlit gemstones & artisan brooches', startIndex: 0, count: 50 },
+  { id: 1, roman: 'II', name: 'Cyber Arcade', shortName: 'Neon', themeId: 1, subtitle: 'Electric synthwave grids & pulses', startIndex: 50, count: 50 },
+  { id: 2, roman: 'III', name: 'Pop Studio', shortName: 'Pop', themeId: 2, subtitle: 'Bold Warhol primaries & comic ink', startIndex: 100, count: 50 },
+  { id: 3, roman: 'IV', name: 'Cathedral Glass', shortName: 'Prism', themeId: 3, subtitle: 'Grand rose windows & glowing glass', startIndex: 150, count: 50 },
 ] as const;
 
 export function getThemePalette(themeIndex: number): readonly PearlColorInfo[] {
@@ -198,49 +198,129 @@ export interface CuratedLevelDef {
   maxRainbows: number;
   maxHidden: number;
   maxLocked: number;
+  boardShape: number;
   colors: readonly number[];
 }
 
-const CAMPAIGN_LADDER_META = [
-  { grid: '5×5', pearls: 14, difficulty: 0, noBlockers: true, colorCount: 3, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
-  { grid: '5×5', pearls: 16, difficulty: 0, noBlockers: true, colorCount: 4, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
-  { grid: '5×5', pearls: 21, difficulty: 1, noBlockers: false, colorCount: 4, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
-  { grid: '6×5', pearls: 26, difficulty: 2, noBlockers: false, colorCount: 4, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0 },
-  { grid: '6×6', pearls: 32, difficulty: 3, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0 },
-  { grid: '7×6', pearls: 37, difficulty: 4, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0 },
-  { grid: '7×7', pearls: 43, difficulty: 5, noBlockers: false, colorCount: 5, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0 },
-  { grid: '8×6', pearls: 45, difficulty: 6, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0 },
-  { grid: '8×7', pearls: 51, difficulty: 7, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1 },
-  { grid: '8×8', pearls: 54, difficulty: 8, noBlockers: false, colorCount: 6, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1 },
-  { grid: '8×8', pearls: 58, difficulty: 9, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2 },
-  { grid: '8×8', pearls: 61, difficulty: 10, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2 },
-  { grid: '8×8', pearls: 62, difficulty: 11, noBlockers: false, colorCount: 6, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 3 },
-] as const;
+// Compact tuple: [grid, pearls, colorCount, difficulty, noBlockers, maxH, maxR, max?, maxL, squareFunSlot]
+const CAMPAIGN_LADDER_META: readonly (readonly [string, number, number, number, boolean, number, number, number, number, number])[] = [
+  // T1 5x5
+  ['5×5', 14, 3, 0, true, 0, 0, 0, 0, 0],
+  ['5×5', 16, 3, 0, true, 0, 0, 0, 0, 0],
+  ['5×5', 19, 4, 1, false, 1, 0, 0, 0, 0],
+  ['5×5', 21, 4, 2, false, 2, 0, 0, 0, 0],
+  ['5×5', 23, 4, 3, false, 2, 0, 0, 0, 0],
+  // T2 6x5
+  ['6×5', 20, 3, 1, false, 1, 0, 0, 0, 0],
+  ['6×5', 22, 4, 2, false, 2, 0, 0, 0, 0],
+  ['6×5', 24, 4, 3, false, 2, 0, 0, 0, 0],
+  ['6×5', 26, 5, 4, false, 2, 0, 0, 0, 0],
+  ['6×5', 28, 5, 5, false, 2, 0, 0, 0, 0],
+  // T3 6x6
+  ['6×6', 22, 3, 1, false, 2, 0, 0, 0, 1],
+  ['6×6', 27, 4, 2, false, 2, 0, 0, 0, 0],
+  ['6×6', 29, 5, 3, false, 2, 1, 0, 0, 0],
+  ['6×6', 31, 5, 4, false, 2, 1, 0, 0, 0],
+  ['6×6', 34, 5, 5, false, 2, 1, 0, 0, 0],
+  // T4 7x6
+  ['7×6', 28, 4, 2, false, 2, 0, 0, 0, 0],
+  ['7×6', 32, 4, 3, false, 2, 0, 0, 0, 0],
+  ['7×6', 35, 5, 4, false, 2, 1, 0, 0, 0],
+  ['7×6', 38, 5, 5, false, 2, 1, 0, 0, 0],
+  ['7×6', 40, 6, 6, false, 2, 1, 0, 0, 0],
+  // T5 7x7
+  ['7×7', 24, 3, 2, false, 2, 0, 0, 0, 2],
+  ['7×7', 38, 5, 3, false, 2, 0, 0, 0, 0],
+  ['7×7', 41, 5, 4, false, 2, 1, 0, 0, 0],
+  ['7×7', 44, 6, 5, false, 2, 1, 2, 0, 0],
+  ['7×7', 47, 6, 6, false, 2, 1, 3, 0, 0],
+  // T6 8x6
+  ['8×6', 34, 4, 3, false, 2, 0, 0, 0, 0],
+  ['8×6', 37, 5, 4, false, 2, 0, 0, 0, 0],
+  ['8×6', 40, 5, 5, false, 2, 1, 0, 0, 0],
+  ['8×6', 43, 6, 6, false, 2, 1, 2, 0, 0],
+  ['8×6', 46, 6, 7, false, 3, 1, 3, 0, 0],
+  // T7 8x7
+  ['8×7', 40, 4, 4, false, 2, 0, 0, 0, 0],
+  ['8×7', 44, 5, 5, false, 2, 0, 0, 0, 0],
+  ['8×7', 47, 5, 6, false, 2, 1, 0, 0, 0],
+  ['8×7', 51, 6, 7, false, 2, 1, 3, 0, 0],
+  ['8×7', 54, 6, 8, false, 3, 1, 3, 1, 0],
+  // T8 8x8 Standard
+  ['8×8', 32, 3, 2, false, 2, 0, 0, 0, 3],
+  ['8×8', 48, 5, 5, false, 2, 0, 0, 0, 0],
+  ['8×8', 52, 5, 6, false, 3, 1, 0, 0, 0],
+  ['8×8', 55, 6, 7, false, 3, 1, 3, 1, 0],
+  ['8×8', 58, 6, 8, false, 3, 2, 3, 2, 0],
+  // T9 8x8 Expert
+  ['8×8', 34, 3, 3, false, 2, 0, 0, 0, 4],
+  ['8×8', 52, 5, 6, false, 3, 0, 0, 0, 0],
+  ['8×8', 55, 6, 7, false, 3, 2, 0, 0, 0],
+  ['8×8', 58, 6, 8, false, 3, 2, 4, 2, 0],
+  ['8×8', 60, 6, 9, false, 3, 2, 4, 2, 0],
+  // T10 8x8 Master
+  ['8×8', 32, 3, 3, false, 3, 0, 0, 0, 5],
+  ['8×8', 55, 5, 8, false, 3, 1, 0, 0, 0],
+  ['8×8', 58, 6, 9, false, 3, 2, 3, 1, 0],
+  ['8×8', 60, 6, 10, false, 3, 2, 4, 2, 0],
+  ['8×8', 62, 6, 11, false, 3, 2, 4, 3, 0],
+];
+
+const SQUARE_FUN_SHAPES: readonly (readonly number[])[] = [
+  [1, 5, 9, 13, 17],
+  [2, 6, 10, 14, 18],
+  [3, 7, 11, 15, 19],
+  [4, 8, 12, 16, 20],
+];
 
 const CAMPAIGN_LEVEL_NAMES: readonly (readonly string[])[] = [
   [
-    'Sunbeam Brooch', 'Dewdrop Ring', 'Jewel Heart', 'Sakura Bloom',
-    'Royal Crown', 'Emerald Clover', 'Monarch Crest', 'Sapphire Fan',
-    'Velvet Lotus', 'Nautilus Gold', 'Imperial Tiara', 'Starlight Filigree',
-    'Grand Jewel Rose',
+    'Sunbeam Brooch', 'Dewdrop Ring', 'Jewel Heart', 'Amber Starlet', 'Royal Locket',
+    'Golden Rays', 'Pearl Nautilus', 'Silk Moth', 'Emerald Clover', 'Honeycomb Pin',
+    'Sweetheart Gem', 'Sakura Bloom', 'Opal Starburst', 'Faceted Drop', 'Velvet Rosette',
+    'Gilded Vortex', 'Sunburst Tiara', 'Crystal Hive', 'Monarch Crest', 'Sapphire Clover',
+    'Carat Cut', 'Peony Garland', 'Crown Nova', 'Gold Filigree', 'Imperial Rose',
+    'Topaz Lattice', 'Ruby Medallion', 'Solstice Fan', 'Jade Quatrefoil', 'Marquise Prism',
+    'Swallowtail', 'Orchid Wreath', 'Nautilus Gold', 'Starlight Crest', 'Duchess Window',
+    'Jubilee Crown', 'Beryl Matrix', 'Radiant Brooch', 'Clover Diadem', 'Sovereign Rose',
+    'Monarch Flutter', 'Diamond Pavé', 'Celestial Coil', 'Empress Heart', 'Garden Crown',
+    'Eternal Loop', 'Emerald Vault', 'Astral Tiara', 'Regalia Crest', 'Grand Jewel Rose',
   ],
   [
-    'Neon Spark', 'Bit Halo', 'Neon Pulse', 'Synth Diamond',
-    'Pixel Star', 'Laser Spiral', 'Arcade Core', 'Vector Grid',
-    'Flux Portal', 'Hyper Matrix', 'Volt Overdrive', 'Quantum Circuit',
-    'Cyber Singularity',
+    'Neon Spark', 'Bit Halo', 'Pulse Core', 'Pixel Star', 'Arcade Ring',
+    'Laser Beam', 'Turbo Spiral', 'Cyber Wing', 'Circuit Node', 'Hex Buffer',
+    'Sector Six', 'Synth Bloom', 'Vector Nova', 'Neon Diamond', 'CRT Matrix',
+    'Warp Vortex', 'Photon Array', 'Data Hive', 'Holo Drone', 'Quad Bus',
+    'Lucky Seven', 'Plasma Petal', 'Hyper Star', 'Ion Helix', 'Mainframe Hub',
+    'Mesh Grid', 'Power Heart', 'Radar Sweep', 'Logic Gate', 'Prism Vector',
+    'Glitch Moth', 'Volt Blossom', 'Flux Coil', 'Star Drive', 'Cyber Portal',
+    'Byte Eight', 'Hex Cluster', 'Laser Burst', 'Relay Cross', 'Core Reactor',
+    'Arcade Sprite', 'Synth Rhombus', 'Overdrive Coil', 'Neon Vitality', 'Pulse Array',
+    'Extra Life', 'Quantum Grid', 'Hypernova', 'Omega Circuit', 'Cyber Singularity',
   ],
   [
-    'Pop Dot', 'Comic Ring', 'Comic Star', 'Pop Heart',
-    'Halftone Bolt', 'Warhol Bloom', 'Boom Burst', 'Retro Sun',
-    'Pop Diamond', 'Studio Crown', 'Super Flash', 'Gallery Splash',
-    'Grand Pop Burst',
+    'Pop Dot', 'Comic Ring', 'Pop Heart', 'Comic Star', 'Studio Badge',
+    'Retro Sun', 'Swirl Ink', 'Pop Flutter', 'Four-Color Pop', 'Dot Matrix',
+    'Pop Smile', 'Warhol Bloom', 'Boom Burst', 'Pop Diamond', 'Gallery Ring',
+    'Vinyl Spin', 'Pow Rays', 'Halftone Hive', 'Paper Wings', 'Ink Clover',
+    'Pop Monogram', 'Daisy Print', 'Flash Star', 'Groovy Spiral', 'Poster Crown',
+    'Screen Mesh', 'Crush Heart', 'Sun Splash', 'Mod Quatrefoil', 'Kite Cut',
+    'Neon Monarch', 'Flower Power', 'Whirlpool Ink', 'Zing Burst', 'Mural Halo',
+    'Zap Flash', 'Pixel Screen', 'Super Splash', 'Studio Cross', 'Gallery Center',
+    'Supernova Pop', 'Mod Diamond', 'Hypno Swirl', 'Big Love Pop', 'Exhibition Bloom',
+    'Pop Hello', 'Color Grid', 'Mega Boom', 'Iconic Frame', 'Grand Pop Burst',
   ],
   [
-    'Candle Shard', 'Silver Chalice', 'Prism Lantern', 'Gothic Arch',
-    'Angel Crest', 'Aurora Spire', 'Cathedral Cross', 'Vespers Halo',
-    'Radiant Choir', 'Stained Compass', 'Sapphire Nave', 'Celestial Vault',
-    'Grand Rose Window',
+    'Candle Shard', 'Silver Lozenge', 'Sacred Heart', 'Vesper Star', 'Cloister Halo',
+    'Morning Rays', 'Incense Coil', 'Dove Wings', 'Abbey Clover', 'Leadlight Hex',
+    'Chapel Cross', 'Lily Lancet', 'Aurora Star', 'Prism Diamond', 'Choir Rosette',
+    'Bell Spiral', 'Solstice Nave', 'Glass Lattice', 'Cherub Crest', 'Transept Arch',
+    'Golden Chalice', 'Altar Blossom', 'Benediction', 'Scroll Helix', 'North Window',
+    'Crystalline', 'Rose Reliquary', 'Sunlit Choir', 'Gilded Trefoil', 'Mitre Gem',
+    'Gabriel Wings', 'Belfry Bloom', 'Vesper Spiral', 'Radiant Spire', 'South Rose',
+    'Lantern Arch', 'Vault Matrix', 'Hymn Rays', 'Apse Tracery', 'Sapphire Nave',
+    'Seraph Wings', 'Relic Prism', 'Chalice Swirl', 'Crimson Heart', 'Cathedral Crown',
+    'Sanctuary Rose', 'Celestial Vault', 'Archangel Star', 'Dominion Cross', 'Grand Rose Window',
   ],
 ];
 
@@ -253,22 +333,24 @@ const CAMPAIGN_PAL_ORDERS: readonly (readonly number[])[] = [
 
 export const CURATED_LEVELS: readonly CuratedLevelDef[] = CAMPAIGN_LEVEL_NAMES.flatMap((names, ch) =>
   names.map((name, idx) => {
-    const meta = CAMPAIGN_LADDER_META[idx];
+    const [grid, pearls, colorCount, difficulty, noBlockers, maxHearts, maxRainbows, maxHidden, maxLocked, sqFun] =
+      CAMPAIGN_LADDER_META[idx];
     const pal = CAMPAIGN_PAL_ORDERS[ch];
     return {
-      id: ch * 13 + idx,
+      id: ch * 50 + idx,
       chapter: ch,
       theme: ch,
       name,
-      grid: meta.grid,
-      pearls: meta.pearls,
-      difficulty: meta.difficulty,
-      noBlockers: meta.noBlockers,
-      maxHearts: meta.maxHearts,
-      maxRainbows: meta.maxRainbows,
-      maxHidden: meta.maxHidden,
-      maxLocked: meta.maxLocked,
-      colors: [...pal.slice(0, meta.colorCount)].sort((a, b) => a - b),
+      grid,
+      pearls,
+      difficulty,
+      noBlockers,
+      maxHearts,
+      maxRainbows,
+      maxHidden,
+      maxLocked,
+      boardShape: sqFun > 0 ? SQUARE_FUN_SHAPES[ch][sqFun - 1] : 0,
+      colors: [...pal.slice(0, colorCount)].sort((a, b) => a - b),
     };
   }),
 );
@@ -381,6 +463,7 @@ export interface CustomLevelPayload {
   maxRainbows?: number;
   maxHidden?: number;
   maxLocked?: number;
+  boardShape?: number;
   stitches?: readonly (readonly [number, number, number, number])[];
 }
 
@@ -560,7 +643,7 @@ export class WasmSimulation {
     buf[10] = def.maxRainbows ?? 0;
     buf[11] = def.maxHidden ?? 0;
     buf[12] = def.maxLocked ?? 0;
-    buf[13] = 0;
+    buf[13] = def.boardShape ?? 0;
 
     for (let i = 0; i < stitches.length; i++) {
       const off = HEADER_LEN + i * 4;

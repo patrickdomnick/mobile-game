@@ -47,7 +47,8 @@ function installMemoryStorage() {
 
 const { parseSeedInput, getDailyThemeForDateKey, SPECIAL_MASK } = await import('../../src/wasmBridge.ts');
 const { renderEmbroideryPreviewSvg } = await import('../../src/preview.ts');
-const { EmbroideryGalleryStore } = await import('../../src/gallery.ts');
+const { EmbroideryGalleryStore, CURRENT_CATALOG_VERSION } = await import('../../src/gallery.ts');
+const { getLevelTierLabel } = await import('../../src/levels.ts');
 
 test('parseSeedInput parses numeric seeds deterministically and hashes words cleanly', () => {
   assert.equal(parseSeedInput('20261125'), 20261125);
@@ -69,6 +70,12 @@ test('getDailyThemeForDateKey rotates deterministically across all 4 visual them
     seen.add(theme.id);
   }
   assert.equal(seen.size, 4, 'expected all 4 visual themes across 28 daily keys');
+});
+
+test('getLevelTierLabel tags sculpted square breathers as Fun Shape and warmups cleanly', () => {
+  assert.equal(getLevelTierLabel({ noBlockers: true, difficulty: 0 }), 'Warm-Up');
+  assert.equal(getLevelTierLabel({ boardShape: 14, difficulty: 3 }), 'Fun Shape');
+  assert.equal(getLevelTierLabel({ difficulty: 11 }), 'Masterpiece');
 });
 
 test('renderEmbroideryPreviewSvg produces crisp theme-matched SVG for unlocked and locked previews', () => {
@@ -151,4 +158,46 @@ test('EmbroideryGalleryStore tracks sequential unlocks, onboarding, specials, an
   assert.equal(reloaded.getCustomHistory()[0].seed, 777111);
   assert.equal(reloaded.getCustomHistory()[0].cols, 6);
   assert.equal(reloaded.getCustomHistory()[0].rows, 5);
+});
+
+test('EmbroideryGalleryStore v3 -> v4 Option B migration resets campaign completions while preserving archives & onboarding', () => {
+  const storage = installMemoryStorage();
+  storage.set(
+    'pearl-loom-gallery-v2',
+    JSON.stringify({
+      completedCurated: {
+        0: { bestScore: 3000, bestStars: 3, bestMaxStreak: 6, completedAt: '2026-11-25' },
+        13: { bestScore: 4200, bestStars: 3, bestMaxStreak: 8, completedAt: '2026-11-25' },
+      },
+      completedDailyDates: ['2026-11-25'],
+      dailyHistory: [
+        {
+          dateKey: 20261125,
+          dateLabel: '2026-11-25',
+          theme: 1,
+          bestScore: 4100,
+          bestStars: 3,
+          bestMaxStreak: 7,
+          grid: '6×6',
+          pearls: 28,
+          stitches: [[0, 0, 0]],
+        },
+      ],
+      randomHistory: [],
+      customHistory: [],
+      onboardingCompleted: true,
+      seenSpecials: ['heart', 'rainbow'],
+      settings: { hapticsEnabled: false, timeMode: 'manual', manualHour: 19.5 },
+    }),
+  );
+
+  const migrated = new EmbroideryGalleryStore();
+  const snap = migrated.getSnapshot();
+  assert.equal(snap.catalogVersion, CURRENT_CATALOG_VERSION);
+  assert.deepEqual(snap.completedCurated, {});
+  assert.equal(snap.onboardingCompleted, true);
+  assert.deepEqual(snap.seenSpecials, ['heart', 'rainbow']);
+  assert.equal(snap.dailyHistory.length, 1);
+  assert.equal(snap.settings.hapticsEnabled, false);
+  assert.equal(snap.settings.manualHour, 19.5);
 });

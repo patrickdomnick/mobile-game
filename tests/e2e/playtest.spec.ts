@@ -51,9 +51,9 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     const levelsRes = await request.get('/levels.json');
     expect(levelsRes.status()).toBe(200);
     const levelsJson = await levelsRes.json();
-    expect(levelsJson.version).toBe(3);
+    expect(levelsJson.version).toBe(4);
     expect(levelsJson.chapters.length).toBe(4);
-    expect(levelsJson.levels.length).toBe(52);
+    expect(levelsJson.levels.length).toBe(200);
 
     // 2. Fresh Launch -> Must boot into First-Load 3D Unravel Intro Animation!
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -69,7 +69,7 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     expect(introBoot.onboardingCompleted).toBe(false);
     expect(introBoot.configSource).toBe('network');
     expect(introBoot.levelsCatalog.source).toBe('network');
-    expect(introBoot.levelsCatalog.count).toBe(52);
+    expect(introBoot.levelsCatalog.count).toBe(200);
     expect(introBoot.renderer.validationErrors).toEqual([]);
     await expect(page.locator('#overlay-intro')).toBeVisible();
 
@@ -245,13 +245,15 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     await page.locator('#btn-close-settings').click();
     await expect(page.locator('#overlay-settings')).toBeHidden();
 
-    // 6. Verify Theme-Synced 1-Column Square Level Select with Miniature SVG Embroidery Previews & ZERO Endless/Seed clutter!
+    // 6. Verify Theme-Synced 1-Column Square Level Select with 50 Levels/Campaign, 10 Sawtooth Tier Pills & Miniature SVG Previews!
     await page.locator('#btn-menu-gallery').click();
     await expect(page.locator('#overlay-gallery')).toBeVisible();
     await expect(page.locator('#overlay-gallery')).toHaveAttribute('data-view-theme', '0');
     await expect(page.locator('#chapter-tabs .chapter-tab')).toHaveCount(4);
-    await expect(page.locator('#gallery-grid .square-level-card')).toHaveCount(13);
-    await expect(page.locator('#gallery-grid .embroidery-preview-svg')).toHaveCount(13);
+    await expect(page.locator('#chapter-tier-pills .tier-pill')).toHaveCount(10);
+    await expect(page.locator('#gallery-grid .gallery-tier-header')).toHaveCount(10);
+    await expect(page.locator('#gallery-grid .square-level-card')).toHaveCount(50);
+    await expect(page.locator('#gallery-grid .embroidery-preview-svg')).toHaveCount(50);
     // Confirm Endless & Seed controls are completely removed from Level Select!
     await expect(page.locator('#overlay-gallery #seed-form')).toHaveCount(0);
     await expect(page.locator('#overlay-gallery #seed-diff-picker')).toHaveCount(0);
@@ -287,6 +289,35 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     await page.locator('#chapter-tabs .chapter-tab[data-chapter-id="0"]').click();
     await page.locator('#btn-close-gallery').click();
     await expect(page.locator('#overlay-gallery')).toBeHidden();
+
+    // 6b. Visually verify live sculpted Square .1 Fun Breather Boards (Cyber Arcade L41 Space Invader & Pop Studio L11 Pop Smile)!
+    await page.evaluate(async () => {
+      window.__GAME_TEST__!.enterGame();
+      window.__GAME_TEST__!.loadLevel(90); // Campaign 1 L41: Arcade Sprite (8x8 Space Invader, 34 tiles, 3 colors)
+      await window.__GAME_TEST__!.stepTicks(6, false);
+    });
+    if (await page.locator('#tutorial-tooltip').isVisible()) {
+      await page.locator('#btn-tooltip-dismiss').click();
+    }
+    const invaderState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(invaderState.levelName).toBe('Arcade Sprite');
+    expect(invaderState.totalPearls).toBe(34);
+    expect(invaderState.gridCols).toBe(8);
+    expect(invaderState.gridRows).toBe(8);
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'fun-shape-invader.png') });
+
+    await page.evaluate(async () => {
+      window.__GAME_TEST__!.loadLevel(110); // Campaign 2 L11: Pop Smile (6x6 Smiley, 18 tiles, 3 colors)
+      await window.__GAME_TEST__!.stepTicks(6, false);
+    });
+    if (await page.locator('#tutorial-tooltip').isVisible()) {
+      await page.locator('#btn-tooltip-dismiss').click();
+    }
+    const smileState = await page.evaluate(() => window.__GAME_TEST__!.getState());
+    expect(smileState.levelName).toBe('Pop Smile');
+    expect(smileState.totalPearls).toBe(18);
+    await page.screenshot({ path: path.join(RESULTS_DIR, 'fun-shape-smile.png') });
+    await page.evaluate(() => window.__GAME_TEST__!.openStartMenu());
 
     // 7. Verify Daily Stitch Completion -> Saved into Daily Library with Miniature SVG Preview + Replay!
     await page.locator('#btn-mode-daily').click();
@@ -404,8 +435,8 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     // 10. Verify First-Encounter Special Pearl Tooltips
     await page.evaluate(async () => {
       window.__GAME_TEST__!.enterGame();
-      // Load 8x8 finale (Level 12) which has Hidden & Locked pearls not yet encountered in Easy/Daily!
-      window.__GAME_TEST__!.loadLevel(12);
+      // Load 8x8 Grand Masterpiece finale (Level 49) which has Hidden & Locked pearls not yet encountered in Easy/Daily!
+      window.__GAME_TEST__!.loadLevel(49);
       await window.__GAME_TEST__!.stepTicks(3, false);
     });
     const specialTipSt = await page.evaluate(() => window.__GAME_TEST__!.getState());
@@ -416,9 +447,9 @@ test.describe('Pearl Loom v3.0 — iPhone 16 WebGPU Onboarding, Menus, Miniature
     // 11. Verify ALL 4 Worlds Visual Pop, Contrast & Saturation + Final-Color Victory Rush Mode
     const chapterSamples = [
       { level: 2, expectedTheme: 0, file: 'theme-0-jewel.png' },
-      { level: 15, expectedTheme: 1, file: 'theme-1-neon.png' },
-      { level: 28, expectedTheme: 2, file: 'theme-2-popart.png' },
-      { level: 41, expectedTheme: 3, file: 'theme-3-prism.png' },
+      { level: 52, expectedTheme: 1, file: 'theme-1-neon.png' },
+      { level: 102, expectedTheme: 2, file: 'theme-2-popart.png' },
+      { level: 152, expectedTheme: 3, file: 'theme-3-prism.png' },
     ];
     const themeCaptures: Buffer[] = [];
     await page.evaluate(async () => {

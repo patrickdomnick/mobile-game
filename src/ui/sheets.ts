@@ -82,6 +82,7 @@ export class MenuSheetsController {
   private readonly chapterBannerProgress = document.getElementById('chapter-banner-progress');
   private readonly chapterBannerStars = document.getElementById('chapter-banner-stars');
   private readonly chapterProgressBar = document.getElementById('chapter-progress-bar');
+  private readonly chapterTierPillsEl = document.getElementById('chapter-tier-pills');
   private readonly galleryGridEl = document.getElementById('gallery-grid');
 
   // Daily Library refs
@@ -298,7 +299,82 @@ export class MenuSheetsController {
 
     const pal = getThemePalette(activeCh.themeId);
     const chapterLevels = this.levelsCatalog.levels.filter((l) => l.chapter === activeCh.id);
+    const tierMeta: ReadonlyArray<{ pill: string; heading: string; sub: string }> = [
+      { pill: '5×5', heading: 'TIER 1 · 5×5', sub: 'Warm-Up & Hearts' },
+      { pill: '6×5', heading: 'TIER 2 · 6×5', sub: 'Expanded Loom' },
+      { pill: '6×6', heading: 'TIER 3 · 6×6', sub: 'Fun Shape · + 🌈 Rainbow' },
+      { pill: '7×6', heading: 'TIER 4 · 7×6', sub: 'Six-Color Ramp' },
+      { pill: '7×7', heading: 'TIER 5 · 7×7', sub: 'Fun Shape · + ? Hidden' },
+      { pill: '8×6', heading: 'TIER 6 · 8×6', sub: 'Wide Corridors' },
+      { pill: '8×7', heading: 'TIER 7 · 8×7', sub: '+ 🔒 Locked Pearls' },
+      { pill: '8×8 I', heading: 'TIER 8 · 8×8 STANDARD', sub: 'Fun Shape · Full Suite' },
+      { pill: '8×8 II', heading: 'TIER 9 · 8×8 EXPERT', sub: 'Fun Shape · Expert' },
+      { pill: '8×8 III', heading: 'TIER 10 · 8×8 MASTER', sub: 'Fun Shape · Grand 64' },
+    ];
+
+    const tierCount = Math.ceil(chapterLevels.length / 5);
+    const frontierPosInCamp = Math.max(0, activeCh.levelIds.indexOf(frontierId));
+    const frontierTierIdx = Math.floor(frontierPosInCamp / 5);
+
+    if (this.chapterTierPillsEl) {
+      this.chapterTierPillsEl.innerHTML = '';
+      for (let t = 0; t < tierCount; t++) {
+        const slice = chapterLevels.slice(t * 5, (t + 1) * 5);
+        const doneInTier = slice.filter((l) => Boolean(prog.completedCurated[l.id])).length;
+        const meta = tierMeta[t] ?? {
+          pill: slice[0]?.grid ?? `T${t + 1}`,
+          heading: `TIER ${t + 1} · ${slice[0]?.grid ?? ''}`,
+          sub: '',
+        };
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `tier-pill${t === frontierTierIdx ? ' is-frontier' : ''}${doneInTier === slice.length && slice.length > 0 ? ' is-done' : ''}`;
+        pill.dataset.tierIdx = String(t);
+
+        const lbl = document.createElement('span');
+        lbl.textContent = meta.pill;
+
+        const cnt = document.createElement('span');
+        cnt.className = 'tier-pill-count';
+        cnt.textContent = doneInTier === slice.length && slice.length > 0 ? '✓' : `${doneInTier}/${slice.length}`;
+
+        pill.append(lbl, cnt);
+        pill.addEventListener('click', () => {
+          this.soundscape.unlock();
+          this.soundscape.playUiTap(this.host.getHapticsEnabled());
+          const anchor = this.galleryGridEl?.querySelector(`[data-tier-anchor="${t}"]`);
+          anchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        this.chapterTierPillsEl.append(pill);
+      }
+    }
+
     chapterLevels.forEach((lvl, idxInCamp) => {
+      if (idxInCamp % 5 === 0) {
+        const t = Math.floor(idxInCamp / 5);
+        const slice = chapterLevels.slice(idxInCamp, idxInCamp + 5);
+        const doneInTier = slice.filter((l) => Boolean(prog.completedCurated[l.id])).length;
+        const meta = tierMeta[t] ?? {
+          pill: lvl.grid,
+          heading: `TIER ${t + 1} · ${lvl.grid}`,
+          sub: '',
+        };
+        const header = document.createElement('div');
+        header.className = 'gallery-tier-header';
+        header.dataset.tierAnchor = String(t);
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'gallery-tier-title';
+        titleSpan.textContent = meta.heading;
+
+        const subSpan = document.createElement('span');
+        subSpan.className = 'gallery-tier-sub';
+        subSpan.textContent = `${meta.sub} · ${doneInTier}/${slice.length}`;
+
+        header.append(titleSpan, subSpan);
+        this.galleryGridEl!.append(header);
+      }
+
       const done = prog.completedCurated[lvl.id];
       const unlocked = this.gallery.isLevelUnlocked(lvl.id, activeCh.levelIds);
       const isCurrent = unlocked && !done && lvl.id === frontierId;
@@ -342,6 +418,21 @@ export class MenuSheetsController {
       });
       this.galleryGridEl!.append(card);
     });
+  }
+
+  /** Scrolls Level Select directly to the active frontier card when opening mid-campaign. */
+  scrollGalleryToFrontier(): void {
+    if (!this.galleryGridEl) return;
+    const currentCard = this.galleryGridEl.querySelector('.square-level-card.is-current') as HTMLElement | null;
+    if (currentCard) {
+      // Only scroll down once past the first few cards so early players see the full header & tier pills
+      const idx = Number(currentCard.dataset.levelIndex ?? '0') % 50;
+      if (idx >= 3) {
+        currentCard.scrollIntoView({ behavior: 'instant', block: 'center' });
+      } else if (this.gallerySheet) {
+        this.gallerySheet.scrollTop = 0;
+      }
+    }
   }
 
   renderDailyLibraryUi(): void {

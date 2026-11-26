@@ -883,6 +883,7 @@ html.is-standalone #app {
   box-shadow: 0 20px 54px rgba(0, 0, 0, 0.52);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
+  overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   animation: sheetSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -2034,17 +2035,117 @@ html.is-standalone #app {
 }
 
 /* ========================================================================= */
-/* v3.0 1-COLUMN SQUARE EMBROIDERY PREVIEW CARDS                             */
+/* v3.0 1-COLUMN SQUARE EMBROIDERY PREVIEW CARDS & SAWTOOTH TIER NAVIGATION  */
 /* ========================================================================= */
+.tier-pills-bar {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 3px 2px 5px;
+  margin-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tier-pills-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.tier-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--hud-bg);
+  border: 1.5px solid var(--hud-border);
+  color: var(--ink-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.14s ease, border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.tier-pill:active {
+  transform: scale(0.95);
+}
+
+.tier-pill.is-frontier {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--hud-bg-elevated);
+}
+
+.tier-pill.is-done {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tier-pill-count {
+  font-size: 10px;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-themed[data-view-theme='2'] .tier-pill {
+  border-width: 2px;
+  box-shadow: 2px 2px 0 #14161e;
+}
+
+.gallery-tier-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 4px 2px;
+  border-bottom: 1px solid var(--hud-border);
+  scroll-margin-top: 12px;
+}
+
+.gallery-tier-header:first-child {
+  padding-top: 2px;
+}
+
+.gallery-tier-title {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.gallery-tier-sub {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-align: right;
+}
+
 .gallery-grid-single {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding-bottom: 18px;
+  width: 100%;
+  min-width: 0;
 }
 
 .square-level-card {
   width: 100%;
+  min-width: 0;
   aspect-ratio: 1 / 1;
   display: flex;
   flex-direction: column;
@@ -2059,6 +2160,8 @@ html.is-standalone #app {
   text-align: left;
   cursor: pointer;
   font-family: inherit;
+  content-visibility: auto;
+  contain-intrinsic-block-size: 330px;
   transition: transform 0.14s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 

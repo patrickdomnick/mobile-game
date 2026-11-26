@@ -1033,6 +1033,7 @@ async function bootstrap(): Promise<void> {
       sheets.renderGalleryUi();
       sheets.closeAll();
       sheets.gallerySheet?.classList.remove('hidden');
+      sheets.scrollGalleryToFrontier();
       syncUpdateBanner();
     });
 
@@ -1199,7 +1200,10 @@ async function bootstrap(): Promise<void> {
       sheets.renderGalleryUi();
       const isOpen = sheets.gallerySheet && !sheets.gallerySheet.classList.contains('hidden');
       sheets.closeAll();
-      if (!isOpen) sheets.gallerySheet?.classList.remove('hidden');
+      if (!isOpen) {
+        sheets.gallerySheet?.classList.remove('hidden');
+        sheets.scrollGalleryToFrontier();
+      }
     });
 
     audioBtn?.addEventListener('click', () => {

@@ -18,7 +18,7 @@ const (
 	NumThemes         = 4
 
 	NumChapters      = 4
-	LevelsPerChapter = 13
+	LevelsPerChapter = 50
 )
 
 // ThemePalettes defines 4 vibrant, unmistakable high-pop 6-color themes with maximum hue separation.
@@ -26,21 +26,21 @@ const (
 var ThemePalettes = [NumThemes][NumColors][4]float32{
 	// 0: Jewel Atelier (Rich, sharply separated gemstones on deep sunlit slate-walnut)
 	{
-		{0.96, 0.08, 0.16, 0.50}, // 0: Scarlet Ruby (unmistakably RED, zero pink overlap with Amethyst)
-		{0.08, 0.36, 0.98, 0.56}, // 1: Royal Cobalt (deep royal blue)
-		{0.04, 0.80, 0.32, 0.50}, // 2: Emerald Jade (pure lush green)
-		{1.00, 0.78, 0.04, 0.56}, // 3: Sunbeam Gold (radiant yellow-gold)
-		{0.62, 0.16, 0.98, 0.60}, // 4: Vivid Amethyst (crisp royal purple)
-		{0.02, 0.86, 0.94, 0.55}, // 5: Aqua Cyan (bright sky-aqua)
+		{0.96, 0.08, 0.16, 0.50}, // 0: Scarlet Ruby
+		{0.08, 0.36, 0.98, 0.56}, // 1: Royal Cobalt
+		{0.04, 0.80, 0.32, 0.50}, // 2: Emerald Jade
+		{1.00, 0.78, 0.04, 0.56}, // 3: Sunbeam Gold
+		{0.62, 0.16, 0.98, 0.60}, // 4: Vivid Amethyst
+		{0.02, 0.86, 0.94, 0.55}, // 5: Aqua Cyan
 	},
 	// 1: Cyber Arcade (Crisp electric synthwave spectrum)
 	{
 		{1.00, 0.08, 0.56, 0.95}, // 0: Hot Magenta
 		{0.02, 0.92, 1.00, 0.95}, // 1: Electric Cyan
 		{0.44, 1.00, 0.08, 0.92}, // 2: Acid Lime
-		{1.00, 0.64, 0.02, 0.92}, // 3: Laser Amber (distinct warm amber-gold)
+		{1.00, 0.64, 0.02, 0.92}, // 3: Laser Amber
 		{0.58, 0.18, 1.00, 0.95}, // 4: Ultraviolet
-		{1.00, 0.18, 0.10, 0.92}, // 5: Flame Red (distinct neon red-orange)
+		{1.00, 0.18, 0.10, 0.92}, // 5: Flame Red
 	},
 	// 2: Pop Studio (Bold Warhol / Lichtenstein primaries)
 	{
@@ -79,13 +79,14 @@ type ArtworkDef struct {
 	Name        string
 	Cols        int
 	Rows        int
-	Difficulty  int // 0 = zero-blocker warm-up, 1..11 = strictly escalating difficulty
+	Difficulty  int // 0 = zero-blocker warm-up, 1..11 = sawtooth logic difficulty
 	Seed        uint32
-	NoBlockers  bool // When true, every starting tile has an unobstructed outward lane
-	MaxHearts   int  // 0..3 sculpted 3D Heart Pearls
-	MaxRainbows int  // 0..2 extra Rainbow Wild Pearls on board
-	MaxHidden   int  // 0..4 Hidden (obsidian-black) Pearls
-	MaxLocked   int  // 0..3 Locked (clear-4-neighbors) Pearls
+	NoBlockers  bool  // When true, every starting tile has an unobstructed outward lane
+	MaxHearts   int   // 0..3 sculpted 3D Heart Pearls
+	MaxRainbows int   // 0..2 extra Rainbow Wild Pearls on board
+	MaxHidden   int   // 0..4 Hidden (obsidian-black) Pearls
+	MaxLocked   int   // 0..3 Locked (clear-4-neighbors) Pearls
+	BoardShape  uint8 // 0 = centered cluster, 1..20 = sculpted pixel-art fun board shape
 	Stitches    []StitchPoint
 }
 
@@ -110,251 +111,201 @@ func waveRingPoints(count int, baseR, waveAmp float64, waveFreq int, offsetRad f
 	return pts
 }
 
-func buildHeartStitches(cCore, cAccent, cMain, cTrim uint8) []StitchPoint {
-	return []StitchPoint{
-		{0.00, -0.14, cCore, 0}, {0.00, 0.14, cCore, 0},
-		{-0.22, -0.02, cAccent, 0}, {0.22, -0.02, cAccent, 0},
-		{-0.28, -0.34, cMain, 1}, {0.28, -0.34, cMain, 1},
-		{-0.46, -0.08, cMain, 1}, {0.46, -0.08, cMain, 1},
-		{-0.30, 0.24, cTrim, 1}, {0.30, 0.24, cTrim, 1},
-		{0.00, 0.44, cMain, 1},
-		{-0.44, -0.58, cMain, 2}, {0.44, -0.58, cMain, 2},
-		{0.00, -0.42, cCore, 2},
-		{-0.72, -0.26, cTrim, 2}, {0.72, -0.26, cTrim, 2},
-		{-0.68, 0.14, cAccent, 2}, {0.68, 0.14, cAccent, 2},
-		{-0.42, 0.50, cCore, 2}, {0.42, 0.50, cCore, 2},
-		{0.00, 0.74, cMain, 2},
-	}
-}
-
-func buildSpiralStitches(count int, turns float64, colors []uint8) []StitchPoint {
-	pts := make([]StitchPoint, 0, count)
-	for i := 0; i < count; i++ {
-		t := float64(i) / float64(count-1)
-		ang := -math.Pi/2 + t*turns*2.0*math.Pi
-		rad := 0.10 + t*0.74
-		layer := uint8(0)
-		if i >= (count*2)/3 {
-			layer = 2
-		} else if i >= count/3 {
-			layer = 1
-		}
-		pts = append(pts, StitchPoint{
-			X:     float32(math.Cos(ang) * rad),
-			Z:     float32(math.Sin(ang) * rad),
-			Color: colors[i%len(colors)],
-			Layer: layer,
-		})
-	}
-	return pts
-}
-
-type ringSpec struct {
-	count   int
-	radius  float64
-	waveAmp float64
-	freq    int
-	offset  float64
-	layer   uint8
-	cA      int // index into motif palette
-	cB      int
-}
-
-func buildMultiRingMotif(centerColor uint8, hasCenter bool, pal []uint8, rings []ringSpec) []StitchPoint {
-	total := 0
-	if hasCenter {
-		total++
-	}
-	for _, r := range rings {
-		total += r.count
-	}
-	pts := make([]StitchPoint, 0, total)
-	if hasCenter {
-		pts = append(pts, StitchPoint{X: 0, Z: 0, Color: centerColor, Layer: 0})
-	}
-	for _, r := range rings {
-		cols := []uint8{pal[r.cA%len(pal)], pal[r.cB%len(pal)]}
-		pts = append(pts, waveRingPoints(r.count, r.radius, r.waveAmp, r.freq, r.offset, cols, r.layer)...)
-	}
-	return pts
-}
-
-// buildCampaignPattern builds a clean, zero-overlap, theme-tailored hoop pattern for tier 0..12
-// with exact pearl count and color count matching the 13-level campaign ladder!
-func buildCampaignPattern(campaignIdx, tierIdx int, pal []uint8) []StitchPoint {
-	// Per-campaign signature geometry twists so every world feels unmistakable!
-	baseOffset := -math.Pi / 2
-	petalAmp := 0.045
-	freqShift := 0
-	switch campaignIdx {
-	case 0: // Jewel Atelier: floral petals & artisan brooches
-		baseOffset = -math.Pi / 2
-		petalAmp = 0.055
-		freqShift = 0
-	case 1: // Cyber Arcade: sharp 4-fold & 8-fold neon grids / prisms
-		baseOffset = math.Pi / 4
-		petalAmp = 0.065
-		freqShift = 1
-	case 2: // Pop Studio: bold comic starbursts & graphic rays
-		baseOffset = -math.Pi/2 + math.Pi/10
-		petalAmp = 0.075
-		freqShift = 2
-	case 3: // Cathedral Glass: gothic arches & symmetrical rose windows
-		baseOffset = -math.Pi / 2
-		petalAmp = 0.035
-		freqShift = 0
-	}
-
-	switch tierIdx {
-	case 0: // L1 (5x5, 14 pearls, 3 colors, ZERO blockers)
-		return buildMultiRingMotif(pal[0], true, pal[:3], []ringSpec{
-			{count: 5, radius: 0.34, waveAmp: 0, freq: 5, offset: baseOffset, layer: 1, cA: 1, cB: 0},
-			{count: 8, radius: 0.72, waveAmp: petalAmp, freq: 4, offset: baseOffset + math.Pi/8, layer: 2, cA: 2, cB: 1},
-		})
-	case 1: // L2 (5x5, 16 pearls, 4 colors, ZERO blockers)
-		return buildMultiRingMotif(pal[0], false, pal[:4], []ringSpec{
-			{count: 4, radius: 0.24, waveAmp: 0, freq: 4, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 4, radius: 0.48, waveAmp: 0, freq: 4, offset: baseOffset + math.Pi/4, layer: 1, cA: 2, cB: 1},
-			{count: 8, radius: 0.76, waveAmp: petalAmp, freq: 4, offset: baseOffset, layer: 2, cA: 3, cB: 2},
-		})
-	case 2: // L3 (5x5, 21 pearls, 4 colors, Diff 1)
-		if campaignIdx == 0 {
-			return buildHeartStitches(pal[0], pal[1], pal[2], pal[3])
-		}
-		return buildMultiRingMotif(pal[0], true, pal[:4], []ringSpec{
-			{count: 6, radius: 0.30, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 1, cB: 0},
-			{count: 6, radius: 0.55, waveAmp: petalAmp * 0.7, freq: 3 + freqShift, offset: baseOffset + math.Pi/6, layer: 1, cA: 2, cB: 3},
-			{count: 8, radius: 0.79, waveAmp: petalAmp, freq: 4, offset: baseOffset, layer: 2, cA: 3, cB: 1},
-		})
-	case 3: // L4 (6x5, 26 pearls, 4 colors, Diff 2)
-		return buildMultiRingMotif(pal[0], true, pal[:4], []ringSpec{
-			{count: 5, radius: 0.25, waveAmp: 0, freq: 5, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 8, radius: 0.52, waveAmp: petalAmp * 0.8, freq: 4, offset: baseOffset + math.Pi/8, layer: 1, cA: 2, cB: 1},
-			{count: 12, radius: 0.79, waveAmp: petalAmp, freq: 6, offset: baseOffset, layer: 2, cA: 3, cB: 2},
-		})
-	case 4: // L5 (6x6, 32 pearls, 5 colors, Diff 3)
-		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
-			{count: 6, radius: 0.25, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 10, radius: 0.52, waveAmp: petalAmp * 0.8, freq: 5, offset: baseOffset + math.Pi/10, layer: 1, cA: 2, cB: 3},
-			{count: 15, radius: 0.79, waveAmp: petalAmp, freq: 5, offset: baseOffset, layer: 2, cA: 4, cB: 2},
-		})
-	case 5: // L6 (7x6, 37 pearls, 5 colors, Diff 4)
-		if campaignIdx == 1 || campaignIdx == 3 {
-			return buildSpiralStitches(37, 2.35, pal[:5])
-		}
-		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
-			{count: 6, radius: 0.24, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 12, radius: 0.51, waveAmp: petalAmp * 0.7, freq: 6, offset: baseOffset + math.Pi/12, layer: 1, cA: 2, cB: 3},
-			{count: 18, radius: 0.80, waveAmp: petalAmp, freq: 6, offset: baseOffset, layer: 2, cA: 4, cB: 1},
-		})
-	case 6: // L7 (7x7, 43 pearls, 5 colors, Diff 5)
-		return buildMultiRingMotif(pal[0], true, pal[:5], []ringSpec{
-			{count: 7, radius: 0.25, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 14, radius: 0.52, waveAmp: petalAmp * 0.7, freq: 7, offset: baseOffset + math.Pi/14, layer: 1, cA: 2, cB: 3},
-			{count: 21, radius: 0.80, waveAmp: petalAmp * 0.85, freq: 7, offset: baseOffset, layer: 2, cA: 4, cB: 2},
-		})
-	case 7: // L8 (8x6, 45 pearls, 6 colors, Diff 6)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 10, radius: 0.42, waveAmp: 0.02, freq: 5, offset: baseOffset + math.Pi/10, layer: 1, cA: 2, cB: 3},
-			{count: 13, radius: 0.63, waveAmp: 0.025, freq: 6 + freqShift, offset: baseOffset, layer: 1, cA: 4, cB: 1},
-			{count: 15, radius: 0.82, waveAmp: petalAmp * 0.7, freq: 5, offset: baseOffset + math.Pi/15, layer: 2, cA: 5, cB: 3},
-		})
-	case 8: // L9 (8x7, 51 pearls, 6 colors, Diff 7)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 11, radius: 0.41, waveAmp: 0.02, freq: 4, offset: baseOffset, layer: 1, cA: 2, cB: 3},
-			{count: 15, radius: 0.62, waveAmp: 0.025, freq: 5, offset: baseOffset + math.Pi/15, layer: 1, cA: 4, cB: 5},
-			{count: 18, radius: 0.83, waveAmp: petalAmp * 0.6, freq: 6, offset: baseOffset, layer: 2, cA: 5, cB: 2},
-		})
-	case 9: // L10 (8x8 Standard, 54 pearls, 6 colors, Diff 8)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 6, radius: 0.21, waveAmp: 0, freq: 6, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 11, radius: 0.41, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/11, layer: 1, cA: 2, cB: 3},
-			{count: 16, radius: 0.62, waveAmp: 0.025, freq: 8, offset: baseOffset, layer: 1, cA: 4, cB: 1},
-			{count: 20, radius: 0.83, waveAmp: petalAmp * 0.55, freq: 4 + freqShift, offset: baseOffset + math.Pi/20, layer: 2, cA: 5, cB: 3},
-		})
-	case 10: // L11 (8x8 Hard, 58 pearls, 6 colors, Diff 9)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 12, radius: 0.42, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/12, layer: 1, cA: 2, cB: 3},
-			{count: 17, radius: 0.63, waveAmp: 0.02, freq: 6, offset: baseOffset, layer: 1, cA: 4, cB: 5},
-			{count: 21, radius: 0.83, waveAmp: petalAmp * 0.5, freq: 7, offset: baseOffset + math.Pi/21, layer: 2, cA: 5, cB: 0},
-		})
-	case 11: // L12 (8x8 Expert, 61 pearls, 6 colors, Diff 10)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 2},
-			{count: 13, radius: 0.42, waveAmp: 0.02, freq: 5, offset: baseOffset, layer: 1, cA: 1, cB: 3},
-			{count: 18, radius: 0.63, waveAmp: 0.02, freq: 6, offset: baseOffset + math.Pi/18, layer: 1, cA: 4, cB: 5},
-			{count: 22, radius: 0.83, waveAmp: petalAmp * 0.45, freq: 6 + freqShift, offset: baseOffset, layer: 2, cA: 3, cB: 5},
-		})
-	default: // L13 (8x8 Grand Masterpiece, 62 hoop stitches + 2 Rainbows = 64 board tiles, Diff 11)
-		return buildMultiRingMotif(pal[0], true, pal[:6], []ringSpec{
-			{count: 7, radius: 0.22, waveAmp: 0, freq: 7, offset: baseOffset, layer: 0, cA: 0, cB: 1},
-			{count: 13, radius: 0.42, waveAmp: 0.018, freq: 7, offset: baseOffset + math.Pi/13, layer: 1, cA: 2, cB: 3},
-			{count: 19, radius: 0.63, waveAmp: 0.018, freq: 6, offset: baseOffset, layer: 1, cA: 4, cB: 5},
-			{count: 22, radius: 0.84, waveAmp: petalAmp * 0.35, freq: 8, offset: baseOffset + math.Pi/22, layer: 2, cA: 5, cB: 1},
-		})
-	}
-}
-
 type tierTemplate struct {
 	cols        int
 	rows        int
+	pearls      int // default hoop pearl count (overridden by sculpted board popcount on square .1 fun levels)
+	colorCount  int
 	difficulty  int
 	noBlockers  bool
 	maxHearts   int
 	maxRainbows int
 	maxHidden   int
 	maxLocked   int
+	archetype   uint8
+	squareFun   int // 0 = standard, 1..5 = square .1 fun breather slot (6x6, 7x7, 8x8 Std/Exp/Mst)
 }
 
-// Option A Campaign Testrun Ladder (13 escalating levels per theme: 5x5 warmups -> 8x8 64-tile finale).
-// Gradual Special Pearl introduction: L1-2 pure basics -> L3-4 Hearts -> L5-6 +Rainbow -> L7-8 +Hidden -> L9-13 +Locked!
+// 50-Level Sawtooth Wave Campaign Ladder (10 Tiers x 5 Levels per Theme = 200 Levels Total).
+// Every size step resets colors down, strips tricky specials (keeping friendly Hearts per Option B),
+// and drops logic difficulty sharply — while every Square .1 level (L11, L21, L36, L41, L46) is a
+// joyful 3-color sculpted-shape breather board!
 var campaignLadder = [LevelsPerChapter]tierTemplate{
-	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0},  // L1: Warm-Up I (no specials)
-	{cols: 5, rows: 5, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0},  // L2: Warm-Up II (no specials)
-	{cols: 5, rows: 5, difficulty: 1, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0}, // L3: Hearts introduced!
-	{cols: 6, rows: 5, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0}, // L4: Hearts
-	{cols: 6, rows: 6, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0}, // L5: + Rainbow introduced!
-	{cols: 7, rows: 6, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0}, // L6: Hearts + Rainbow
-	{cols: 7, rows: 7, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0}, // L7: + Hidden introduced!
-	{cols: 8, rows: 6, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0}, // L8: Hearts + Rainbow + Hidden
-	{cols: 8, rows: 7, difficulty: 7, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 1}, // L9: + Locked introduced!
-	{cols: 8, rows: 8, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 3, maxLocked: 2}, // L10: Full Suite (Artisan)
-	{cols: 8, rows: 8, difficulty: 9, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 3, maxLocked: 2}, // L11: Full Suite (Virtuoso)
-	{cols: 8, rows: 8, difficulty: 10, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2}, // L12: Full Suite (Expert)
-	{cols: 8, rows: 8, difficulty: 11, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 3}, // L13: Full Suite (Masterpiece 64 tiles)
+	// Tier 1: 5x5 (L01-L05) — Warm-Up I & II (zero blockers) -> Hearts intro -> 5x5 Capstone
+	{cols: 5, rows: 5, pearls: 14, colorCount: 3, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeBlossom},
+	{cols: 5, rows: 5, pearls: 16, colorCount: 3, difficulty: 0, noBlockers: true, maxHearts: 0, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeDiamond},
+	{cols: 5, rows: 5, pearls: 19, colorCount: 4, difficulty: 1, noBlockers: false, maxHearts: 1, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHeart},
+	{cols: 5, rows: 5, pearls: 21, colorCount: 4, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeStarburst},
+	{cols: 5, rows: 5, pearls: 23, colorCount: 4, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeRoseWindow},
+
+	// Tier 2: 6x5 (L06-L10) — Reset to 3c, Diff 1, Hearts only -> climb to 5c, Diff 5
+	{cols: 6, rows: 5, pearls: 20, colorCount: 3, difficulty: 1, noBlockers: false, maxHearts: 1, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSunburst},
+	{cols: 6, rows: 5, pearls: 22, colorCount: 4, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSpiral},
+	{cols: 6, rows: 5, pearls: 24, colorCount: 4, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeButterfly},
+	{cols: 6, rows: 5, pearls: 26, colorCount: 5, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeQuatrefoil},
+	{cols: 6, rows: 5, pearls: 28, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHexGrid},
+
+	// Tier 3: 6x6 (L11-L15) — Square .1 Sculpted Fun Breather (3c, Diff 1, Hearts) -> Rainbow intro at L13 -> Capstone
+	{cols: 6, rows: 6, pearls: 22, colorCount: 3, difficulty: 1, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHeart, squareFun: 1},
+	{cols: 6, rows: 6, pearls: 27, colorCount: 4, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeBlossom},
+	{cols: 6, rows: 6, pearls: 29, colorCount: 5, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeStarburst},
+	{cols: 6, rows: 6, pearls: 31, colorCount: 5, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeDiamond},
+	{cols: 6, rows: 6, pearls: 34, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeRoseWindow},
+
+	// Tier 4: 7x6 (L16-L20) — Reset to 4c, Diff 2, Hearts only -> Rainbow returns -> first 6-color Capstone
+	{cols: 7, rows: 6, pearls: 28, colorCount: 4, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSpiral},
+	{cols: 7, rows: 6, pearls: 32, colorCount: 4, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSunburst},
+	{cols: 7, rows: 6, pearls: 35, colorCount: 5, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHexGrid},
+	{cols: 7, rows: 6, pearls: 38, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeButterfly},
+	{cols: 7, rows: 6, pearls: 40, colorCount: 6, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeQuatrefoil},
+
+	// Tier 5: 7x7 (L21-L25) — Square .1 Sculpted Fun Breather (3c, Diff 2, Hearts) -> Hidden intro at L24 -> Capstone
+	{cols: 7, rows: 7, pearls: 24, colorCount: 3, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeDiamond, squareFun: 2},
+	{cols: 7, rows: 7, pearls: 38, colorCount: 5, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeBlossom},
+	{cols: 7, rows: 7, pearls: 41, colorCount: 5, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeStarburst},
+	{cols: 7, rows: 7, pearls: 44, colorCount: 6, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0, archetype: HoopShapeSpiral},
+	{cols: 7, rows: 7, pearls: 47, colorCount: 6, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0, archetype: HoopShapeRoseWindow},
+
+	// Tier 6: 8x6 (L26-L30) — Reset to 4c, Diff 3, Hearts only -> layer Rainbow + Hidden -> Capstone
+	{cols: 8, rows: 6, pearls: 34, colorCount: 4, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHexGrid},
+	{cols: 8, rows: 6, pearls: 37, colorCount: 5, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHeart},
+	{cols: 8, rows: 6, pearls: 40, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSunburst},
+	{cols: 8, rows: 6, pearls: 43, colorCount: 6, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 2, maxLocked: 0, archetype: HoopShapeQuatrefoil},
+	{cols: 8, rows: 6, pearls: 46, colorCount: 6, difficulty: 7, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 3, maxLocked: 0, archetype: HoopShapeDiamond},
+
+	// Tier 7: 8x7 (L31-L35) — Reset to 4c, Diff 4, Hearts only -> Locked intro at L35 -> Capstone
+	{cols: 8, rows: 7, pearls: 40, colorCount: 4, difficulty: 4, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeButterfly},
+	{cols: 8, rows: 7, pearls: 44, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeBlossom},
+	{cols: 8, rows: 7, pearls: 47, colorCount: 5, difficulty: 6, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSpiral},
+	{cols: 8, rows: 7, pearls: 51, colorCount: 6, difficulty: 7, noBlockers: false, maxHearts: 2, maxRainbows: 1, maxHidden: 3, maxLocked: 0, archetype: HoopShapeStarburst},
+	{cols: 8, rows: 7, pearls: 54, colorCount: 6, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 3, maxLocked: 1, archetype: HoopShapeRoseWindow},
+
+	// Tier 8: 8x8 Standard (L36-L40) — Square .1 Sculpted Fun Breather (3c, Diff 2, Hearts) -> Full Suite Capstone
+	{cols: 8, rows: 8, pearls: 32, colorCount: 3, difficulty: 2, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeStarburst, squareFun: 3},
+	{cols: 8, rows: 8, pearls: 48, colorCount: 5, difficulty: 5, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHexGrid},
+	{cols: 8, rows: 8, pearls: 52, colorCount: 5, difficulty: 6, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSunburst},
+	{cols: 8, rows: 8, pearls: 55, colorCount: 6, difficulty: 7, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 3, maxLocked: 1, archetype: HoopShapeQuatrefoil},
+	{cols: 8, rows: 8, pearls: 58, colorCount: 6, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 3, maxLocked: 2, archetype: HoopShapeRoseWindow},
+
+	// Tier 9: 8x8 Expert (L41-L45) — Square .1 Sculpted Fun Breather (3c, Diff 3, Hearts) -> Expert Capstone
+	{cols: 8, rows: 8, pearls: 34, colorCount: 3, difficulty: 3, noBlockers: false, maxHearts: 2, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeButterfly, squareFun: 4},
+	{cols: 8, rows: 8, pearls: 52, colorCount: 5, difficulty: 6, noBlockers: false, maxHearts: 3, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeDiamond},
+	{cols: 8, rows: 8, pearls: 55, colorCount: 6, difficulty: 7, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 0, maxLocked: 0, archetype: HoopShapeSpiral},
+	{cols: 8, rows: 8, pearls: 58, colorCount: 6, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2, archetype: HoopShapeHeart},
+	{cols: 8, rows: 8, pearls: 60, colorCount: 6, difficulty: 9, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2, archetype: HoopShapeBlossom},
+
+	// Tier 10: 8x8 Master (L46-L50) — Square .1 Sculpted Fun Breather (3c, Diff 3, Hearts) -> Grand 64/64 Masterpiece!
+	{cols: 8, rows: 8, pearls: 32, colorCount: 3, difficulty: 3, noBlockers: false, maxHearts: 3, maxRainbows: 0, maxHidden: 0, maxLocked: 0, archetype: HoopShapeRoseWindow, squareFun: 5},
+	{cols: 8, rows: 8, pearls: 55, colorCount: 5, difficulty: 8, noBlockers: false, maxHearts: 3, maxRainbows: 1, maxHidden: 0, maxLocked: 0, archetype: HoopShapeHexGrid},
+	{cols: 8, rows: 8, pearls: 58, colorCount: 6, difficulty: 9, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 3, maxLocked: 1, archetype: HoopShapeStarburst},
+	{cols: 8, rows: 8, pearls: 60, colorCount: 6, difficulty: 10, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 2, archetype: HoopShapeQuatrefoil},
+	{cols: 8, rows: 8, pearls: 62, colorCount: 6, difficulty: 11, noBlockers: false, maxHearts: 3, maxRainbows: 2, maxHidden: 4, maxLocked: 3, archetype: HoopShapeRoseWindow},
+}
+
+// Sculpted fun board shapes per campaign for each of the 5 Square .1 slots (L11, L21, L36, L41, L46).
+var campaignSquareFunShapes = [NumChapters][5]uint8{
+	// 0: Jewel Atelier
+	{BoardShapeHeart6, BoardShapeDiamond7, BoardShapeCrown8, BoardShapeButterfly8, BoardShapeInfinity8},
+	// 1: Cyber Arcade
+	{BoardShapeDigit6, BoardShapeDigit7, BoardShapeDigit8, BoardShapeInvader8, BoardShapeHeart8},
+	// 2: Pop Studio
+	{BoardShapeSmiley6, BoardShapeLetterP7, BoardShapeBolt8, BoardShapeStar8, BoardShapeHi8},
+	// 3: Cathedral Glass
+	{BoardShapeCross6, BoardShapeChalice7, BoardShapeArch8, BoardShapeWings8, BoardShapeRose8},
 }
 
 var campaignNames = [NumChapters][LevelsPerChapter]string{
-	// Campaign 0: Jewel Atelier (Theme 0)
+	// Campaign 0: Jewel Atelier (50 unique artisan titles)
 	{
-		"Sunbeam Brooch", "Dewdrop Ring", "Jewel Heart", "Sakura Bloom",
-		"Royal Crown", "Emerald Clover", "Monarch Crest", "Sapphire Fan",
-		"Velvet Lotus", "Nautilus Gold", "Imperial Tiara", "Starlight Filigree",
-		"Grand Jewel Rose",
+		// T1 5x5
+		"Sunbeam Brooch", "Dewdrop Ring", "Jewel Heart", "Amber Starlet", "Royal Locket",
+		// T2 6x5
+		"Golden Rays", "Pearl Nautilus", "Silk Moth", "Emerald Clover", "Honeycomb Pin",
+		// T3 6x6
+		"Sweetheart Gem", "Sakura Bloom", "Opal Starburst", "Faceted Drop", "Velvet Rosette",
+		// T4 7x6
+		"Gilded Vortex", "Sunburst Tiara", "Crystal Hive", "Monarch Crest", "Sapphire Clover",
+		// T5 7x7
+		"Carat Cut", "Peony Garland", "Crown Nova", "Gold Filigree", "Imperial Rose",
+		// T6 8x6
+		"Topaz Lattice", "Ruby Medallion", "Solstice Fan", "Jade Quatrefoil", "Marquise Prism",
+		// T7 8x7
+		"Swallowtail", "Orchid Wreath", "Nautilus Gold", "Starlight Crest", "Duchess Window",
+		// T8 8x8 Standard
+		"Jubilee Crown", "Beryl Matrix", "Radiant Brooch", "Clover Diadem", "Sovereign Rose",
+		// T9 8x8 Expert
+		"Monarch Flutter", "Diamond Pavé", "Celestial Coil", "Empress Heart", "Garden Crown",
+		// T10 8x8 Master
+		"Eternal Loop", "Emerald Vault", "Astral Tiara", "Regalia Crest", "Grand Jewel Rose",
 	},
-	// Campaign 1: Cyber Arcade (Theme 1)
+	// Campaign 1: Cyber Arcade (50 unique synthwave titles)
 	{
-		"Neon Spark", "Bit Halo", "Neon Pulse", "Synth Diamond",
-		"Pixel Star", "Laser Spiral", "Arcade Core", "Vector Grid",
-		"Flux Portal", "Hyper Matrix", "Volt Overdrive", "Quantum Circuit",
-		"Cyber Singularity",
+		// T1 5x5
+		"Neon Spark", "Bit Halo", "Pulse Core", "Pixel Star", "Arcade Ring",
+		// T2 6x5
+		"Laser Beam", "Turbo Spiral", "Cyber Wing", "Circuit Node", "Hex Buffer",
+		// T3 6x6
+		"Sector Six", "Synth Bloom", "Vector Nova", "Neon Diamond", "CRT Matrix",
+		// T4 7x6
+		"Warp Vortex", "Photon Array", "Data Hive", "Holo Drone", "Quad Bus",
+		// T5 7x7
+		"Lucky Seven", "Plasma Petal", "Hyper Star", "Ion Helix", "Mainframe Hub",
+		// T6 8x6
+		"Mesh Grid", "Power Heart", "Radar Sweep", "Logic Gate", "Prism Vector",
+		// T7 8x7
+		"Glitch Moth", "Volt Blossom", "Flux Coil", "Star Drive", "Cyber Portal",
+		// T8 8x8 Standard
+		"Byte Eight", "Hex Cluster", "Laser Burst", "Relay Cross", "Core Reactor",
+		// T9 8x8 Expert
+		"Arcade Sprite", "Synth Rhombus", "Overdrive Coil", "Neon Vitality", "Pulse Array",
+		// T10 8x8 Master
+		"Extra Life", "Quantum Grid", "Hypernova", "Omega Circuit", "Cyber Singularity",
 	},
-	// Campaign 2: Pop Studio (Theme 2)
+	// Campaign 2: Pop Studio (50 unique Warhol/comic titles)
 	{
-		"Pop Dot", "Comic Ring", "Comic Star", "Pop Heart",
-		"Halftone Bolt", "Warhol Bloom", "Boom Burst", "Retro Sun",
-		"Pop Diamond", "Studio Crown", "Super Flash", "Gallery Splash",
-		"Grand Pop Burst",
+		// T1 5x5
+		"Pop Dot", "Comic Ring", "Pop Heart", "Comic Star", "Studio Badge",
+		// T2 6x5
+		"Retro Sun", "Swirl Ink", "Pop Flutter", "Four-Color Pop", "Dot Matrix",
+		// T3 6x6
+		"Pop Smile", "Warhol Bloom", "Boom Burst", "Pop Diamond", "Gallery Ring",
+		// T4 7x6
+		"Vinyl Spin", "Pow Rays", "Halftone Hive", "Paper Wings", "Ink Clover",
+		// T5 7x7
+		"Pop Monogram", "Daisy Print", "Flash Star", "Groovy Spiral", "Poster Crown",
+		// T6 8x6
+		"Screen Mesh", "Crush Heart", "Sun Splash", "Mod Quatrefoil", "Kite Cut",
+		// T7 8x7
+		"Neon Monarch", "Flower Power", "Whirlpool Ink", "Zing Burst", "Mural Halo",
+		// T8 8x8 Standard
+		"Zap Flash", "Pixel Screen", "Super Splash", "Studio Cross", "Gallery Center",
+		// T9 8x8 Expert
+		"Supernova Pop", "Mod Diamond", "Hypno Swirl", "Big Love Pop", "Exhibition Bloom",
+		// T10 8x8 Master
+		"Pop Hello", "Color Grid", "Mega Boom", "Iconic Frame", "Grand Pop Burst",
 	},
-	// Campaign 3: Cathedral Glass (Theme 3)
+	// Campaign 3: Cathedral Glass (50 unique stained-glass titles)
 	{
-		"Candle Shard", "Silver Chalice", "Prism Lantern", "Gothic Arch",
-		"Angel Crest", "Aurora Spire", "Cathedral Cross", "Vespers Halo",
-		"Radiant Choir", "Stained Compass", "Sapphire Nave", "Celestial Vault",
-		"Grand Rose Window",
+		// T1 5x5
+		"Candle Shard", "Silver Lozenge", "Sacred Heart", "Vesper Star", "Cloister Halo",
+		// T2 6x5
+		"Morning Rays", "Incense Coil", "Dove Wings", "Abbey Clover", "Leadlight Hex",
+		// T3 6x6
+		"Chapel Cross", "Lily Lancet", "Aurora Star", "Prism Diamond", "Choir Rosette",
+		// T4 7x6
+		"Bell Spiral", "Solstice Nave", "Glass Lattice", "Cherub Crest", "Transept Arch",
+		// T5 7x7
+		"Golden Chalice", "Altar Blossom", "Benediction", "Scroll Helix", "North Window",
+		// T6 8x6
+		"Crystalline", "Rose Reliquary", "Sunlit Choir", "Gilded Trefoil", "Mitre Gem",
+		// T7 8x7
+		"Gabriel Wings", "Belfry Bloom", "Vesper Spiral", "Radiant Spire", "South Rose",
+		// T8 8x8 Standard
+		"Lantern Arch", "Vault Matrix", "Hymn Rays", "Apse Tracery", "Sapphire Nave",
+		// T9 8x8 Expert
+		"Seraph Wings", "Relic Prism", "Chalice Swirl", "Crimson Heart", "Cathedral Crown",
+		// T10 8x8 Master
+		"Sanctuary Rose", "Celestial Vault", "Archangel Star", "Dominion Cross", "Grand Rose Window",
 	},
 }
 
@@ -365,14 +316,67 @@ var campaignColorOrders = [NumChapters][NumColors]uint8{
 	{ColorGold, ColorTurquoise, ColorRuby, ColorCobalt, ColorAmethyst, ColorEmerald},
 }
 
-// buildCuratedArtworks constructs 4 independent Day-1 Campaigns x 13 escalating levels = 52 levels!
+// buildCampaignPattern constructs a crisp, theme-tailored hoop pattern for campaign 0..3 and level 0..49.
+func buildCampaignPattern(campaignIdx, tierIdx int, tpl tierTemplate, boardShape uint8, pal []uint8) []StitchPoint {
+	subPal := pal[:tpl.colorCount]
+
+	// On square .1 fun breather levels, mirror the sculpted board shape right into the embroidery hoop!
+	if boardShape != BoardShapeDefault {
+		if pts := buildSculptedHoopFromBoard(boardShape, tpl.cols, tpl.rows, subPal); len(pts) > 0 {
+			return pts
+		}
+	}
+
+	// Per-campaign signature geometry twists so every world feels unmistakable!
+	baseOffset := -math.Pi / 2
+	petalAmp := 0.048
+	freqShift := 0
+	archShift := 0
+	switch campaignIdx {
+	case 0: // Jewel Atelier
+		baseOffset = -math.Pi / 2
+		petalAmp = 0.055
+		freqShift = 0
+		archShift = 0
+	case 1: // Cyber Arcade
+		baseOffset = math.Pi / 4
+		petalAmp = 0.065
+		freqShift = 1
+		archShift = 2
+	case 2: // Pop Studio
+		baseOffset = -math.Pi/2 + math.Pi/10
+		petalAmp = 0.072
+		freqShift = 2
+		archShift = 4
+	case 3: // Cathedral Glass
+		baseOffset = -math.Pi / 2
+		petalAmp = 0.036
+		freqShift = 0
+		archShift = 6
+	}
+
+	// Keep L01/L02/L03 warmups & .5 Rose Window capstones locked to their iconic archetype,
+	// while gently rotating middle levels per campaign so all 4 worlds have distinct silhouettes!
+	arch := tpl.archetype
+	if tierIdx >= 3 && (tierIdx%5) != 4 {
+		arch = uint8((int(arch) + archShift) % 10)
+	}
+	rot := baseOffset + float64((tierIdx%5))*0.18
+	return buildArchetypeStitches(arch, tpl.pearls, subPal, rot, petalAmp, freqShift+(tierIdx/5)%2)
+}
+
+// buildCuratedArtworks constructs 4 independent Day-1 Campaigns x 50 sawtooth levels = 200 levels!
 func buildCuratedArtworks() []ArtworkDef {
 	arts := make([]ArtworkDef, 0, NumChapters*LevelsPerChapter)
 	for ch := 0; ch < NumChapters; ch++ {
 		pal := campaignColorOrders[ch][:]
 		for tIdx, tpl := range campaignLadder {
-			seed := uint32((ch+1)*10000 + (tIdx+1)*137 + 41)
-			st := buildCampaignPattern(ch, tIdx, pal)
+			var bShape uint8
+			if tpl.squareFun > 0 && tpl.squareFun <= 5 {
+				bShape = campaignSquareFunShapes[ch][tpl.squareFun-1]
+			}
+			seed := uint32((ch+1)*20000 + (tIdx+1)*193 + 47)
+			st := buildCampaignPattern(ch, tIdx, tpl, bShape, pal)
 			arts = append(arts, ArtworkDef{
 				ID:          len(arts),
 				Chapter:     ch,
@@ -387,6 +391,7 @@ func buildCuratedArtworks() []ArtworkDef {
 				MaxRainbows: tpl.maxRainbows,
 				MaxHidden:   tpl.maxHidden,
 				MaxLocked:   tpl.maxLocked,
+				BoardShape:  bShape,
 				Stitches:    st,
 			})
 		}
@@ -394,5 +399,5 @@ func buildCuratedArtworks() []ArtworkDef {
 	return arts
 }
 
-// CuratedArtworks holds all 52 progressive campaign testrun levels (4 Campaigns x 13 levels).
+// CuratedArtworks holds all 200 progressive sawtooth campaign levels (4 Campaigns x 50 levels).
 var CuratedArtworks = buildCuratedArtworks()

@@ -1244,18 +1244,30 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		}
 	}
 
-	cx := float32(art.Cols-1) * 0.5
-	cz := float32(art.Rows-1) * 0.5
-	for i := 0; i < len(allCells); i++ {
-		for j := i + 1; j < len(allCells); j++ {
-			di := (float32(allCells[i].c)-cx)*(float32(allCells[i].c)-cx) + (float32(allCells[i].r)-cz)*(float32(allCells[i].r)-cz)
-			dj := (float32(allCells[j].c)-cx)*(float32(allCells[j].c)-cx) + (float32(allCells[j].r)-cz)*(float32(allCells[j].r)-cz)
-			if dj < di {
-				allCells[i], allCells[j] = allCells[j], allCells[i]
+	var chosen []cell
+	if art.BoardShape != BoardShapeDefault {
+		shapeCells := boardShapeCells(art.BoardShape, art.Cols, art.Rows)
+		if len(shapeCells) == n {
+			chosen = make([]cell, n)
+			for i, sc := range shapeCells {
+				chosen[i] = cell{c: sc.c, r: sc.r}
 			}
 		}
 	}
-	chosen := allCells[:n]
+	if chosen == nil {
+		cx := float32(art.Cols-1) * 0.5
+		cz := float32(art.Rows-1) * 0.5
+		for i := 0; i < len(allCells); i++ {
+			for j := i + 1; j < len(allCells); j++ {
+				di := (float32(allCells[i].c)-cx)*(float32(allCells[i].c)-cx) + (float32(allCells[i].r)-cz)*(float32(allCells[i].r)-cz)
+				dj := (float32(allCells[j].c)-cx)*(float32(allCells[j].c)-cx) + (float32(allCells[j].r)-cz)*(float32(allCells[j].r)-cz)
+				if dj < di {
+					allCells[i], allCells[j] = allCells[j], allCells[i]
+				}
+			}
+		}
+		chosen = allCells[:n]
+	}
 	for i := 0; i < len(chosen); i++ {
 		for j := i + 1; j < len(chosen); j++ {
 			if chosen[j].r < chosen[i].r || (chosen[j].r == chosen[i].r && chosen[j].c < chosen[i].c) {

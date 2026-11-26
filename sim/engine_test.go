@@ -5,16 +5,24 @@ import (
 	"testing"
 )
 
-func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.T) {
+func TestAll200CampaignArtworksSawtoothSculptedAndThreeStar(t *testing.T) {
 	if len(CuratedArtworks) != NumChapters*LevelsPerChapter {
-		t.Fatalf("expected %d curated artworks (4 campaigns x 13), got %d", NumChapters*LevelsPerChapter, len(CuratedArtworks))
+		t.Fatalf("expected %d curated artworks (4 campaigns x 50), got %d", NumChapters*LevelsPerChapter, len(CuratedArtworks))
 	}
 
 	var e Engine
 	e.SetTimeOfDayHours(12.5)
 
+	seenNames := make(map[string]int, len(CuratedArtworks))
+
 	for lvlIdx, art := range CuratedArtworks {
+		if prevIdx, dup := seenNames[art.Name]; dup {
+			t.Fatalf("duplicate level name %q on levels %d and %d", art.Name, prevIdx, lvlIdx)
+		}
+		seenNames[art.Name] = lvlIdx
+
 		tierIdx := lvlIdx % LevelsPerChapter
+		subStep := tierIdx % 5 // 0..4 (.1..5)
 		e.LoadCuratedLevel(lvlIdx)
 		if e.ThemeIndex != art.Theme {
 			t.Fatalf("level %d (%s): expected native theme %d, got %d", lvlIdx, art.Name, art.Theme, e.ThemeIndex)
@@ -23,7 +31,60 @@ func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.
 			t.Fatalf("level %d (%s): expected chapter %d, got %d", lvlIdx, art.Name, art.Chapter, e.ChapterIndex)
 		}
 
-		// Verify L1-L2 zero-blocker warmups vs L3-L13 monotonically increasing difficulty!
+		// Audit zero-overlap hoop stitch spacing and radius bounds on every single artwork!
+		for i := 0; i < len(art.Stitches); i++ {
+			r := math.Hypot(float64(art.Stitches[i].X), float64(art.Stitches[i].Z))
+			if r > 0.865 {
+				t.Fatalf("level %d (%s): stitch %d outside hoop radius r=%.3f", lvlIdx, art.Name, i, r)
+			}
+			for j := i + 1; j < len(art.Stitches); j++ {
+				d := math.Hypot(float64(art.Stitches[i].X-art.Stitches[j].X), float64(art.Stitches[i].Z-art.Stitches[j].Z))
+				if d < 0.125 {
+					t.Fatalf("level %d (%s): overlapping stitches %d & %d (dist=%.3f)", lvlIdx, art.Name, i, j, d)
+				}
+			}
+		}
+
+		// Verify sawtooth resets on every size transition (.5 -> next .1)!
+		if tierIdx >= 5 && subStep == 0 {
+			prevArt := CuratedArtworks[lvlIdx-1]
+			if art.Difficulty >= prevArt.Difficulty {
+				t.Fatalf("level %d (%s): expected sawtooth difficulty drop vs prev capstone %d (%d -> %d)", lvlIdx, art.Name, lvlIdx-1, prevArt.Difficulty, art.Difficulty)
+			}
+			if e.QueueLen >= countDistinctColors(prevArt.Stitches) {
+				t.Fatalf("level %d (%s): expected sawtooth color reset vs prev capstone (%d -> %d)", lvlIdx, art.Name, countDistinctColors(prevArt.Stitches), e.QueueLen)
+			}
+			// Option B: keep friendly Hearts on .1 from 6x5 onward, strip tricky specials!
+			if art.MaxHearts < 1 || art.MaxRainbows != 0 || art.MaxHidden != 0 || art.MaxLocked != 0 {
+				t.Fatalf("level %d (%s): expected Option B .1 breather specials (H>=1, R=0, ?=0, L=0), got H=%d R=%d ?=%d L=%d",
+					lvlIdx, art.Name, art.MaxHearts, art.MaxRainbows, art.MaxHidden, art.MaxLocked)
+			}
+		}
+
+		// Verify sculpted fun board shapes on all Square .1 levels (6x6 L11, 7x7 L21, 8x8 L36/L41/L46)!
+		isSquareFun := tierIdx == 10 || tierIdx == 20 || tierIdx == 35 || tierIdx == 40 || tierIdx == 45
+		if isSquareFun {
+			if art.BoardShape == BoardShapeDefault {
+				t.Fatalf("level %d (%s): square .1 fun level must have non-zero BoardShape", lvlIdx, art.Name)
+			}
+			if e.QueueLen != 3 {
+				t.Fatalf("level %d (%s): square .1 fun level must have exactly 3 colors, got %d", lvlIdx, art.Name, e.QueueLen)
+			}
+			if art.Difficulty > 3 {
+				t.Fatalf("level %d (%s): square .1 fun level must stay breezy (diff <= 3), got %d", lvlIdx, art.Name, art.Difficulty)
+			}
+			wantCells := boardShapeCells(art.BoardShape, art.Cols, art.Rows)
+			if e.TileCount != len(wantCells) {
+				t.Fatalf("level %d (%s): sculpted board tile count %d != shape cell count %d", lvlIdx, art.Name, e.TileCount, len(wantCells))
+			}
+			for i, wc := range wantCells {
+				if e.Tiles[i].Col != wc.c || e.Tiles[i].Row != wc.r {
+					t.Fatalf("level %d (%s): tile %d at (%d,%d) != sculpted shape cell (%d,%d)", lvlIdx, art.Name, i, e.Tiles[i].Col, e.Tiles[i].Row, wc.c, wc.r)
+				}
+			}
+		}
+
+		// Verify L1-L2 zero-blocker warmups vs L3-L50 interlocking puzzles!
 		blockedCount := 0
 		for i := 0; i < e.TileCount; i++ {
 			if !isTileUnblocked(e.Tiles[:e.TileCount], i, e.GridCols, e.GridRows) {
@@ -34,13 +95,8 @@ func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.
 			if !art.NoBlockers || blockedCount != 0 {
 				t.Fatalf("campaign %d warm-up level %d (%s): expected NoBlockers=true and 0 blocked tiles, got NoBlockers=%v blocked=%d", art.Chapter, tierIdx+1, art.Name, art.NoBlockers, blockedCount)
 			}
-		} else {
-			if art.Difficulty != tierIdx-1 {
-				t.Fatalf("campaign %d level %d (%s): expected monotonic difficulty %d, got %d", art.Chapter, tierIdx+1, art.Name, tierIdx-1, art.Difficulty)
-			}
-			if blockedCount == 0 {
-				t.Fatalf("campaign %d level %d (%s): expected interlocking blocked tiles on non-warmup board", art.Chapter, tierIdx+1, art.Name)
-			}
+		} else if blockedCount == 0 {
+			t.Fatalf("campaign %d level %d (%s): expected interlocking blocked tiles on non-warmup board", art.Chapter, tierIdx+1, art.Name)
 		}
 
 		hearts, rainbows, hidden, locked := 0, 0, 0, 0
@@ -56,31 +112,31 @@ func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.
 				locked++
 			}
 		}
-		if tierIdx < 2 {
-			if hearts != 0 || rainbows != 0 || hidden != 0 || locked != 0 {
-				t.Fatalf("level %d (%s) warm-up must have 0 specials, got H=%d R=%d ?= %d L=%d", lvlIdx, art.Name, hearts, rainbows, hidden, locked)
+		if art.MaxHearts == 0 && hearts != 0 {
+			t.Fatalf("level %d (%s): unexpected hearts=%d", lvlIdx, art.Name, hearts)
+		}
+		if art.MaxHearts > 0 && (hearts < 1 || hearts > MaxHeartsPerLevel) {
+			t.Fatalf("level %d (%s): expected 1..%d hearts, got %d", lvlIdx, art.Name, MaxHeartsPerLevel, hearts)
+		}
+		if (art.MaxRainbows > 0) != (rainbows > 0) {
+			t.Fatalf("level %d (%s): rainbow mismatch max=%d got=%d", lvlIdx, art.Name, art.MaxRainbows, rainbows)
+		}
+		if (art.MaxHidden > 0) != (hidden > 0) {
+			t.Fatalf("level %d (%s): hidden mismatch max=%d got=%d", lvlIdx, art.Name, art.MaxHidden, hidden)
+		}
+		if (art.MaxLocked > 0) != (locked > 0) {
+			t.Fatalf("level %d (%s): locked mismatch max=%d got=%d", lvlIdx, art.Name, art.MaxLocked, locked)
+		}
+
+		// Level 50 Grand Masterpiece finale must have full 64 tiles, 6 colors, all 4 specials, peak Diff 11!
+		if tierIdx == LevelsPerChapter-1 {
+			if e.TileCount != 64 || e.HoopCount != 62 || e.QueueLen != 6 || art.Difficulty != 11 {
+				t.Fatalf("level %d (%s): finale mismatch tiles=%d hoop=%d colors=%d diff=%d",
+					lvlIdx, art.Name, e.TileCount, e.HoopCount, e.QueueLen, art.Difficulty)
 			}
-		} else {
-			if hearts < 1 || hearts > MaxHeartsPerLevel {
-				t.Fatalf("level %d (%s): expected 1..%d Heart Pearls, got %d", lvlIdx, art.Name, MaxHeartsPerLevel, hearts)
-			}
-			if tierIdx < 4 && rainbows != 0 {
-				t.Fatalf("level %d (%s): Rainbows should not appear before L5, got %d", lvlIdx, art.Name, rainbows)
-			}
-			if tierIdx >= 4 && rainbows < 1 {
-				t.Fatalf("level %d (%s): expected >=1 Rainbow Pearl from L5+, got %d", lvlIdx, art.Name, rainbows)
-			}
-			if tierIdx < 6 && hidden != 0 {
-				t.Fatalf("level %d (%s): Hidden pearls should not appear before L7, got %d", lvlIdx, art.Name, hidden)
-			}
-			if tierIdx >= 6 && hidden < 1 {
-				t.Fatalf("level %d (%s): expected >=1 Hidden Pearl from L7+, got %d", lvlIdx, art.Name, hidden)
-			}
-			if tierIdx < 8 && locked != 0 {
-				t.Fatalf("level %d (%s): Locked pearls should not appear before L9, got %d", lvlIdx, art.Name, locked)
-			}
-			if tierIdx >= 8 && locked < 1 {
-				t.Fatalf("level %d (%s): expected >=1 Locked Pearl from L9+, got %d", lvlIdx, art.Name, locked)
+			if hearts < 1 || rainbows < 2 || hidden < 1 || locked < 1 {
+				t.Fatalf("level %d (%s): finale must contain all 4 specials, got H=%d R=%d ?=%d L=%d",
+					lvlIdx, art.Name, hearts, rainbows, hidden, locked)
 			}
 		}
 
@@ -122,7 +178,19 @@ func TestAll52CampaignArtworksSolvableZeroBlockerWarmupsAndThreeStar(t *testing.
 			t.Fatalf("level %d (%s): expected guaranteed 3 stars, got %d (trayUses=%d limit=%d)", lvlIdx, art.Name, e.Stars, e.TrayUses, starLimit)
 		}
 	}
-	t.Logf("All %d campaign artworks across %d Campaigns (5x5 warmups -> 8x8 64-pearl finales) mathematically verified 100%% 3-STAR achievable!", len(CuratedArtworks), NumChapters)
+	t.Logf("All %d campaign artworks across %d Campaigns (10-tier sawtooth + 20 sculpted square breathers -> 8x8 64-pearl finales) mathematically verified 100%% 3-STAR achievable!", len(CuratedArtworks), NumChapters)
+}
+
+func countDistinctColors(stitches []StitchPoint) int {
+	var seen [NumColors]bool
+	cnt := 0
+	for _, s := range stitches {
+		if !seen[s.Color] {
+			seen[s.Color] = true
+			cnt++
+		}
+	}
+	return cnt
 }
 
 func TestSoloFinaleLastTwoColorsUnlockSeparatelyAndTemporarySpotlight(t *testing.T) {
@@ -462,8 +530,8 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	var e Engine
 
 	// 1. Verify 64-tile 8x8 Grand Masterpiece (62 stitches + 2 Rainbows = 64 tiles) loads cleanly via CustomLevelBuf!
-	art64 := CuratedArtworks[12] // 8x8 Grand Jewel Rose (62 stitches + 2 Rainbows = 64 tiles)
-	e.CustomLevelBuf[0] = 64
+	art64 := CuratedArtworks[LevelsPerChapter-1] // 8x8 Grand Jewel Rose (62 stitches + 2 Rainbows = 64 tiles)
+	e.CustomLevelBuf[0] = float32(art64.ID)
 	e.CustomLevelBuf[1] = 0
 	e.CustomLevelBuf[2] = 0
 	e.CustomLevelBuf[3] = 8
@@ -476,7 +544,7 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	e.CustomLevelBuf[10] = float32(art64.MaxRainbows)
 	e.CustomLevelBuf[11] = float32(art64.MaxHidden)
 	e.CustomLevelBuf[12] = float32(art64.MaxLocked)
-	e.CustomLevelBuf[13] = 0
+	e.CustomLevelBuf[13] = float32(art64.BoardShape)
 	for i, sp := range art64.Stitches {
 		off := CustomLevelHeaderLen + i*4
 		e.CustomLevelBuf[off+0] = sp.X
@@ -486,6 +554,39 @@ func TestHeartPearlsEarlyBonusAndCustomJsonLevel(t *testing.T) {
 	}
 	if !e.LoadCustomLevel(len(art64.Stitches)) || e.TileCount != 64 || e.HoopCount != 62 {
 		t.Fatalf("expected 64-tile (62 hoop + 2 rainbow) 8x8 custom JSON load, got tiles=%d hoop=%d", e.TileCount, e.HoopCount)
+	}
+
+	// 1b. Verify sculpted square .1 fun board shape loads cleanly via CustomLevelBuf[13]!
+	artFun := CuratedArtworks[LevelsPerChapter+40] // Cyber Arcade L41 Space Invader (8x8, 34 tiles)
+	e.CustomLevelBuf[0] = float32(artFun.ID)
+	e.CustomLevelBuf[1] = float32(artFun.Chapter)
+	e.CustomLevelBuf[2] = float32(artFun.Theme)
+	e.CustomLevelBuf[3] = float32(artFun.Cols)
+	e.CustomLevelBuf[4] = float32(artFun.Rows)
+	e.CustomLevelBuf[5] = float32(artFun.Difficulty)
+	e.CustomLevelBuf[6] = float32(artFun.Seed & 0xFFFF)
+	e.CustomLevelBuf[7] = float32((artFun.Seed >> 16) & 0xFFFF)
+	e.CustomLevelBuf[8] = 0
+	e.CustomLevelBuf[9] = float32(artFun.MaxHearts)
+	e.CustomLevelBuf[10] = float32(artFun.MaxRainbows)
+	e.CustomLevelBuf[11] = float32(artFun.MaxHidden)
+	e.CustomLevelBuf[12] = float32(artFun.MaxLocked)
+	e.CustomLevelBuf[13] = float32(artFun.BoardShape)
+	for i, sp := range artFun.Stitches {
+		off := CustomLevelHeaderLen + i*4
+		e.CustomLevelBuf[off+0] = sp.X
+		e.CustomLevelBuf[off+1] = sp.Z
+		e.CustomLevelBuf[off+2] = float32(sp.Color)
+		e.CustomLevelBuf[off+3] = float32(sp.Layer)
+	}
+	wantFunCells := boardShapeCells(artFun.BoardShape, artFun.Cols, artFun.Rows)
+	if !e.LoadCustomLevel(len(artFun.Stitches)) || e.TileCount != len(wantFunCells) {
+		t.Fatalf("expected sculpted BoardShape custom JSON load with %d tiles, got %d", len(wantFunCells), e.TileCount)
+	}
+	for i, wc := range wantFunCells {
+		if e.Tiles[i].Col != wc.c || e.Tiles[i].Row != wc.r {
+			t.Fatalf("sculpted custom load tile %d mismatch (%d,%d) != (%d,%d)", i, e.Tiles[i].Col, e.Tiles[i].Row, wc.c, wc.r)
+		}
 	}
 
 	// 2. Load a custom JSON-staged zero-blocker level (NoBlockers=true, MaxHearts=2) via CustomLevelBuf
@@ -985,8 +1086,8 @@ func TestCustomModeGeneratorSolvableAndThreeStar(t *testing.T) {
 
 func TestBitboardMatchesReferenceAndFlowQuality(t *testing.T) {
 	var e Engine
-	// Verify bitboard rayMask/adjMask/revRay match O(N^2) reference on every 8x8 finale & partial masks!
-	for _, lvl := range []int{2, 6, 10, 12, 25, 38, 51} {
+	// Verify bitboard rayMask/adjMask/revRay match O(N^2) reference on every 8x8 finale & sculpted breather!
+	for _, lvl := range []int{2, 10, 20, 49, 90, 99, 135, 149, 195, 199} {
 		e.LoadCuratedLevel(lvl)
 		tiles := e.Tiles[:e.TileCount]
 		bb := buildBoardBitboards(tiles)

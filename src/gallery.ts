@@ -1,6 +1,7 @@
 import { CHAPTERS, CURATED_LEVELS, generateRandomSeed, type SeedDifficultyTier } from './wasmBridge';
 
 const GALLERY_STORAGE_KEY = 'pearl-loom-gallery-v2';
+export const CURRENT_CATALOG_VERSION = 4;
 
 export type SeenSpecialKind = 'heart' | 'rainbow' | 'hidden' | 'locked';
 
@@ -70,6 +71,7 @@ export interface UserSettings {
 }
 
 export interface GalleryProgress {
+  catalogVersion: number;
   completedCurated: Record<number, CuratedCompletionRecord>;
   completedDailyDates: string[];
   dailyHistory: DailyCompletionRecord[];
@@ -109,6 +111,7 @@ function defaultCustomPrefs(): CustomModePrefs {
 
 function emptyProgress(): GalleryProgress {
   return {
+    catalogVersion: CURRENT_CATALOG_VERSION,
     completedCurated: {},
     completedDailyDates: [],
     dailyHistory: [],
@@ -182,13 +185,20 @@ export class EmbroideryGalleryStore {
         locked: typeof cp.locked === 'boolean' ? cp.locked : false,
       };
 
-      const completedCurated = parsed.completedCurated ?? {};
+      const rawCompletedCurated = parsed.completedCurated ?? {};
       const hasExistingProgress =
-        Object.keys(completedCurated).length > 0 ||
+        Object.keys(rawCompletedCurated).length > 0 ||
         (Array.isArray(parsed.completedDailyDates) && parsed.completedDailyDates.length > 0) ||
         (typeof parsed.mandalasCompleted === 'number' && parsed.mandalasCompleted > 0);
       const onboardingCompleted =
         typeof parsed.onboardingCompleted === 'boolean' ? parsed.onboardingCompleted : hasExistingProgress;
+
+      // Option B migration: when upgrading from the v3 52-level testrun to the full v4 200-level
+      // sawtooth catalog, start campaign level completion fresh while preserving onboarding, settings,
+      // seen specials, and all Daily/Random/Custom archives.
+      const savedCatalogVersion = typeof parsed.catalogVersion === 'number' ? parsed.catalogVersion : 3;
+      const needsCatalogReset = savedCatalogVersion < CURRENT_CATALOG_VERSION;
+      const completedCurated = needsCatalogReset ? {} : rawCompletedCurated;
 
       const validSpecials = new Set<SeenSpecialKind>(['heart', 'rainbow', 'hidden', 'locked']);
       const seenSpecials: SeenSpecialKind[] = Array.isArray(parsed.seenSpecials)
@@ -205,7 +215,8 @@ export class EmbroideryGalleryStore {
         ? parsed.customHistory.slice(0, 80)
         : [];
 
-      return {
+      const loaded: GalleryProgress = {
+        catalogVersion: CURRENT_CATALOG_VERSION,
         completedCurated,
         completedDailyDates: Array.isArray(parsed.completedDailyDates) ? parsed.completedDailyDates : [],
         dailyHistory,
@@ -225,6 +236,14 @@ export class EmbroideryGalleryStore {
           manualHour: typeof s.manualHour === 'number' ? ((s.manualHour % 24) + 24) % 24 : 12.5,
         },
       };
+      if (needsCatalogReset) {
+        try {
+          localStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(loaded));
+        } catch {
+          // Non-fatal in private browsing
+        }
+      }
+      return loaded;
     } catch {
       return emptyProgress();
     }
@@ -539,6 +558,7 @@ export class EmbroideryGalleryStore {
 
   getSnapshot(): GalleryProgress {
     return {
+      catalogVersion: this.data.catalogVersion,
       completedCurated: { ...this.data.completedCurated },
       completedDailyDates: [...this.data.completedDailyDates],
       dailyHistory: this.data.dailyHistory.map((d) => ({ ...d, stitches: [...d.stitches] })),

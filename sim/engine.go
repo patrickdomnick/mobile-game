@@ -377,7 +377,7 @@ func (e *Engine) LoadCuratedLevel(idx int) {
 
 // LoadCustomLevel loads a curated level parsed from remote/cached levels.json via CustomLevelBuf.
 // Staging layout (14-float header):
-// [id, chapter, theme, cols, rows, difficulty, seedLo, seedHi, flags(bit0=noBlockers), maxHearts, maxRainbows, maxHidden, maxLocked, reserved, ...stitches(x,z,color,layer)].
+// [id, chapter, theme, cols, rows, difficulty, seedLo, seedHi, flags(bit0=noBlockers), maxHearts, maxRainbows, maxHidden, maxLocked, boardShape, ...stitches(x,z,color,layer)].
 func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	if stitchCount < 1 || stitchCount > MaxHoopPearls {
 		return false
@@ -395,6 +395,7 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 	maxRainbows := int(e.CustomLevelBuf[10])
 	maxHidden := int(e.CustomLevelBuf[11])
 	maxLocked := int(e.CustomLevelBuf[12])
+	boardShape := uint8(int(e.CustomLevelBuf[13]) & 0xFF)
 
 	if cols < 2 || rows < 2 || cols*rows < stitchCount || cols*rows > MaxGridTiles {
 		return false
@@ -448,6 +449,7 @@ func (e *Engine) LoadCustomLevel(stitchCount int) bool {
 		MaxRainbows: maxRainbows,
 		MaxHidden:   maxHidden,
 		MaxLocked:   maxLocked,
+		BoardShape:  boardShape,
 		Stitches:    stitches,
 	}
 	e.LevelIndex = id
