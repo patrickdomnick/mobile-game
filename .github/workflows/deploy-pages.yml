@@ -37,8 +37,14 @@ jobs:
           echo "$HOME/.local/toolchains/tinygo/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/toolchains/go/bin" >> "$GITHUB_PATH"
 
+      - name: Run fail-fast contract & shader guard
+        run: pnpm check:contracts
+
       - name: Run Go simulation unit tests
         run: pnpm test:go
+
+      - name: Run TypeScript/JS unit tests
+        run: pnpm test:unit
 
       - name: Build TinyGo WebAssembly module
         run: pnpm build:wasm

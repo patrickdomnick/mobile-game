@@ -639,22 +639,28 @@ export class ProceduralSoundscape {
     }
 
     if (events.stitchEvents > prev.stitchEvents) {
+      const burstCount = Math.min(4, events.stitchEvents - prev.stitchEvents);
       const streakStep = Math.min(Math.max(0, info.streak - 1), SOLAR_SCALE_SEMITONES.length - 1);
-      const semi = SOLAR_SCALE_SEMITONES[streakStep];
       vibratePattern(info.hapticsEnabled, Math.min(22, 9 + streakStep), rScale);
       if (this.ctx && !this.muted) {
-        const baseHz = midiToHz(rootMidi + semi);
-        this.playTone(baseHz, 0.72, 0.145, 'sine', 0, 0.006);
-        this.playTone(
-          baseHz * 2.0,
-          0.36,
-          lerp(0.032, 0.075, clamp01(daylight * 0.6 + streakStep * 0.06)),
-          'triangle',
-          0.005,
-          0.005,
-        );
-        if (info.streak >= 5) {
-          this.playTone(baseHz * 1.5, 0.45, 0.055, 'sine', 0.025, 0.006);
+        // When a tray cascade stitches multiple pearls in one beat, arpeggiate gently upward like Two Dots!
+        for (let b = 0; b < burstCount; b++) {
+          const degIdx = Math.min(SOLAR_SCALE_SEMITONES.length - 1, Math.max(0, streakStep - (burstCount - 1) + b));
+          const semi = SOLAR_SCALE_SEMITONES[degIdx];
+          const delay = b * 0.055;
+          const baseHz = midiToHz(rootMidi + semi);
+          this.playTone(baseHz, 0.72, b === 0 ? 0.145 : 0.11, 'sine', delay, 0.006);
+          this.playTone(
+            baseHz * 2.0,
+            0.34,
+            lerp(0.032, 0.072, clamp01(daylight * 0.6 + degIdx * 0.06)),
+            'triangle',
+            delay + 0.005,
+            0.005,
+          );
+          if (b === burstCount - 1 && info.streak >= 5) {
+            this.playTone(baseHz * 1.5, 0.45, 0.055, 'sine', delay + 0.025, 0.006);
+          }
         }
       }
     }
@@ -668,10 +674,11 @@ export class ProceduralSoundscape {
     }
 
     if (events.blockedEvents > prev.blockedEvents) {
-      vibratePattern(info.hapticsEnabled, [16, 26, 16], rScale);
+      vibratePattern(info.hapticsEnabled, [14, 22, 14], rScale);
       if (this.ctx && !this.muted) {
-        this.playTone(170, 0.13, 0.09, 'triangle', 0, 0.004);
-        this.playTone(128, 0.14, 0.07, 'sine', 0.035, 0.004);
+        // Soft, warm wooden knock rather than harsh buzz
+        this.playTone(164, 0.095, 0.075, 'sine', 0, 0.004);
+        this.playTone(118, 0.115, 0.065, 'triangle', 0.028, 0.005);
       }
     }
 

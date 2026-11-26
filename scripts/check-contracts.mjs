@@ -122,15 +122,43 @@ if (!/fn\s+toLinear\s*\(/.test(wgslNoComments) || !/toLinear\s*\(/.test(wgslNoCo
 // 3. Zero-Spoiler Simulation Invariant Guard
 // ---------------------------------------------------------------------------
 // Ensure unblocked state (bit 2) is NEVER packed into GPU scene tile flags.
-const tilePackSection = goEngine.slice(goEngine.indexOf('// --- Board Tiles'));
-const hoopSectionIdx = tilePackSection.indexOf('// --- Embroidery Hoop');
-const tilePackOnly = hoopSectionIdx > 0 ? tilePackSection.slice(0, hoopSectionIdx) : tilePackSection;
-if (/flags\s*\|=\s*2\b/.test(tilePackOnly)) {
-  errors.push('Zero-spoiler violation: sim/engine.go must NOT pack unblocked bit (flags |= 2) into GPU scene buffer.');
+const goRenderSync = readText('sim/render_sync.go');
+const tilePackStart = goRenderSync.indexOf('// --- Board Tiles');
+if (tilePackStart < 0) {
+  errors.push('Zero-spoiler guard failed: could not locate "// --- Board Tiles" in sim/render_sync.go.');
+} else {
+  const tilePackSection = goRenderSync.slice(tilePackStart);
+  const hoopSectionIdx = tilePackSection.indexOf('// --- Embroidery Hoop');
+  const tilePackOnly = hoopSectionIdx > 0 ? tilePackSection.slice(0, hoopSectionIdx) : tilePackSection;
+  if (/flags\s*\|=\s*2\b/.test(tilePackOnly)) {
+    errors.push('Zero-spoiler violation: sim/render_sync.go must NOT pack unblocked bit (flags |= 2) into GPU scene buffer.');
+  }
 }
 
 // ---------------------------------------------------------------------------
-// 4. GitHub Pages Subpath Portability Guard (base: './' & relative assets)
+// 4. Dead Legacy CSS Regression Guard
+// ---------------------------------------------------------------------------
+const styleCss = readText('src/style.css');
+const forbiddenLegacySelectors = [
+  '.menu-campaign-strip',
+  '.menu-campaign-pill',
+  '.theme-strip',
+  '.theme-chip',
+  '.settings-theme-grid',
+  '.solar-chip',
+  '.install-chip',
+  '.gallery-item',
+  '.gallery-special-row',
+  '.start-theme-block',
+];
+for (const sel of forbiddenLegacySelectors) {
+  if (styleCss.includes(sel)) {
+    errors.push(`Dead CSS regression: legacy selector "${sel}" found in src/style.css.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. GitHub Pages Subpath Portability Guard (base: './' & relative assets)
 // ---------------------------------------------------------------------------
 const viteConfig = readText('vite.config.ts');
 if (!/base:\s*['"]\.\/['"]/.test(viteConfig)) {
@@ -162,4 +190,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log('✓ Contract guard passed (Go/TS/WGSL ABI parity, WGSL keywords, linear PBR, zero-spoiler, PWA subpath portability)');
+console.log('✓ Contract guard passed (Go/TS/WGSL ABI parity, WGSL keywords, linear PBR, zero-spoiler, clean CSS, PWA subpath portability)');

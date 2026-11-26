@@ -470,6 +470,9 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
         let r = hp.posRad.w * (0.25 + 0.75 * bloom);
         if (intersectSphere(orig, sunDir, hp.posRad.xyz, r) > 0.0) {
           shadow *= 0.48;
+          if (shadow <= 0.49) {
+            break;
+          }
         }
       }
     }
@@ -479,6 +482,9 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
       if (tp.props.y > 0.5) {
         if (intersectSphere(orig, sunDir, tp.posRad.xyz, tp.posRad.w) > 0.0) {
           shadow *= 0.48;
+          if (shadow <= 0.49) {
+            break;
+          }
         }
       }
     }
@@ -497,6 +503,9 @@ fn computeDeskShadow(p: vec3<f32>, sunDir: vec3<f32>) -> f32 {
       let spCenter = boardPearlCenter(tl, pitch);
       if (intersectSphere(orig, sunDir, spCenter, tl.posRad.w) > 0.0) {
         shadow *= 0.46;
+        if (shadow <= 0.49) {
+          break;
+        }
       }
     }
   }
@@ -802,19 +811,18 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
         }
 
         let spacing = scene.themeSolar.w;
-        for (var s: i32 = 0; s < 5; s = s + 1) {
-          let sx = (f32(s) - 2.0) * spacing;
-          let dp = vec2<f32>(p.x - sx, p.z - trayZ);
-          let rDimple = length(dp);
-          let dMask = smoothstep(0.22 + aa, 0.22 - aa, rDimple);
-          if (dMask > 0.002) {
-            let slope = clamp(rDimple / 0.22, 0.0, 1.0);
-            trayNorm = normalize(mix(trayNorm, normalize(vec3<f32>(-dp.x * 2.2, 1.0, -dp.y * 2.2)), dMask));
-            trayCol *= mix(1.0, mix(0.45, 0.96, slope * slope), dMask);
-            trayRough = mix(trayRough, 0.44, dMask);
-            let wellRim = smoothstep(0.185 - aa, 0.185 + aa, rDimple) * dMask;
-            trayCol = mix(trayCol, toLinear(vec3<f32>(0.88, 0.76, 0.48)), wellRim * 0.45);
-          }
+        let slotIdx = clamp(i32(round(p.x / spacing)) + 2, 0, 4);
+        let sx = (f32(slotIdx) - 2.0) * spacing;
+        let dp = vec2<f32>(p.x - sx, p.z - trayZ);
+        let rDimple = length(dp);
+        let dMask = smoothstep(0.22 + aa, 0.22 - aa, rDimple);
+        if (dMask > 0.002) {
+          let slope = clamp(rDimple / 0.22, 0.0, 1.0);
+          trayNorm = normalize(mix(trayNorm, normalize(vec3<f32>(-dp.x * 2.2, 1.0, -dp.y * 2.2)), dMask));
+          trayCol *= mix(1.0, mix(0.45, 0.96, slope * slope), dMask);
+          trayRough = mix(trayRough, 0.44, dMask);
+          let wellRim = smoothstep(0.185 - aa, 0.185 + aa, rDimple) * dMask;
+          trayCol = mix(trayCol, toLinear(vec3<f32>(0.88, 0.76, 0.48)), wellRim * 0.45);
         }
 
         albedo = mix(albedo, trayCol, trayMask);
@@ -903,15 +911,20 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
         let isLockedTile = (flags & 256u) != 0u;
 
         if (tileMask > 0.002) {
-          let rawPal = getPaletteLinear(tl.props.x).rgb;
-          let rainAngle = atan2(dLocal.y, dLocal.x) - renderU.time * 1.8;
-          let rainPal = toLinear(clamp(vec3<f32>(
-            0.55 + 0.45 * sin(rainAngle),
-            0.55 + 0.45 * sin(rainAngle + 2.094395),
-            0.55 + 0.45 * sin(rainAngle + 4.188790),
-          ), vec3<f32>(0.08), vec3<f32>(1.0)));
           // Hidden tiles MUST NEVER leak their concealed color into tile background, border, or caustics!
-          let pal = select(select(rawPal, rainPal, isRainbowTile), toLinear(vec3<f32>(0.42, 0.44, 0.52)), isHiddenTile);
+          var pal = getPaletteLinear(tl.props.x).rgb;
+          var rainPal = pal;
+          if (isHiddenTile) {
+            pal = toLinear(vec3<f32>(0.42, 0.44, 0.52));
+          } else if (isRainbowTile) {
+            let rainAngle = atan2(dLocal.y, dLocal.x) - renderU.time * 1.8;
+            rainPal = toLinear(clamp(vec3<f32>(
+              0.55 + 0.45 * sin(rainAngle),
+              0.55 + 0.45 * sin(rainAngle + 2.094395),
+              0.55 + 0.45 * sin(rainAngle + 4.188790),
+            ), vec3<f32>(0.08), vec3<f32>(1.0)));
+            pal = rainPal;
+          }
           let edgeBevel = smoothstep(0.0, -0.048, dTile);
 
           // 3D sculpted beveled tile edge normal
@@ -1078,6 +1091,9 @@ fn shadeAtelierDesk(p: vec3<f32>, rd: vec3<f32>, aa: f32) -> vec3<f32> {
           boardNorm = normalize(mix(boardNorm, tNorm, tileMask));
           boardRough = mix(boardRough, tRough, tileMask);
           boardMet = mix(boardMet, tMet, tileMask);
+          if (tileMask >= 0.995) {
+            break;
+          }
         }
       }
 
@@ -1301,6 +1317,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
           hitSpecialKind = 4u;
         } else {
           hitSpecialKind = 0u;
+        }
+        if (bestCov >= 0.995) {
+          break;
         }
       }
     }

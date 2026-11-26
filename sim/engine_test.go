@@ -983,5 +983,42 @@ func TestCustomModeGeneratorSolvableAndThreeStar(t *testing.T) {
 	}
 }
 
-
-
+func TestBitboardMatchesReferenceAndFlowQuality(t *testing.T) {
+	var e Engine
+	// Verify bitboard rayMask/adjMask/revRay match O(N^2) reference on every 8x8 finale & partial masks!
+	for _, lvl := range []int{2, 6, 10, 12, 25, 38, 51} {
+		e.LoadCuratedLevel(lvl)
+		tiles := e.Tiles[:e.TileCount]
+		bb := buildBoardBitboards(tiles)
+		full := fullMask(e.TileCount)
+		// Check full mask + several sparse masks
+		masks := []uint64{full, full &^ 0x5555555555555555, full &^ 0x0F0F0F0F0F0F0F0F, full & 0xFFFF}
+		for _, mask := range masks {
+			for i := 0; i < e.TileCount; i++ {
+				wantUnblocked := isUnblockedMask(tiles, mask, i, e.GridCols, e.GridRows)
+				gotUnblocked := isUnblockedBB(&bb, mask, i)
+				if wantUnblocked != gotUnblocked {
+					t.Fatalf("lvl %d tile %d mask %x: isUnblockedBB=%v want %v", lvl, i, mask, gotUnblocked, wantUnblocked)
+				}
+				wantPlayable := isPlayableMask(tiles, mask, i, e.GridCols, e.GridRows)
+				gotPlayable := isPlayableBB(tiles, &bb, mask, i)
+				if wantPlayable != gotPlayable {
+					t.Fatalf("lvl %d tile %d mask %x: isPlayableBB=%v want %v", lvl, i, mask, gotPlayable, wantPlayable)
+				}
+			}
+		}
+		// Verify inviting flow opening: at least 1 immediate playable direct stitch on turn 0
+		st := solverState{
+			aliveMask: full,
+			remain:    e.Remain,
+			active:    e.Active,
+			queue:     e.ColorQueue,
+			queueLen:  e.QueueLen,
+			queuePos:  e.QueuePos,
+		}
+		directOpen := countPlayableDirectMovesBB(tiles, &bb, &st)
+		if directOpen < 1 {
+			t.Fatalf("lvl %d (%s): expected >=1 immediate direct stitch on turn 0 via scoreBoardFlow, got %d", lvl, CuratedArtworks[lvl].Name, directOpen)
+		}
+	}
+}

@@ -1,5 +1,7 @@
 package sim
 
+import "math/bits"
+
 const (
 	DirUp    uint8 = 0
 	DirRight uint8 = 1
@@ -334,6 +336,79 @@ func (s *solverState) applyTap(tileIdx int, color uint8, isRainbow bool) bool {
 	return true
 }
 
+// boardBitboards precomputes 64-bit tile relation masks once per solver invocation
+// so every DFS node and lookahead executes in O(1) bitwise instructions instead of O(N^2) scans.
+type boardBitboards struct {
+	rayMask [MaxGridTiles]uint64 // bit j set iff tile j lies strictly along tile i's arrow ray
+	revRay  [MaxGridTiles]uint64 // bit j set iff tile i lies strictly along tile j's arrow ray
+	adjMask [MaxGridTiles]uint64 // bit j set iff tile j is orthogonally adjacent to tile i
+}
+
+func buildBoardBitboards(tiles []Tile) boardBitboards {
+	var bb boardBitboards
+	n := len(tiles)
+	if n > MaxGridTiles {
+		n = MaxGridTiles
+	}
+	for i := 0; i < n; i++ {
+		ic := tiles[i].Col
+		ir := tiles[i].Row
+		dir := tiles[i].Dir
+		var rMask uint64
+		var aMask uint64
+		for j := 0; j < n; j++ {
+			if i == j {
+				continue
+			}
+			dc := tiles[j].Col - ic
+			dr := tiles[j].Row - ir
+			if absInt(dc)+absInt(dr) == 1 {
+				aMask |= uint64(1) << uint(j)
+			}
+			onRay := false
+			switch dir {
+			case DirUp:
+				onRay = dc == 0 && dr < 0
+			case DirRight:
+				onRay = dr == 0 && dc > 0
+			case DirDown:
+				onRay = dc == 0 && dr > 0
+			case DirLeft:
+				onRay = dr == 0 && dc < 0
+			}
+			if onRay {
+				rMask |= uint64(1) << uint(j)
+			}
+		}
+		bb.rayMask[i] = rMask
+		bb.adjMask[i] = aMask
+	}
+	for i := 0; i < n; i++ {
+		m := bb.rayMask[i]
+		bitI := uint64(1) << uint(i)
+		for m != 0 {
+			j := bits.TrailingZeros64(m)
+			bb.revRay[j] |= bitI
+			m &= m - 1
+		}
+	}
+	return bb
+}
+
+func isUnblockedBB(bb *boardBitboards, mask uint64, idx int) bool {
+	return (mask&(uint64(1)<<uint(idx))) != 0 && (mask&bb.rayMask[idx]) == 0
+}
+
+func isPlayableBB(tiles []Tile, bb *boardBitboards, mask uint64, idx int) bool {
+	if (mask&(uint64(1)<<uint(idx))) == 0 || (mask&bb.rayMask[idx]) != 0 {
+		return false
+	}
+	if tiles[idx].Special == SpecialLocked && !tiles[idx].Unlocked && (mask&bb.adjMask[idx]) != 0 {
+		return false
+	}
+	return true
+}
+
 func isUnblockedMask(tiles []Tile, mask uint64, idx int, cols, rows int) bool {
 	if (mask & (uint64(1) << uint(idx))) == 0 {
 		return false
@@ -397,9 +472,9 @@ func (s *solverState) queueDistance(c uint8) int {
 	return dist + 1
 }
 
-// scoreTrayCandidate prioritizes tray moves that directly unblock active-color pearls,
-// free Locked Pearls, avoid dead surplus colors, or hold soon-to-activate colors.
-func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) int {
+// scoreTrayCandidateBB prioritizes tray moves that directly unblock active-color pearls,
+// free Locked Pearls, avoid dead surplus colors, or hold soon-to-activate colors using O(1) bitboards.
+func scoreTrayCandidateBB(tiles []Tile, bb *boardBitboards, st *solverState, idx int) int {
 	score := 0
 	qDist := st.queueDistance(tiles[idx].Color)
 	if qDist < 0 {
@@ -414,40 +489,38 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 	}
 
 	nextMask := st.aliveMask &^ (uint64(1) << uint(idx))
-	tc := tiles[idx].Col
-	tr := tiles[idx].Row
-	for j := range tiles {
-		if j == idx || (nextMask&(uint64(1)<<uint(j))) == 0 {
-			continue
-		}
-		// Bonus for peeling a neighbor off a Locked Pearl!
-		if tiles[j].Special == SpecialLocked && !tiles[j].Unlocked && absInt(tiles[j].Col-tc)+absInt(tiles[j].Row-tr) == 1 {
+
+	// Check only alive orthogonal neighbors of idx for Locked Pearl unlocks
+	adj := bb.adjMask[idx] & nextMask
+	for adj != 0 {
+		j := bits.TrailingZeros64(adj)
+		adj &= adj - 1
+		if tiles[j].Special == SpecialLocked && !tiles[j].Unlocked {
 			score += 12
-			if !hasAdjacentAliveMask(tiles, nextMask, j) && (st.isActiveColor(tiles[j].Color) || tiles[j].Special == SpecialRainbow) {
+			if (nextMask&bb.adjMask[j]) == 0 && (st.isActiveColor(tiles[j].Color) || tiles[j].Special == SpecialRainbow) {
 				score += 16
 			}
 		}
-		if tiles[j].Col != tc && tiles[j].Row != tr {
-			continue
-		}
-		if !isUnblockedMask(tiles, st.aliveMask, j, cols, rows) && isUnblockedMask(tiles, nextMask, j, cols, rows) {
+	}
+
+	// Check only alive tiles whose arrow ray was blocked by idx
+	rev := bb.revRay[idx] & nextMask
+	for rev != 0 {
+		j := bits.TrailingZeros64(rev)
+		rev &= rev - 1
+		if (nextMask & bb.rayMask[j]) == 0 {
 			if tiles[j].Special == SpecialRainbow || st.isActiveColor(tiles[j].Color) {
 				score += 18
 			} else {
 				score += 4
 				// 2-ply lookahead: does clearing j immediately open an active/Rainbow pearl?
 				afterJ := nextMask &^ (uint64(1) << uint(j))
-				jc, jr := tiles[j].Col, tiles[j].Row
-				for k := range tiles {
-					if k == j || (afterJ&(uint64(1)<<uint(k))) == 0 {
-						continue
-					}
-					if tiles[k].Col != jc && tiles[k].Row != jr {
-						continue
-					}
+				revJ := bb.revRay[j] & afterJ
+				for revJ != 0 {
+					k := bits.TrailingZeros64(revJ)
+					revJ &= revJ - 1
 					if (tiles[k].Special == SpecialRainbow || st.isActiveColor(tiles[k].Color)) &&
-						!isUnblockedMask(tiles, nextMask, k, cols, rows) &&
-						isUnblockedMask(tiles, afterJ, k, cols, rows) {
+						(afterJ&bb.rayMask[k]) == 0 {
 						score += 7
 						break
 					}
@@ -458,10 +531,14 @@ func scoreTrayCandidate(tiles []Tile, st *solverState, idx int, cols, rows int) 
 	return score
 }
 
-func countPlayableDirectMoves(tiles []Tile, st *solverState, cols, rows int) int {
+func countPlayableDirectMovesBB(tiles []Tile, bb *boardBitboards, st *solverState) int {
 	cnt := 0
-	for i := range tiles {
-		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) &&
+	m := st.aliveMask
+	for m != 0 {
+		i := bits.TrailingZeros64(m)
+		m &= m - 1
+		if (st.aliveMask&bb.rayMask[i]) == 0 &&
+			(tiles[i].Special != SpecialLocked || tiles[i].Unlocked || (st.aliveMask&bb.adjMask[i]) == 0) &&
 			(tiles[i].Special == SpecialRainbow || st.isActiveColor(tiles[i].Color)) {
 			cnt++
 		}
@@ -538,9 +615,8 @@ func (s *fixedMaskSet) add(k uint64, tag uint8) {
 	}
 }
 
-// solveWithTrayBudgetDetailed returns (solved, firstMove, exhausted) while enforcing an optional
-// cumulative trayUses <= maxTrayUses budget (pass maxTrayUses < 0 for unrestricted search).
-func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState, maxTrayUses int, nodeBudget int) (bool, int, bool) {
+// solveWithTrayBudgetBB uses precomputed bitboards for blazing-fast DFS search.
+func solveWithTrayBudgetBB(tiles []Tile, bb *boardBitboards, start solverState, maxTrayUses int, nodeBudget int) (bool, int, bool) {
 	if start.isComplete() {
 		return maxTrayUses < 0 || start.trayUses <= maxTrayUses, -1, true
 	}
@@ -576,17 +652,24 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 		trayN := 0
 		canUseTray := st.trayLen < TrayCapacity && (maxTrayUses < 0 || st.trayUses < maxTrayUses)
 
-		for i := range tiles {
-			if isPlayableMask(tiles, st.aliveMask, i, cols, rows) {
-				isRain := tiles[i].Special == SpecialRainbow
-				if isRain || st.isActiveColor(tiles[i].Color) {
-					frame.directMoves[directN] = uint8(i)
-					directN++
-				} else if canUseTray {
-					frame.trayMoves[trayN] = uint8(i)
-					frame.trayScores[trayN] = int16(scoreTrayCandidate(tiles, &st, i, cols, rows))
-					trayN++
-				}
+		m := st.aliveMask
+		for m != 0 {
+			i := bits.TrailingZeros64(m)
+			m &= m - 1
+			if (st.aliveMask & bb.rayMask[i]) != 0 {
+				continue
+			}
+			if tiles[i].Special == SpecialLocked && !tiles[i].Unlocked && (st.aliveMask&bb.adjMask[i]) != 0 {
+				continue
+			}
+			isRain := tiles[i].Special == SpecialRainbow
+			if isRain || st.isActiveColor(tiles[i].Color) {
+				frame.directMoves[directN] = uint8(i)
+				directN++
+			} else if canUseTray {
+				frame.trayMoves[trayN] = uint8(i)
+				frame.trayScores[trayN] = int16(scoreTrayCandidateBB(tiles, bb, &st, i))
+				trayN++
 			}
 		}
 
@@ -633,14 +716,27 @@ func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState
 	return ok, mv, !hitBudget
 }
 
+// solveWithTrayBudgetDetailed returns (solved, firstMove, exhausted) while enforcing an optional
+// cumulative trayUses <= maxTrayUses budget (pass maxTrayUses < 0 for unrestricted search).
+func solveWithTrayBudgetDetailed(tiles []Tile, cols, rows int, start solverState, maxTrayUses int, nodeBudget int) (bool, int, bool) {
+	_ = cols
+	_ = rows
+	bb := buildBoardBitboards(tiles)
+	return solveWithTrayBudgetBB(tiles, &bb, start, maxTrayUses, nodeBudget)
+}
+
 // solveOptimalHint uses iterative-deepening over additional tray uses (0, 1, 2, ..., 6, then unrestricted)
 // and evaluates ALL playable root moves at the minimum winning tray-cost tier so Hint ALWAYS picks the
 // mathematically best path to victory (minimum tray drops, lowest tray fill, maximum newly unlocked stitches)
 // and NEVER sabotages the player with an unverified or wasteful move!
 func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, int, bool) {
+	_ = cols
+	_ = rows
 	if start.isComplete() {
 		return true, -1, true
 	}
+
+	bb := buildBoardBitboards(tiles)
 
 	var directCands [MaxGridTiles]int
 	var trayCands [MaxGridTiles]int
@@ -648,8 +744,11 @@ func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, in
 	directN := 0
 	trayN := 0
 
-	for i := range tiles {
-		if !isPlayableMask(tiles, start.aliveMask, i, cols, rows) {
+	m := start.aliveMask
+	for m != 0 {
+		i := bits.TrailingZeros64(m)
+		m &= m - 1
+		if !isPlayableBB(tiles, &bb, start.aliveMask, i) {
 			continue
 		}
 		isRain := tiles[i].Special == SpecialRainbow
@@ -658,7 +757,7 @@ func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, in
 			directN++
 		} else if start.trayLen < TrayCapacity {
 			trayCands[trayN] = i
-			trayQual[trayN] = scoreTrayCandidate(tiles, &start, i, cols, rows)
+			trayQual[trayN] = scoreTrayCandidateBB(tiles, &bb, &start, i)
 			trayN++
 		}
 	}
@@ -710,12 +809,12 @@ func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, in
 			if !next.applyTap(mv, tiles[mv].Color, isRain) {
 				continue
 			}
-			ok, _, ex := solveWithTrayBudgetDetailed(tiles, cols, rows, next, maxTray, perCandBudget)
+			ok, _, ex := solveWithTrayBudgetBB(tiles, &bb, next, maxTray, perCandBudget)
 			if !ex {
 				allExhausted = false
 			}
 			if ok {
-				rank := 10000 - next.trayLen*120 + countPlayableDirectMoves(tiles, &next, cols, rows)*40
+				rank := 10000 - next.trayLen*120 + countPlayableDirectMovesBB(tiles, &bb, &next)*40
 				if tiles[mv].IsHeart || tiles[mv].Special == SpecialHeart {
 					rank += 120
 				}
@@ -741,7 +840,7 @@ func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, in
 				if maxTray >= 0 && next.trayUses > maxTray {
 					continue
 				}
-				ok, _, ex := solveWithTrayBudgetDetailed(tiles, cols, rows, next, maxTray, perCandBudget)
+				ok, _, ex := solveWithTrayBudgetBB(tiles, &bb, next, maxTray, perCandBudget)
 				if !ex {
 					allExhausted = false
 				}
@@ -750,7 +849,7 @@ func solveOptimalHint(tiles []Tile, cols, rows int, start solverState) (bool, in
 					// 1) Keep resulting tray fill minimal (especially draining immediately!)
 					// 2) Immediately unlock stitchable direct/Rainbow pearls on the very next move
 					// 3) Avoid dropping dead surplus colors (qDist < 0) and prefer soonest queued colors
-					directAfter := countPlayableDirectMoves(tiles, &next, cols, rows)
+					directAfter := countPlayableDirectMovesBB(tiles, &bb, &next)
 					rank := 2000 - next.trayLen*240 + directAfter*140 + trayQual[k]*8
 					if tiles[mv].IsHeart || tiles[mv].Special == SpecialHeart {
 						rank += 45
@@ -793,8 +892,14 @@ func solveFromState(tiles []Tile, cols, rows int, start solverState, nodeBudget 
 
 // pickBestHeuristicMove selects a fallback legal playable move (used only in non-hint diagnostics).
 func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
-	for i := range tiles {
-		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) &&
+	_ = cols
+	_ = rows
+	bb := buildBoardBitboards(tiles)
+	m := st.aliveMask
+	for m != 0 {
+		i := bits.TrailingZeros64(m)
+		m &= m - 1
+		if isPlayableBB(tiles, &bb, st.aliveMask, i) &&
 			(tiles[i].Special == SpecialRainbow || st.isActiveColor(tiles[i].Color)) {
 			return i
 		}
@@ -804,9 +909,12 @@ func pickBestHeuristicMove(tiles []Tile, cols, rows int, st solverState) int {
 	}
 	bestIdx := -1
 	bestScore := -9999
-	for i := range tiles {
-		if isPlayableMask(tiles, st.aliveMask, i, cols, rows) {
-			sc := scoreTrayCandidate(tiles, &st, i, cols, rows)
+	m = st.aliveMask
+	for m != 0 {
+		i := bits.TrailingZeros64(m)
+		m &= m - 1
+		if isPlayableBB(tiles, &bb, st.aliveMask, i) {
+			sc := scoreTrayCandidateBB(tiles, &bb, &st, i)
 			if sc > bestScore {
 				bestScore = sc
 				bestIdx = i
@@ -988,9 +1096,120 @@ func assignSpecialPearls(tiles []Tile, peelOrder []int, art ArtworkDef, colorOrd
 	}
 }
 
+// scoreBoardFlow evaluates how smooth, inviting, and flow-inducing a verified 3-star board feels:
+// - Inviting Opening: sweet spot of 2..4 immediate direct stitches on turn 0 (prevents dead/sticky starts)
+// - Domino Unlock Potential: opening moves that visibly cascade into newly unblocked pearls
+// - Arrow Direction Variety: balanced 4-way visual rhythm instead of monotonous walls
+// - Spatial Spread: reduces awkward clumps of identical colors stuck side-by-side
+func scoreBoardFlow(tiles []Tile, bb *boardBitboards, st *solverState) int {
+	n := len(tiles)
+	if n == 0 {
+		return 0
+	}
+	score := 0
+
+	// 1. Inviting opening & domino unlock density on turn 0
+	directOpen := 0
+	dominoScore := 0
+	var dirHist [4]int
+	for i := 0; i < n; i++ {
+		dirHist[tiles[i].Dir&3]++
+		if !isPlayableBB(tiles, bb, st.aliveMask, i) {
+			continue
+		}
+		if tiles[i].Special == SpecialRainbow || st.isActiveColor(tiles[i].Color) {
+			directOpen++
+			nextMask := st.aliveMask &^ (uint64(1) << uint(i))
+			rev := bb.revRay[i] & nextMask
+			for rev != 0 {
+				j := bits.TrailingZeros64(rev)
+				rev &= rev - 1
+				if (nextMask & bb.rayMask[j]) == 0 {
+					if tiles[j].Special == SpecialRainbow || st.isActiveColor(tiles[j].Color) {
+						dominoScore += 10
+					} else {
+						dominoScore += 4
+					}
+				}
+			}
+			adj := bb.adjMask[i] & nextMask
+			for adj != 0 {
+				j := bits.TrailingZeros64(adj)
+				adj &= adj - 1
+				if tiles[j].Special == SpecialLocked && !tiles[j].Unlocked {
+					dominoScore += 8
+				}
+			}
+		}
+	}
+
+	switch {
+	case directOpen == 0:
+		score -= 60
+	case directOpen == 1:
+		score += 10
+	case directOpen >= 2 && directOpen <= 4:
+		score += 45
+	case directOpen <= 6:
+		score += 28
+	default:
+		score += 14
+	}
+	if dominoScore > 60 {
+		dominoScore = 60
+	}
+	score += dominoScore
+
+	// 2. Balanced arrow direction variety
+	maxDir := 0
+	usedDirs := 0
+	for d := 0; d < 4; d++ {
+		if dirHist[d] > 0 {
+			usedDirs++
+		}
+		if dirHist[d] > maxDir {
+			maxDir = dirHist[d]
+		}
+	}
+	if usedDirs == 4 {
+		score += 16
+	}
+	if maxDir*100 > n*45 {
+		score -= 22
+	}
+
+	// 3. Spatial color distribution (avoid clumping identical colors side-by-side)
+	sameAdjPairs := 0
+	for i := 0; i < n; i++ {
+		if tiles[i].Special == SpecialRainbow {
+			continue
+		}
+		adj := bb.adjMask[i] >> uint(i+1)
+		base := i + 1
+		for adj != 0 {
+			off := bits.TrailingZeros64(adj)
+			j := base + off
+			adj &= adj - 1
+			if tiles[j].Special != SpecialRainbow && tiles[j].Color == tiles[i].Color {
+				sameAdjPairs++
+			}
+		}
+	}
+	// Slight penalty for excessive color clumping
+	clumpExcess := sameAdjPairs - (n / 4)
+	if clumpExcess > 0 {
+		score -= clumpExcess * 3
+	} else {
+		score += 10
+	}
+
+	return score
+}
+
 // generateSolvableBoard constructs an engaging, interlocking, 100%-solvable untangle board
 // supporting Heart, Rainbow (extra board tile!), Hidden, and Locked pearls, AND mathematically
-// verified to have a 3-star winning path (TrayUses <= hoopCount/6)!
+// verified to have a 3-star winning path (TrayUses <= hoopCount/6), selecting the highest-flow
+// candidate layout across all modes!
 func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 	colorOrder, colorCount, colorCounts := buildColorOrder(art.Stitches)
 	hoopN := len(art.Stitches)
@@ -1119,6 +1338,34 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 
 	allMask := fullMask(n)
 
+	// Precompute directional ray masks ONCE for the fixed chosen cell geometry!
+	var cellDirMasks [MaxGridTiles][4]uint64
+	for i := 0; i < n; i++ {
+		ic, ir := chosen[i].c, chosen[i].r
+		for j := 0; j < n; j++ {
+			if i == j {
+				continue
+			}
+			dc := chosen[j].c - ic
+			dr := chosen[j].r - ir
+			bitJ := uint64(1) << uint(j)
+			if dc == 0 && dr < 0 {
+				cellDirMasks[i][DirUp] |= bitJ
+			} else if dr == 0 && dc > 0 {
+				cellDirMasks[i][DirRight] |= bitJ
+			} else if dc == 0 && dr > 0 {
+				cellDirMasks[i][DirDown] |= bitJ
+			} else if dr == 0 && dc < 0 {
+				cellDirMasks[i][DirLeft] |= bitJ
+			}
+		}
+	}
+
+	var bestTiles []Tile
+	bestFlowScore := -1_000_000
+	verifiedFound := 0
+	const targetCandidates = 5
+
 	for attempt := 0; attempt < 96; attempt++ {
 		tiles := make([]Tile, n)
 		for i, cl := range chosen {
@@ -1143,19 +1390,19 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 				dir    uint8
 				weight int
 			}
-			cands := make([]cand, 0, n*2)
+			var cands [MaxGridTiles]cand
+			candN := 0
 			totalW := 0
-			for i := 0; i < n; i++ {
-				if (alive & (uint64(1) << uint(i))) == 0 {
-					continue
-				}
+			m := alive
+			for m != 0 {
+				i := bits.TrailingZeros64(m)
+				m &= m - 1
 				bestDir := uint8(0)
 				bestDist := -1
 				var validDirs [4]uint8
 				vCount := 0
 				for d := uint8(0); d < 4; d++ {
-					tiles[i].Dir = d
-					if isUnblockedMask(tiles, alive, i, art.Cols, art.Rows) {
+					if (alive & cellDirMasks[i][d]) == 0 {
 						validDirs[vCount] = d
 						vCount++
 						de := distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, d)
@@ -1171,20 +1418,21 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 						chosenDir = bestDir
 					}
 					w := 1 + distToEdge(tiles[i].Col, tiles[i].Row, art.Cols, art.Rows, chosenDir)
-					cands = append(cands, cand{idx: i, dir: chosenDir, weight: w})
+					cands[candN] = cand{idx: i, dir: chosenDir, weight: w}
+					candN++
 					totalW += w
 				}
 			}
-			if len(cands) == 0 {
+			if candN == 0 {
 				break
 			}
 			roll := rng.intn(totalW)
 			pick := cands[0]
 			acc := 0
-			for _, cd := range cands {
-				acc += cd.weight
+			for k := 0; k < candN; k++ {
+				acc += cands[k].weight
 				if roll < acc {
-					pick = cd
+					pick = cands[k]
 					break
 				}
 			}
@@ -1200,7 +1448,7 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		if attempt < 56 {
 			blockedCount := 0
 			for i := 0; i < n; i++ {
-				if !isUnblockedMask(tiles, allMask, i, art.Cols, art.Rows) {
+				if (allMask & cellDirMasks[i][tiles[i].Dir]) != 0 {
 					blockedCount++
 				}
 			}
@@ -1299,9 +1547,22 @@ func generateSolvableBoard(art ArtworkDef) ([]Tile, [NumColors]uint8, int) {
 		st.refillActive()
 
 		// Provably verify BOTH 100% solvability AND 3-star achievability with ALL special pearl rules!
-		if ok, _ := solveWithTrayBudget(tiles, art.Cols, art.Rows, st, starLimit, 16000); ok {
-			return tiles, colorOrder, colorCount
+		bb := buildBoardBitboards(tiles)
+		if ok, _, _ := solveWithTrayBudgetBB(tiles, &bb, st, starLimit, 16000); ok {
+			flowSc := scoreBoardFlow(tiles, &bb, &st)
+			if flowSc > bestFlowScore {
+				bestFlowScore = flowSc
+				bestTiles = tiles
+			}
+			verifiedFound++
+			if verifiedFound >= targetCandidates {
+				return bestTiles, colorOrder, colorCount
+			}
 		}
+	}
+
+	if bestTiles != nil {
+		return bestTiles, colorOrder, colorCount
 	}
 
 	// Deterministic guaranteed 0-tray-use 3-star fallback (respecting Rainbow extra tiles!)

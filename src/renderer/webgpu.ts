@@ -14,16 +14,18 @@ export interface RendererDiagnostics {
 export class WebGPURaytracer {
   private readonly canvas: HTMLCanvasElement;
   private readonly context: GPUCanvasContext;
-  private readonly device: GPUDevice;
   private readonly format: GPUTextureFormat;
-  private readonly pipeline: GPURenderPipeline;
-  private readonly renderUniformBuffer: GPUBuffer;
-  private readonly sceneStorageBuffer: GPUBuffer;
-  private readonly bindGroup: GPUBindGroup;
+  private readonly sceneByteLength: number;
+  private readonly isSoftwareAdapter: boolean;
+
+  private device!: GPUDevice;
+  private pipeline!: GPURenderPipeline;
+  private renderUniformBuffer!: GPUBuffer;
+  private sceneStorageBuffer!: GPUBuffer;
+  private bindGroup!: GPUBindGroup;
+
   private readonly renderUniformData = new Float32Array(4);
   private readonly validationErrors: string[] = [];
-
-  private readonly isSoftwareAdapter: boolean;
 
   private width = 1;
   private height = 1;
@@ -31,6 +33,8 @@ export class WebGPURaytracer {
   private renderedFrames = 0;
   private lastFrameMs = 0;
   private isIdleThrottled = false;
+  private deviceLost = false;
+  private recoveringDevice = false;
 
   private constructor(
     canvas: HTMLCanvasElement,
@@ -42,12 +46,25 @@ export class WebGPURaytracer {
   ) {
     this.canvas = canvas;
     this.context = context;
-    this.device = device;
     this.format = format;
+    this.sceneByteLength = sceneByteLength;
     this.isSoftwareAdapter = isSoftwareAdapter;
+
+    this.initDeviceResources(device);
+  }
+
+  private initDeviceResources(device: GPUDevice): void {
+    this.device = device;
+    this.deviceLost = false;
 
     this.device.addEventListener('uncapturederror', (event) => {
       this.validationErrors.push(event.error.message);
+    });
+
+    this.device.lost.then((info) => {
+      if (info.reason === 'destroyed') return;
+      this.deviceLost = true;
+      void this.recoverLostDevice();
     });
 
     const shaderModule = this.device.createShaderModule({
@@ -63,7 +80,7 @@ export class WebGPURaytracer {
 
     this.sceneStorageBuffer = this.device.createBuffer({
       label: 'scene-storage',
-      size: Math.max(256, sceneByteLength),
+      size: Math.max(256, this.sceneByteLength),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
@@ -92,6 +109,31 @@ export class WebGPURaytracer {
         { binding: 1, resource: { buffer: this.sceneStorageBuffer } },
       ],
     });
+
+    this.context.configure({
+      device: this.device,
+      format: this.format,
+      alphaMode: 'opaque',
+    });
+  }
+
+  private async recoverLostDevice(): Promise<void> {
+    if (this.recoveringDevice || !('gpu' in navigator) || !navigator.gpu) return;
+    this.recoveringDevice = true;
+    try {
+      const adapter =
+        (await navigator.gpu.requestAdapter({ powerPreference: 'low-power' })) ??
+        (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })) ??
+        (await navigator.gpu.requestAdapter({ forceFallbackAdapter: true }));
+      if (!adapter) return;
+      const nextDevice = await adapter.requestDevice();
+      this.initDeviceResources(nextDevice);
+      this.resize();
+    } catch {
+      // Retry on next foreground resume or render attempt
+    } finally {
+      this.recoveringDevice = false;
+    }
   }
 
   static async create(
@@ -126,11 +168,6 @@ export class WebGPURaytracer {
     const format = navigator.gpu.getPreferredCanvasFormat();
     const instance = new WebGPURaytracer(canvas, context, device, format, sceneByteLength, isSoftware);
     instance.resize();
-    context.configure({
-      device,
-      format,
-      alphaMode: 'opaque',
-    });
 
     return instance;
   }
@@ -162,6 +199,10 @@ export class WebGPURaytracer {
   }
 
   render(sceneView: Float32Array, elapsedSec: number): void {
+    if (this.deviceLost) {
+      void this.recoverLostDevice();
+      return;
+    }
     const t0 = performance.now();
     this.renderUniformData[0] = this.width;
     this.renderUniformData[1] = this.height;
@@ -202,6 +243,7 @@ export class WebGPURaytracer {
   }
 
   async flush(): Promise<void> {
+    if (this.deviceLost) return;
     await this.device.queue.onSubmittedWorkDone();
   }
 

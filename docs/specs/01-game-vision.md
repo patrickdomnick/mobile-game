@@ -266,7 +266,29 @@ Polishing first impressions, menu hierarchy, visual browseability, and sandbox p
 
 ---
 
-## 13. Iteration Log
+## 13. Pearl Loom v3.1 Design Delta — Craft Polish, Bitboard Flow Solver & Clean Architecture (`Status: Locked`)
+
+A zero-bloat craft polish, performance, and maintainability pass (zero new modes or features):
+
+1. **Tactile Game Feel & Anti-Clutter Polish**:
+   - **Directional Arrow Slide-Off Launch (`sim/gameplay.go`)**: Freed board pearls launch cleanly along their arrow vector `(dc, dr)` via quadratic Bezier tangent before arcing smoothly into the embroidery hoop or tray.
+   - **Physical Spring Overshoot (`sim/render_sync.go`)**: Hoop pearls land with a subtle elastic bead-snap (`easeOutBack`, ~1.07× peak) and tray pearls settle with a gentle cushioned drop pulse.
+   - **Musical Cascade Audio (`src/audio/soundscape.ts`)**: Multi-pearl tray-to-hoop cascades arpeggiate gently upward in pitch; blocked taps use a softer, rounder wooden knock.
+   - **Balanced 2-Row Gameplay HUD (`index.html`, `src/style.css`)**: Row 1 pairs Menu + wide Pattern Title + unified `[♪ | ⚙]` utility capsule (keeping 1-tap mute front-and-center while removing pill scatter); Row 2 unites Active Swatches + `[Score ×Mult | RING]` telemetry capsule with a crisp 140ms `#hud-score` pop.
+   - **Native iOS Sheet/Modal Motion & Anti-Clutter Callout Gate**: Smooth 220ms `sheetSlideUp` / `modalPopIn` transitions (`prefers-reduced-motion` aware); floating `.fx-callout` popups capped at max 2 simultaneously with milestone priority gating.
+2. **64-Bit Bitboard Solver & Flow-Quality Board Selection (`sim/solver.go`)**:
+   - Precomputed 64-bit `rayMask`, `revRay`, `adjMask`, and peeling `cellDirMasks` deliver a **13× wall-clock speedup** (`go test` drops from ~54s → ~4s; 8×8 Custom generation & optimal Hints run in <15ms).
+   - Evaluates up to **5 verified 3-star candidates** across **all modes** (Campaigns, Daily, Random, Custom) via `scoreBoardFlow` (2–4 inviting opening moves, domino unlock density, balanced 4-way arrows, non-clumped spatial colors).
+3. **WebGPU Fragment ALU Optimization & Device-Lost Recovery (`src/renderer/raytrace.wgsl`, `src/renderer/webgpu.ts`)**:
+   - Conditional rainbow `atan2`/`sin` ALU (only on Rainbow tiles), opaque early-out `break`s on non-overlapping board tiles, board pearls, and desk shadows, plus O(1) nearest tray dimple lookup — zero change to the `1,248`-float ABI.
+   - Automatic `device.lost` recovery hook in `WebGPURaytracer` so iOS Safari PWA backgrounding never leaves a black canvas.
+4. **Maintainability, DRY & Modern Toolchain**:
+   - Modularized `sim/engine.go` → `sim/engine.go`, `sim/gameplay.go`, `sim/render_sync.go`; modularized `src/main.ts` (2,482 → ~740 lines) with DRY `src/ui/cards.ts`, `src/ui/coach.ts`, `src/ui/sheets.ts`; purged 28 legacy dead CSS classes (~450 lines) with an automated regression guard in `scripts/check-contracts.mjs`.
+   - Upgraded to **Vite 8.3.8** (Rust Rolldown bundler) + **TypeScript 7.0.2** (Go-native `tsc`) + zero-dep `node:test` unit suite (`tests/unit/store-and-preview.test.mjs`) + `pnpm check:contracts` & `pnpm test:unit` in GitHub Actions CI (`pearl-loom-v17`).
+
+---
+
+## 14. Iteration Log
 
 | Date | Milestone | Outcome | Notes |
 | :--- | :--- | :--- | :--- |
@@ -282,6 +304,5 @@ Polishing first impressions, menu hierarchy, visual browseability, and sandbox p
 | 2026-11-25 | **Pearl Loom v2.8 — 4-Campaign Testrun (52 Levels, `8×8` Support, Monotonic Difficulty & Level Locking)** | **Shipped & Playtested** | Upgraded engine & WebGPU shader to 64 tiles (`8×8`, `1248` floats, static BSS solver buffers); 4 Day-1 campaigns × 13 levels (`5×5` zero-blocker warmups → `8×8` 64-pearl masterpieces) with monotonic difficulty; sequential per-campaign level locking; cleaned Campaign-first Start Menu & Campaigns Map (`pearl-loom-v12`). Confirmed `8×8` is ideal upper bound on iPhone 16 and ramp feels great! |
 | 2026-11-25 | **Pearl Loom v2.9 — Special Pearls Suite (3D Heart, Rainbow, Hidden, Locked), Live `config.json` & Seeded Difficulties** | **Shipped & Verified** | True 3D raymarched heart pearl; Rainbow wild pearls (surplus pearl + independent jiggle + shimmer arp); Obsidian Hidden pearls (reveal when stitchable + chime); 4-neighbor Locked pearls (directional clasp overlay + latch-release audio); remote-cached `public/config.json`; 4 seeded difficulty tiers (`Easy 5×5` → `Extreme 8×8`) (`pearl-loom-v13`). |
 | 2026-11-25 | **Pearl Loom v2.10 — Final-Color Victory Rush, Auto-Resolve Queue & Optimal Solver Hints** | **Shipped & Verified** | Final-color rush mode: upbeat victory music, snappier flight/UI, zero jiggles & zero gem highlights, zero-error click-to-queue auto-resolve domino cascade; iterative-deepening minimum-tray-cost optimal Hint solver that always picks the best winning path (`pearl-loom-v14`). |
-| 2026-11-25 | **Pearl Loom v3.0 — Animated Unravel Onboarding, Refined Menus, Miniature Embroidery Previews & Custom Mode** | **Shipped & Verified** | Live 3D hoop-to-board unravel intro + guided Level 1 tooltips & post-level scoring debrief; first-encounter Special Pearl tooltips + spacious per-pearl Settings guide; 4-row Start Menu; theme-synced 1-column square Level Select with Retina SVG embroidery previews; Daily Library archive; Random Studio (seed/style/difficulty + completed archive); Custom Mode builder (`5×5`–`8×8`, `3–6` colors, special toggles, style) (`pearl-loom-v15`). |
-
-
+| 2026-11-25 | **Pearl Loom v3.0 / v3.0.1 — Animated Unravel Onboarding, Refined Menus, Miniature Previews & Custom Mode** | **Shipped & Verified** | Live 3D hoop-to-board unravel intro (~5.2s calm pace) + guided Level 1 tooltips & post-level scoring debrief; first-encounter Special Pearl tooltips + spacious per-pearl Settings guide; 4-row Start Menu; theme-synced 1-column square Level Select with Retina SVG embroidery previews; Daily Library, Random Studio, and Custom Mode builder + completed Custom archive (`pearl-loom-v16`). |
+| 2026-11-26 | **Pearl Loom v3.1 — Craft Polish, 13× Faster Bitboard Flow Solver, WebGPU ALU Pass & Clean Modularity** | **Shipped & Verified** | Directional arrow slide-off Bezier flights, spring overshoot bead bloom, musical cascade pitch-stepping, balanced 2-row gameplay HUD (`[♪\|⚙]` + `[Score ×Mult \| RING]`), smooth iOS sheet/modal motion, max-2 callout gate, 64-bit bitboard solver + `scoreBoardFlow` across all modes (`go test` 54s → ~4s), WGSL early-out/O(1) tray optimization + `device.lost` recovery, DRY `src/ui/` + 3-file Go split + dead-CSS purge, Vite 8.3.8 + TypeScript 7.0.2 + Node unit tests (`pearl-loom-v17`). |

@@ -2,24 +2,16 @@ import './style.css';
 import { ProceduralSoundscape } from './audio/soundscape';
 import { projectWorldToScreen, unprojectScreenToPlane } from './camera';
 import { loadGameConfig, type GameConfig } from './config';
-import {
-  EmbroideryGalleryStore,
-  getTodayDateKey,
-  type CustomModePrefs,
-  type SeenSpecialKind,
-} from './gallery';
-import { getLevelTierLabel, loadLevelsCatalog, type RemoteLevelDef } from './levels';
-import { renderEmbroideryPreviewSvg } from './preview';
+import { EmbroideryGalleryStore, getTodayDateKey, type SeenSpecialKind } from './gallery';
+import { loadLevelsCatalog, type RemoteLevelDef } from './levels';
 import { isIosDevice, isStandalonePwa, isTouchDevice, setupInstallPrompt, setupSafariPwaShell } from './pwa';
 import { WebGPURaytracer, type RendererDiagnostics } from './renderer/webgpu';
+import { CoachTooltipController } from './ui/coach';
+import { MenuSheetsController, customPrefsToMask, type SheetName } from './ui/sheets';
 import {
-  SEED_DIFFICULTIES,
-  SPECIAL_MASK,
   TUNING_PARAM,
-  VISUAL_THEMES,
   WasmSimulation,
   generateRandomSeed,
-  getDailyThemeForDateKey,
   getThemePalette,
   parseSeedInput,
   type SeedDifficultyTier,
@@ -27,7 +19,7 @@ import {
 } from './wasmBridge';
 
 export type ScreenMode = 'intro' | 'menu' | 'playing';
-export type SheetName = 'none' | 'gallery' | 'daily-library' | 'random' | 'custom' | 'settings' | 'install';
+export type { SheetName };
 
 export interface GameTestState extends SimSnapshot {
   ready: boolean;
@@ -108,42 +100,7 @@ declare global {
 const FIXED_DT = 1 / 60;
 const SOLAR_SYNC_INTERVAL_MS = 15_000;
 const SCENE_BUFFER_BYTES = 1248 * 4;
-
-interface CoachTooltipContent {
-  key: string;
-  icon: string;
-  title: string;
-  text: string;
-  anchor: 'top' | 'bottom';
-  specialKind?: SeenSpecialKind;
-}
-
-const SPECIAL_ENCOUNTER_TIPS: Record<SeenSpecialKind, Omit<CoachTooltipContent, 'key' | 'anchor'>> = {
-  heart: {
-    icon: '♥',
-    title: 'Heart Pearl',
-    text: 'Stitch this sculpted heart early for up to +500 bonus points!',
-    specialKind: 'heart',
-  },
-  rainbow: {
-    icon: '🌈',
-    title: 'Rainbow Pearl',
-    text: 'Wild pearl—matches any active color! One matching pearl stays as a spare.',
-    specialKind: 'rainbow',
-  },
-  hidden: {
-    icon: '?',
-    title: 'Hidden Pearl',
-    text: 'Starts dark—its true color reveals as soon as its lane opens up.',
-    specialKind: 'hidden',
-  },
-  locked: {
-    icon: '🔒',
-    title: 'Locked Pearl',
-    text: 'Clear the adjacent pearls touching its 4 sides to unlock it.',
-    specialKind: 'locked',
-  },
-};
+const MAX_VISIBLE_CALLOUTS = 2;
 
 function getRealTimeOfDayHours(): number {
   const now = new Date();
@@ -167,15 +124,6 @@ function describeSolarPhase(hours: number): { icon: string; name: string } {
   return { icon: '☾', name: 'Night' };
 }
 
-function customPrefsToMask(p: CustomModePrefs): number {
-  let mask = 0;
-  if (p.hearts) mask |= SPECIAL_MASK.HEART;
-  if (p.rainbows) mask |= SPECIAL_MASK.RAINBOW;
-  if (p.hidden) mask |= SPECIAL_MASK.HIDDEN;
-  if (p.locked) mask |= SPECIAL_MASK.LOCKED;
-  return mask;
-}
-
 async function bootstrap(): Promise<void> {
   setupSafariPwaShell();
   if (isStandalonePwa()) {
@@ -187,30 +135,14 @@ async function bootstrap(): Promise<void> {
   const appEl = document.getElementById('app');
   const fxLayer = document.getElementById('fx-callout-layer');
 
-  // First-load Intro & Contextual Coach Tooltip elements
   const introOverlay = document.getElementById('overlay-intro');
   const introSkipBtn = document.getElementById('btn-intro-skip');
   const introCaptionEl = document.getElementById('intro-caption');
-  const coachTooltipEl = document.getElementById('tutorial-tooltip');
-  const tooltipIconEl = document.getElementById('tooltip-icon');
-  const tooltipTitleEl = document.getElementById('tooltip-title');
-  const tooltipTextEl = document.getElementById('tooltip-text');
   const tooltipDismissBtn = document.getElementById('btn-tooltip-dismiss');
 
-  // Start Menu elements (Refined 4-Row Layout)
   const startMenuEl = document.getElementById('overlay-start-menu');
   const menuSettingsIconBtn = document.getElementById('btn-menu-settings');
-  const menuChapterLabel = document.getElementById('menu-chapter-label');
-  const menuJourneyBadge = document.getElementById('menu-journey-badge');
-  const menuJourneyMain = document.getElementById('menu-journey-main');
-  const menuJourneyMeta = document.getElementById('menu-journey-meta');
-  const menuDailyBadge = document.getElementById('menu-daily-badge');
-  const menuDailyMeta = document.getElementById('menu-daily-meta');
-  const menuDailyLibMeta = document.getElementById('menu-daily-lib-meta');
-  const menuRandomMeta = document.getElementById('menu-random-meta');
-  const menuCustomMeta = document.getElementById('menu-custom-meta');
   const menuGalleryBtn = document.getElementById('btn-menu-gallery');
-  const menuGalleryLabel = document.getElementById('menu-gallery-label');
   const modeJourneyBtn = document.getElementById('btn-mode-journey');
   const modeDailyBtn = document.getElementById('btn-mode-daily');
   const modeDailyLibraryBtn = document.getElementById('btn-mode-daily-library');
@@ -238,8 +170,7 @@ async function bootstrap(): Promise<void> {
   const hintBtn = document.getElementById('btn-hint') as HTMLButtonElement | null;
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null;
 
-  // Settings drawer elements
-  const settingsSheet = document.getElementById('overlay-settings');
+  // Settings & sheet controls
   const closeSettingsBtn = document.getElementById('btn-close-settings');
   const solarReadoutEl = document.getElementById('settings-solar-readout');
   const solarAutoBtn = document.getElementById('btn-solar-auto');
@@ -250,53 +181,15 @@ async function bootstrap(): Promise<void> {
   const settingsInstallBtn = document.getElementById('btn-settings-install') as HTMLButtonElement | null;
   const replayTutorialBtn = document.getElementById('btn-replay-tutorial');
 
-  // Level Select / Campaigns drawer elements
-  const gallerySheet = document.getElementById('overlay-gallery');
-  const galleryEyebrowEl = document.getElementById('gallery-eyebrow');
   const closeGalleryBtn = document.getElementById('btn-close-gallery');
-  const chapterTabsEl = document.getElementById('chapter-tabs');
-  const chapterBannerTitle = document.getElementById('chapter-banner-title');
-  const chapterBannerSub = document.getElementById('chapter-banner-sub');
-  const chapterBannerProgress = document.getElementById('chapter-banner-progress');
-  const chapterBannerStars = document.getElementById('chapter-banner-stars');
-  const chapterProgressBar = document.getElementById('chapter-progress-bar');
-  const galleryGridEl = document.getElementById('gallery-grid');
-
-  // Daily Library sheet elements
-  const dailyLibrarySheet = document.getElementById('overlay-daily-library');
   const closeDailyLibraryBtn = document.getElementById('btn-close-daily-library');
-  const dailyLibEyebrowEl = document.getElementById('daily-lib-eyebrow');
-  const dailyLibTodayTitle = document.getElementById('daily-lib-today-title');
-  const dailyLibTodaySub = document.getElementById('daily-lib-today-sub');
   const dailyLibPlayTodayBtn = document.getElementById('btn-daily-lib-play-today');
-  const dailyLibraryGridEl = document.getElementById('daily-library-grid');
-
-  // Random Studio sheet elements
-  const randomSheet = document.getElementById('overlay-random');
   const closeRandomBtn = document.getElementById('btn-close-random');
   const seedForm = document.getElementById('seed-form') as HTMLFormElement | null;
   const customSeedInput = document.getElementById('input-custom-seed') as HTMLInputElement | null;
-  const randomStylePickerEl = document.getElementById('random-style-picker');
-  const seedDiffPickerEl = document.getElementById('seed-diff-picker');
-  const randomStartBadge = document.getElementById('random-start-badge');
   const startRandomBtn = document.getElementById('btn-start-random');
-  const randomArchiveHeading = document.getElementById('random-archive-heading');
-  const randomHistoryGridEl = document.getElementById('random-history-grid');
-
-  // Custom Mode Builder sheet elements
-  const customSheet = document.getElementById('overlay-custom');
   const closeCustomBtn = document.getElementById('btn-close-custom');
-  const customStylePickerEl = document.getElementById('custom-style-picker');
-  const customSizeReadoutEl = document.getElementById('custom-size-readout');
-  const customColsPickerEl = document.getElementById('custom-cols-picker');
-  const customRowsPickerEl = document.getElementById('custom-rows-picker');
-  const customColorPreviewEl = document.getElementById('custom-color-preview');
-  const customColorsPickerEl = document.getElementById('custom-colors-picker');
-  const customSpecialsPickerEl = document.getElementById('custom-specials-picker');
-  const customStartBadge = document.getElementById('custom-start-badge');
   const startCustomBtn = document.getElementById('btn-start-custom');
-  const customArchiveHeading = document.getElementById('custom-archive-heading');
-  const customHistoryGridEl = document.getElementById('custom-history-grid');
 
   // Modals
   const trayFullModal = document.getElementById('overlay-tray-full');
@@ -315,8 +208,6 @@ async function bootstrap(): Promise<void> {
   const nextLevelBtn = document.getElementById('btn-next-level');
   const replayLevelBtn = document.getElementById('btn-replay-level');
   const completeMenuBtn = document.getElementById('btn-complete-menu');
-
-  const installModal = document.getElementById('overlay-install');
   const closeInstallBtn = document.getElementById('btn-close-install');
 
   const fallbackBanner = document.getElementById('fallback-banner');
@@ -362,11 +253,6 @@ async function bootstrap(): Promise<void> {
 
     let isReady = false;
     let screenMode: ScreenMode = 'menu';
-    let activeGalleryChapter = gallery.getSelectedCampaign();
-    let tutorialActive = false;
-    let tutorialStep = -1;
-    let dismissedTooltipKeys = new Set<string>();
-    let activeTooltip: CoachTooltipContent | null = null;
     let lastSwatchKey = '';
     let lastLightingTheme = '';
     let lastDomTheme = '';
@@ -378,6 +264,7 @@ async function bootstrap(): Promise<void> {
     let recordedCompleteKey = '';
 
     let displayedScore = 0;
+    let lastPoppedScore = 0;
     let prevStitchEvents = 0;
     let prevColorClearEvents = 0;
     let prevLayerClearEvents = 0;
@@ -390,47 +277,19 @@ async function bootstrap(): Promise<void> {
     let prevHintEvents = 0;
     let prevUndoEvents = 0;
 
-    const getCampaignById = (campaignId: number) => {
-      return levelsCatalog.chapters.find((c) => c.id === campaignId) ?? levelsCatalog.chapters[0];
-    };
-
-    const findCatalogLevel = (levelId: number): RemoteLevelDef => {
-      return (
-        levelsCatalog.levels.find((l) => l.id === levelId) ??
-        levelsCatalog.levels[levelId % Math.max(1, levelsCatalog.levels.length)] ??
-        levelsCatalog.levels[0]
-      );
-    };
-
-    const loadCatalogLevelById = (levelId: number): RemoteLevelDef => {
-      const def = findCatalogLevel(levelId);
-      if (def && def.stitches && def.stitches.length > 0) {
-        sim.loadCustomLevel(def);
-      } else {
-        sim.loadLevel(def ? def.id : levelId);
-      }
-      if (def) {
-        activeGalleryChapter = def.chapter;
-        gallery.setSelectedCampaign(def.chapter);
-      }
-      return def;
-    };
+    const coach = new CoachTooltipController(
+      {
+        root: document.getElementById('tutorial-tooltip'),
+        icon: document.getElementById('tooltip-icon'),
+        title: document.getElementById('tooltip-title'),
+        text: document.getElementById('tooltip-text'),
+      },
+      gallery,
+    );
 
     const getAspect = (): number => {
       const rect = canvas.getBoundingClientRect();
       return Math.max(0.2, rect.width / Math.max(1, rect.height));
-    };
-
-    const getEffectiveHours = (): number => {
-      return settings.timeMode === 'manual' ? settings.manualHour : getRealTimeOfDayHours();
-    };
-
-    const syncClock = (): void => {
-      const hours = getEffectiveHours();
-      sim.setTimeOfDayHours(hours);
-      soundscape.applySolarAtmosphere(hours);
-      updateSolarUi(hours);
-      lastSolarSyncAt = performance.now();
     };
 
     const wakeRenderer = (): void => {
@@ -438,144 +297,74 @@ async function bootstrap(): Promise<void> {
       renderer.setIdleThrottled(false);
     };
 
-    const getActiveSheet = (): SheetName => {
-      if (gallerySheet && !gallerySheet.classList.contains('hidden')) return 'gallery';
-      if (dailyLibrarySheet && !dailyLibrarySheet.classList.contains('hidden')) return 'daily-library';
-      if (randomSheet && !randomSheet.classList.contains('hidden')) return 'random';
-      if (customSheet && !customSheet.classList.contains('hidden')) return 'custom';
-      if (settingsSheet && !settingsSheet.classList.contains('hidden')) return 'settings';
-      if (installModal && !installModal.classList.contains('hidden')) return 'install';
-      return 'none';
+    const prepareRunStart = (isTutorial = false): void => {
+      coach.setTutorialActive(isTutorial);
+      lastUserTapAt = performance.now();
+      recordedCompleteKey = '';
+      displayedScore = 0;
+      lastPoppedScore = 0;
     };
 
-    const isAnySheetOpen = (): boolean => getActiveSheet() !== 'none';
-
-    const closeAllSheets = (): void => {
-      gallerySheet?.classList.add('hidden');
-      dailyLibrarySheet?.classList.add('hidden');
-      randomSheet?.classList.add('hidden');
-      customSheet?.classList.add('hidden');
-      settingsSheet?.classList.add('hidden');
-      installModal?.classList.add('hidden');
-    };
-
-    const hideCoachTooltip = (): void => {
-      activeTooltip = null;
-      coachTooltipEl?.classList.add('hidden');
-    };
-
-    const showCoachTooltip = (content: CoachTooltipContent): void => {
-      if (activeTooltip?.key === content.key && coachTooltipEl && !coachTooltipEl.classList.contains('hidden')) {
-        return;
-      }
-      activeTooltip = content;
-      if (coachTooltipEl) {
-        coachTooltipEl.dataset.anchor = content.anchor;
-        coachTooltipEl.classList.remove('hidden');
-      }
-      if (tooltipIconEl) tooltipIconEl.textContent = content.icon;
-      if (tooltipTitleEl) tooltipTitleEl.textContent = content.title;
-      if (tooltipTextEl) tooltipTextEl.textContent = content.text;
-    };
-
-    const dismissActiveTooltip = (): void => {
-      if (!activeTooltip) return;
-      dismissedTooltipKeys.add(activeTooltip.key);
-      if (activeTooltip.specialKind) {
-        gallery.markSpecialSeen(activeTooltip.specialKind);
-      }
-      hideCoachTooltip();
-    };
-
-    const evaluateCoachTooltips = (snap: SimSnapshot): void => {
-      if (screenMode !== 'playing' || snap.phase !== 'playing' || snap.introActive || isAnySheetOpen()) {
-        hideCoachTooltip();
-        return;
-      }
-
-      // 1. Guided Level 1 Tutorial Tooltips
-      if (tutorialActive && snap.mode === 'curated' && snap.levelIndex === 0) {
-        let step = 0;
-        let tip: CoachTooltipContent;
-        if (snap.stitchedCount < 2) {
-          step = 0;
-          tip = {
-            key: 'tut:0',
-            icon: '✦',
-            title: 'Match the active colors',
-            text: 'Tap pearls on the board that match the glowing colors at top-left.',
-            anchor: 'top',
-          };
-        } else if (snap.stitchedCount < 6) {
-          step = 1;
-          tip = {
-            key: 'tut:1',
-            icon: '↗',
-            title: 'Follow each arrow & tray',
-            text: 'Pearls slide in their arrow direction. Other colors wait safely in the 5-slot tray.',
-            anchor: 'top',
-          };
-        } else {
-          step = 2;
-          tip = {
-            key: 'tut:2',
-            icon: '↶',
-            title: 'Undo, Hint & Restart',
-            text: 'Use the controls below anytime to step back, see the smartest move, or restart.',
-            anchor: 'bottom',
-          };
+    const sheets = new MenuSheetsController(gallery, levelsCatalog, soundscape, {
+      getHapticsEnabled: () => settings.hapticsEnabled,
+      onSelectCampaignTheme: (themeId) => {
+        sim.setTheme(themeId);
+        if (appEl) {
+          appEl.dataset.theme = String(themeId);
+          lastDomTheme = String(themeId);
         }
-        tutorialStep = step;
-        if (!dismissedTooltipKeys.has(tip.key)) {
-          showCoachTooltip(tip);
-        } else {
-          hideCoachTooltip();
-        }
-        return;
-      }
+        wakeRenderer();
+      },
+      onLaunchCurated: (levelId) => {
+        prepareRunStart(false);
+        loadCatalogLevelById(levelId);
+        sheets.closeAll();
+        setScreen('playing');
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+      onLaunchDaily: (dateKey) => {
+        prepareRunStart(false);
+        sim.loadDaily(dateKey);
+        sheets.closeAll();
+        setScreen('playing');
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+      onLaunchRandom: (seed, diff, theme) => {
+        prepareRunStart(false);
+        sim.loadMandala(seed, diff, theme);
+        sheets.closeAll();
+        setScreen('playing');
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+      onLaunchCustom: (opts) => {
+        prepareRunStart(false);
+        sim.loadCustomGenerated(opts);
+        sheets.closeAll();
+        setScreen('playing');
+        updateHud(sim.readState(getAspect()));
+        wakeRenderer();
+      },
+    });
 
-      // 2. First-Encounter Special Pearl Tooltips (shown once per pearl type!)
-      const order: SeenSpecialKind[] = ['heart', 'rainbow', 'hidden', 'locked'];
-      for (const kind of order) {
-        if (gallery.hasSeenSpecial(kind)) continue;
-        const present = snap.tiles.some((t) => t.alive && t.special === kind);
-        if (present) {
-          const spec = SPECIAL_ENCOUNTER_TIPS[kind];
-          const key = `special:${kind}`;
-          if (!dismissedTooltipKeys.has(key)) {
-            showCoachTooltip({
-              key,
-              icon: spec.icon,
-              title: spec.title,
-              text: spec.text,
-              anchor: 'top',
-              specialKind: kind,
-            });
-            return;
-          }
-        }
+    const loadCatalogLevelById = (levelId: number): RemoteLevelDef => {
+      const def = sheets.findCatalogLevel(levelId);
+      if (def && def.stitches && def.stitches.length > 0) {
+        sim.loadCustomLevel(def);
+      } else {
+        sim.loadLevel(def ? def.id : levelId);
       }
-
-      hideCoachTooltip();
+      if (def) {
+        sheets.setActiveGalleryChapter(def.chapter);
+        gallery.setSelectedCampaign(def.chapter);
+      }
+      return def;
     };
 
-    const spawnCallout = (
-      text: string,
-      variant: 'score' | 'streak' | 'heart' | 'rainbow' | 'reveal' | 'unlock' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
-      screenX: number,
-      screenY: number,
-    ): void => {
-      if (!fxLayer || screenMode !== 'playing') return;
-      const el = document.createElement('div');
-      el.className = `fx-callout fx-callout-${variant}`;
-      el.textContent = text;
-      el.style.left = `${Math.max(14, Math.min(86, screenX * 100))}%`;
-      el.style.top = `${Math.max(16, Math.min(84, screenY * 100))}%`;
-      fxLayer.append(el);
-      window.setTimeout(
-        () => el.remove(),
-        variant === 'rescue' || variant === 'milestone' || variant === 'heart' || variant === 'rainbow' ? 1650 : 1080,
-      );
+    const getEffectiveHours = (): number => {
+      return settings.timeMode === 'manual' ? settings.manualHour : getRealTimeOfDayHours();
     };
 
     const updateSolarUi = (hours: number): void => {
@@ -592,6 +381,14 @@ async function bootstrap(): Promise<void> {
       if (solarSlider && document.activeElement !== solarSlider) {
         solarSlider.value = String(Math.round(hours * 4) / 4);
       }
+    };
+
+    const syncClock = (): void => {
+      const hours = getEffectiveHours();
+      sim.setTimeOfDayHours(hours);
+      soundscape.applySolarAtmosphere(hours);
+      updateSolarUi(hours);
+      lastSolarSyncAt = performance.now();
     };
 
     const updateAudioUi = (): void => {
@@ -648,66 +445,8 @@ async function bootstrap(): Promise<void> {
         await installCtrl.triggerNativeInstall();
         return;
       }
-      closeAllSheets();
-      installModal?.classList.remove('hidden');
-    };
-
-    const refreshStartMenuCopy = (): void => {
-      const selectedId = gallery.getSelectedCampaign();
-      const ch = getCampaignById(selectedId);
-      const frontierId = gallery.getCampaignFrontierLevel(ch.levelIds);
-      const frontierLvl = findCatalogLevel(frontierId);
-      const chProg = gallery.getChapterCompletion(ch.id, ch.levelIds);
-      const frontierPos = Math.max(0, ch.levelIds.indexOf(frontierId)) + 1;
-      const allCompleted = chProg.done >= chProg.total && chProg.total > 0;
-      const tierLabel = getLevelTierLabel(frontierLvl);
-
-      const prog = gallery.getSnapshot();
-      const totalDone = Object.keys(prog.completedCurated).length;
-      const today = getTodayDateKey();
-      const dailyTheme = getDailyThemeForDateKey(today.keyNum);
-      const dailyDone = prog.completedDailyDates.includes(today.label);
-      const diffDef = SEED_DIFFICULTIES[prog.seedDifficulty] ?? SEED_DIFFICULTIES[1];
-      const cp = prog.customPrefs;
-
-      if (menuChapterLabel) {
-        menuChapterLabel.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${totalDone}/${levelsCatalog.levels.length} MASTERED`;
-      }
-      if (menuJourneyBadge) {
-        menuJourneyBadge.textContent = allCompleted
-          ? `${ch.name.toUpperCase()} · MASTERED ✦`
-          : `${ch.name.toUpperCase()} · LEVEL ${frontierPos} OF ${chProg.total}`;
-      }
-      if (menuJourneyMain) {
-        menuJourneyMain.textContent = allCompleted ? `Replay ${frontierLvl.name}` : `Play ${frontierLvl.name}`;
-      }
-      if (menuJourneyMeta) {
-        menuJourneyMeta.textContent = frontierLvl.noBlockers
-          ? `${frontierLvl.grid} · ${tierLabel} · No Blockers`
-          : `${frontierLvl.grid} · ${tierLabel} · ${frontierLvl.pearls} pearls`;
-      }
-      if (menuDailyBadge) {
-        menuDailyBadge.textContent = `TODAY · ${dailyTheme.shortName.toUpperCase()}`;
-      }
-      if (menuDailyMeta) {
-        menuDailyMeta.textContent = dailyDone ? `✦ Completed (${today.label})` : today.label;
-      }
-      if (menuDailyLibMeta) {
-        const cnt = prog.dailyHistory.length;
-        menuDailyLibMeta.textContent = cnt === 1 ? '1 stitch saved' : `${cnt} stitches saved`;
-      }
-      if (menuRandomMeta) {
-        menuRandomMeta.textContent = `${diffDef.name} ${diffDef.grid} · ${prog.randomHistory.length} done`;
-      }
-      if (menuCustomMeta) {
-        menuCustomMeta.textContent =
-          prog.customHistory.length > 0
-            ? `${cp.cols}×${cp.rows} · ${prog.customHistory.length} done`
-            : `${cp.cols}×${cp.rows} · ${cp.colorCount} colors`;
-      }
-      if (menuGalleryLabel) {
-        menuGalleryLabel.textContent = `Level Select · ${totalDone}/${levelsCatalog.levels.length} Mastered`;
-      }
+      sheets.closeAll();
+      sheets.installModal?.classList.remove('hidden');
     };
 
     const setScreen = (next: ScreenMode): void => {
@@ -718,25 +457,21 @@ async function bootstrap(): Promise<void> {
       hudTopEl?.classList.toggle('hidden', next !== 'playing');
       hudBottomEl?.classList.toggle('hidden', next !== 'playing');
       if (next !== 'playing') {
-        hideCoachTooltip();
+        coach.hide();
         soundscape.setFinalRushMode(false);
         if (appEl) appEl.dataset.rush = 'off';
         trayFullModal?.classList.add('hidden');
         completeModal?.classList.add('hidden');
       }
       if (next === 'menu') {
-        refreshStartMenuCopy();
+        sheets.refreshStartMenuCopy();
       }
       wakeRenderer();
     };
 
     const startFirstLoadIntro = (): void => {
-      closeAllSheets();
-      tutorialActive = true;
-      tutorialStep = 0;
-      dismissedTooltipKeys = new Set<string>();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      sheets.closeAll();
+      prepareRunStart(true);
       loadCatalogLevelById(0);
       sim.startIntroUnravel();
       if (introCaptionEl) {
@@ -764,689 +499,13 @@ async function bootstrap(): Promise<void> {
       updateSolarUi(getEffectiveHours());
       updateAudioUi();
       updateInstallUi();
-      closeAllSheets();
-      settingsSheet?.classList.remove('hidden');
-    };
-
-    // =========================================================================
-    // THEME-SYNCED 1-COLUMN SQUARE LEVEL SELECT / CAMPAIGNS
-    // =========================================================================
-    const renderGalleryUi = (): void => {
-      const prog = gallery.getSnapshot();
-      const activeCh = getCampaignById(activeGalleryChapter);
-
-      // Sync visual style of Level Select sheet + live 3D background to selected campaign!
-      if (gallerySheet) {
-        gallerySheet.dataset.viewTheme = String(activeCh.themeId);
-      }
-      if (galleryEyebrowEl) {
-        galleryEyebrowEl.textContent = `${levelsCatalog.chapters.length} CAMPAIGNS · ${levelsCatalog.levels.length} LEVELS`;
-      }
-
-      if (chapterTabsEl) {
-        chapterTabsEl.innerHTML = '';
-        levelsCatalog.chapters.forEach((ch) => {
-          const theme = VISUAL_THEMES[ch.themeId] ?? VISUAL_THEMES[0];
-          const chProg = gallery.getChapterCompletion(ch.id, ch.levelIds);
-          const tab = document.createElement('button');
-          tab.type = 'button';
-          tab.className = `chapter-tab${activeGalleryChapter === ch.id ? ' is-active' : ''}`;
-          tab.dataset.chapterId = String(ch.id);
-          tab.setAttribute('role', 'tab');
-          tab.setAttribute('aria-selected', activeGalleryChapter === ch.id ? 'true' : 'false');
-
-          const orb = document.createElement('span');
-          orb.className = 'chapter-tab-orb';
-          orb.style.background = theme.swatchGradient;
-
-          const lbl = document.createElement('span');
-          lbl.textContent = ch.shortName;
-
-          const cnt = document.createElement('span');
-          cnt.className = 'gallery-meta';
-          cnt.textContent = `${chProg.done}/${chProg.total}`;
-
-          tab.append(orb, lbl, cnt);
-          tab.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            activeGalleryChapter = ch.id;
-            gallery.setSelectedCampaign(ch.id);
-            sim.setTheme(ch.themeId);
-            if (appEl) {
-              appEl.dataset.theme = String(ch.themeId);
-              lastDomTheme = String(ch.themeId);
-            }
-            refreshStartMenuCopy();
-            renderGalleryUi();
-            wakeRenderer();
-          });
-          chapterTabsEl.append(tab);
-        });
-      }
-
-      const chProg = gallery.getChapterCompletion(activeCh.id, activeCh.levelIds);
-      const chStars = gallery.getCampaignStars(activeCh.levelIds);
-      const frontierId = gallery.getCampaignFrontierLevel(activeCh.levelIds);
-
-      if (chapterBannerTitle) chapterBannerTitle.textContent = activeCh.name;
-      if (chapterBannerSub) chapterBannerSub.textContent = activeCh.subtitle;
-      if (chapterBannerProgress) chapterBannerProgress.textContent = `${chProg.done}/${chProg.total}`;
-      if (chapterBannerStars) chapterBannerStars.textContent = `★ ${chStars.earned}/${chStars.total}`;
-      if (chapterProgressBar) {
-        const pct = chProg.total > 0 ? Math.round((chProg.done / chProg.total) * 100) : 0;
-        chapterProgressBar.style.width = `${pct}%`;
-      }
-
-      if (!galleryGridEl) return;
-      galleryGridEl.innerHTML = '';
-
-      const pal = getThemePalette(activeCh.themeId);
-      const chapterLevels = levelsCatalog.levels.filter((l) => l.chapter === activeCh.id);
-      chapterLevels.forEach((lvl, idxInCamp) => {
-        const done = prog.completedCurated[lvl.id];
-        const unlocked = gallery.isLevelUnlocked(lvl.id, activeCh.levelIds);
-        const isCurrent = unlocked && !done && lvl.id === frontierId;
-        const tierLabel = getLevelTierLabel(lvl);
-
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `square-level-card${done ? ' is-completed' : ''}${isCurrent ? ' is-current' : ''}${!unlocked ? ' is-locked' : ''}`;
-        btn.dataset.levelIndex = String(lvl.id);
-        btn.dataset.locked = unlocked ? 'false' : 'true';
-        btn.setAttribute('aria-disabled', unlocked ? 'false' : 'true');
-
-        // Top bar
-        const head = document.createElement('div');
-        head.className = 'square-card-head';
-
-        const badges = document.createElement('span');
-        badges.className = 'gallery-lvl-badges';
-
-        const numEl = document.createElement('span');
-        numEl.className = 'gallery-lvl-num';
-        numEl.textContent = `LVL ${String(idxInCamp + 1).padStart(2, '0')}`;
-
-        const gridEl = document.createElement('span');
-        gridEl.className = 'gallery-lvl-grid';
-        gridEl.textContent = `${lvl.grid} · ${tierLabel}`;
-
-        badges.append(numEl, gridEl);
-
-        const statusEl = document.createElement('span');
-        if (done) {
-          statusEl.className = 'gallery-star';
-          statusEl.textContent = '★'.repeat(Math.max(1, done.bestStars));
-        } else if (isCurrent) {
-          statusEl.className = 'gallery-play-chip';
-          statusEl.textContent = 'PLAY';
-        } else {
-          statusEl.className = 'gallery-lock-chip';
-          statusEl.textContent = '🔒';
-        }
-        head.append(badges, statusEl);
-
-        // Center finished embroidery SVG preview
-        const previewWrap = document.createElement('div');
-        previewWrap.className = 'square-card-preview';
-        previewWrap.innerHTML = renderEmbroideryPreviewSvg(lvl.stitches, activeCh.themeId, {
-          locked: !unlocked,
-          size: 196,
-        });
-        if (!unlocked) {
-          const lockTag = document.createElement('span');
-          lockTag.className = 'square-lock-overlay';
-          lockTag.textContent = `🔒 Clear Level ${idxInCamp}`;
-          previewWrap.append(lockTag);
-        }
-
-        // Bottom metadata bar
-        const foot = document.createElement('div');
-        foot.className = 'square-card-foot';
-
-        const titleRow = document.createElement('div');
-        titleRow.className = 'square-card-title-row';
-
-        const nameEl = document.createElement('span');
-        nameEl.className = 'square-card-name';
-        nameEl.textContent = lvl.name;
-
-        const scoreTag = document.createElement('span');
-        scoreTag.className = 'square-card-score';
-        scoreTag.textContent = done
-          ? `${done.bestScore.toLocaleString()} pts`
-          : `${lvl.pearls} pearls`;
-
-        titleRow.append(nameEl, scoreTag);
-
-        const metaRow = document.createElement('div');
-        metaRow.className = 'square-card-meta-row';
-
-        const dots = document.createElement('div');
-        dots.className = 'square-card-dots';
-        for (const cIdx of lvl.colors) {
-          const d = document.createElement('span');
-          d.className = 'gallery-dot';
-          d.style.backgroundColor = (pal[cIdx] ?? pal[0]).hex;
-          dots.append(d);
-        }
-
-        const specIcons: string[] = [];
-        if ((lvl.maxHearts ?? 0) > 0) specIcons.push('♥');
-        if ((lvl.maxRainbows ?? 0) > 0) specIcons.push('🌈');
-        if ((lvl.maxHidden ?? 0) > 0) specIcons.push('?');
-        if ((lvl.maxLocked ?? 0) > 0) specIcons.push('🔒');
-
-        const rightMeta = document.createElement('span');
-        rightMeta.className = specIcons.length > 0 ? 'square-card-specials' : 'square-card-sub';
-        rightMeta.textContent =
-          specIcons.length > 0
-            ? specIcons.join(' ')
-            : lvl.noBlockers
-              ? 'No Blockers'
-              : 'Classic Pearls';
-
-        metaRow.append(dots, rightMeta);
-        foot.append(titleRow, metaRow);
-
-        btn.append(head, previewWrap, foot);
-        btn.addEventListener('click', () => {
-          soundscape.unlock();
-          if (!unlocked) {
-            btn.classList.remove('locked-shake');
-            void btn.offsetWidth;
-            btn.classList.add('locked-shake');
-            soundscape.playUiTap(settings.hapticsEnabled);
-            return;
-          }
-          soundscape.playUiTap(settings.hapticsEnabled);
-          tutorialActive = false;
-          lastUserTapAt = performance.now();
-          recordedCompleteKey = '';
-          displayedScore = 0;
-          loadCatalogLevelById(lvl.id);
-          closeAllSheets();
-          setScreen('playing');
-          updateHud(sim.readState(getAspect()));
-          wakeRenderer();
-        });
-        galleryGridEl.append(btn);
-      });
-    };
-
-    // =========================================================================
-    // DAILY STITCH LIBRARY (Completed Dailies Archive + 1-Tap Replay)
-    // =========================================================================
-    const renderDailyLibraryUi = (): void => {
-      const today = getTodayDateKey();
-      const dailyTheme = getDailyThemeForDateKey(today.keyNum);
-      const history = gallery.getDailyHistory();
-      const doneToday = history.some((d) => d.dateKey === today.keyNum);
-
-      if (dailyLibEyebrowEl) {
-        dailyLibEyebrowEl.textContent = `${history.length} DAILY STITCH${history.length === 1 ? '' : 'ES'} SAVED`;
-      }
-      if (dailyLibTodayTitle) {
-        dailyLibTodayTitle.textContent = `Today · ${today.label}`;
-      }
-      if (dailyLibTodaySub) {
-        dailyLibTodaySub.textContent = doneToday
-          ? `✦ Completed · ${dailyTheme.name} (6×6)`
-          : `${dailyTheme.name} · 6×6 · ♥ 🌈`;
-      }
-      if (dailyLibPlayTodayBtn) {
-        dailyLibPlayTodayBtn.textContent = doneToday ? 'Replay Today' : 'Play Today';
-      }
-
-      if (!dailyLibraryGridEl) return;
-      dailyLibraryGridEl.innerHTML = '';
-
-      if (history.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-archive-card';
-        empty.innerHTML =
-          `<span class="empty-archive-icon" aria-hidden="true">✦</span>` +
-          `<strong>No Daily Stitches Yet</strong>` +
-          `<p>Complete today's Daily Stitch and your finished embroidery will appear here to admire or replay anytime.</p>`;
-        dailyLibraryGridEl.append(empty);
-        return;
-      }
-
-      for (const rec of history) {
-        const theme = VISUAL_THEMES[rec.theme] ?? VISUAL_THEMES[0];
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'square-level-card is-completed';
-        card.dataset.dailyDateKey = String(rec.dateKey);
-
-        const head = document.createElement('div');
-        head.className = 'square-card-head';
-        head.innerHTML =
-          `<span class="gallery-lvl-badges">` +
-            `<span class="gallery-lvl-num">${rec.dateLabel}</span>` +
-            `<span class="gallery-lvl-grid">${theme.shortName} · ${rec.grid}</span>` +
-          `</span>` +
-          `<span class="gallery-star">${'★'.repeat(Math.max(1, rec.bestStars))}</span>`;
-
-        const preview = document.createElement('div');
-        preview.className = 'square-card-preview';
-        preview.innerHTML = renderEmbroideryPreviewSvg(rec.stitches, rec.theme, { size: 196 });
-
-        const foot = document.createElement('div');
-        foot.className = 'square-card-foot';
-        foot.innerHTML =
-          `<div class="square-card-title-row">` +
-            `<span class="square-card-name">Daily #${rec.dateKey}</span>` +
-            `<span class="square-card-score">${rec.bestScore.toLocaleString()} pts</span>` +
-          `</div>` +
-          `<div class="square-card-meta-row">` +
-            `<span class="square-card-sub">${rec.pearls} pearls · Best ${rec.bestMaxStreak}× streak</span>` +
-            `<span class="gallery-play-chip">REPLAY</span>` +
-          `</div>`;
-
-        card.append(head, preview, foot);
-        card.addEventListener('click', () => {
-          soundscape.unlock();
-          soundscape.playUiTap(settings.hapticsEnabled);
-          tutorialActive = false;
-          lastUserTapAt = performance.now();
-          recordedCompleteKey = '';
-          displayedScore = 0;
-          sim.loadDaily(rec.dateKey);
-          closeAllSheets();
-          setScreen('playing');
-          updateHud(sim.readState(getAspect()));
-          wakeRenderer();
-        });
-        dailyLibraryGridEl.append(card);
-      }
-    };
-
-    // =========================================================================
-    // RANDOM MODE STUDIO (Seed + Style + Difficulty + Completed Archive)
-    // =========================================================================
-    const renderRandomStudioUi = (): void => {
-      const stylePref = gallery.getRandomStylePref();
-      const diffPref = gallery.getSeedDifficulty();
-      const diffDef = SEED_DIFFICULTIES[diffPref] ?? SEED_DIFFICULTIES[1];
-      const history = gallery.getRandomHistory();
-
-      if (randomSheet) {
-        const viewTheme = stylePref >= 0 ? stylePref : gallery.getSelectedCampaign();
-        randomSheet.dataset.viewTheme = String(viewTheme);
-      }
-
-      if (randomStartBadge) {
-        const styleName = stylePref < 0 ? 'RANDOM STYLE' : (VISUAL_THEMES[stylePref]?.shortName.toUpperCase() ?? 'JEWEL');
-        randomStartBadge.textContent = `${styleName} · ${diffDef.name.toUpperCase()} ${diffDef.grid}`;
-      }
-
-      if (randomStylePickerEl) {
-        randomStylePickerEl.innerHTML = '';
-        const options = [
-          { id: -1, label: 'Auto', grad: 'conic-gradient(from 0deg, #ff3b8d, #ffd83d, #2ce8a2, #29b6ff, #ff3b8d)' },
-          ...VISUAL_THEMES.map((t) => ({ id: t.id, label: t.shortName, grad: t.swatchGradient })),
-        ];
-        for (const opt of options) {
-          const isAct = opt.id === stylePref;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `style-pill-btn${isAct ? ' is-active' : ''}`;
-          btn.dataset.randomStyle = String(opt.id);
-          btn.setAttribute('role', 'radio');
-          btn.setAttribute('aria-checked', isAct ? 'true' : 'false');
-
-          const orb = document.createElement('span');
-          orb.className = 'chapter-tab-orb';
-          orb.style.background = opt.grad;
-
-          const lbl = document.createElement('span');
-          lbl.textContent = opt.label;
-
-          btn.append(orb, lbl);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.setRandomStylePref(opt.id);
-            renderRandomStudioUi();
-          });
-          randomStylePickerEl.append(btn);
-        }
-      }
-
-      if (seedDiffPickerEl) {
-        seedDiffPickerEl.innerHTML = '';
-        SEED_DIFFICULTIES.forEach((tier) => {
-          const isAct = tier.id === diffPref;
-          const pill = document.createElement('button');
-          pill.type = 'button';
-          pill.className = `seed-diff-pill${isAct ? ' is-active' : ''}`;
-          pill.dataset.seedDifficulty = String(tier.id);
-          pill.setAttribute('role', 'radio');
-          pill.setAttribute('aria-checked', isAct ? 'true' : 'false');
-
-          const nSpan = document.createElement('span');
-          nSpan.className = 'seed-diff-name';
-          nSpan.textContent = tier.name;
-
-          const gSpan = document.createElement('span');
-          gSpan.className = 'seed-diff-grid';
-          gSpan.textContent = tier.grid;
-
-          const iSpan = document.createElement('span');
-          iSpan.className = 'seed-diff-icons';
-          iSpan.textContent = tier.specials;
-
-          pill.append(nSpan, gSpan, iSpan);
-          pill.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.setSeedDifficulty(tier.id);
-            refreshStartMenuCopy();
-            renderRandomStudioUi();
-          });
-          seedDiffPickerEl.append(pill);
-        });
-      }
-
-      if (randomArchiveHeading) {
-        randomArchiveHeading.textContent = `COMPLETED RANDOM PATTERNS (${history.length})`;
-      }
-
-      if (!randomHistoryGridEl) return;
-      randomHistoryGridEl.innerHTML = '';
-
-      if (history.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-archive-card';
-        empty.innerHTML =
-          `<span class="empty-archive-icon" aria-hidden="true">❖</span>` +
-          `<strong>Your Random Archive</strong>` +
-          `<p>Pick a style and difficulty above (or type any seed) to play—completed embroideries are saved here.</p>`;
-        randomHistoryGridEl.append(empty);
-        return;
-      }
-
-      for (const rec of history) {
-        const theme = VISUAL_THEMES[rec.theme] ?? VISUAL_THEMES[0];
-        const tier = SEED_DIFFICULTIES[rec.difficulty] ?? SEED_DIFFICULTIES[1];
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'square-level-card is-completed';
-        card.dataset.randomSeed = String(rec.seed);
-
-        const head = document.createElement('div');
-        head.className = 'square-card-head';
-        head.innerHTML =
-          `<span class="gallery-lvl-badges">` +
-            `<span class="gallery-lvl-num">${tier.name.toUpperCase()}</span>` +
-            `<span class="gallery-lvl-grid">${theme.shortName} · ${rec.grid}</span>` +
-          `</span>` +
-          `<span class="gallery-star">${'★'.repeat(Math.max(1, rec.bestStars))}</span>`;
-
-        const preview = document.createElement('div');
-        preview.className = 'square-card-preview';
-        preview.innerHTML = renderEmbroideryPreviewSvg(rec.stitches, rec.theme, { size: 196 });
-
-        const foot = document.createElement('div');
-        foot.className = 'square-card-foot';
-        foot.innerHTML =
-          `<div class="square-card-title-row">` +
-            `<span class="square-card-name">Seed #${rec.seed}</span>` +
-            `<span class="square-card-score">${rec.bestScore.toLocaleString()} pts</span>` +
-          `</div>` +
-          `<div class="square-card-meta-row">` +
-            `<span class="square-card-sub">${rec.pearls} pearls · ${rec.completedAt}</span>` +
-            `<span class="gallery-play-chip">REPLAY</span>` +
-          `</div>`;
-
-        card.append(head, preview, foot);
-        card.addEventListener('click', () => {
-          soundscape.unlock();
-          soundscape.playUiTap(settings.hapticsEnabled);
-          tutorialActive = false;
-          lastUserTapAt = performance.now();
-          recordedCompleteKey = '';
-          displayedScore = 0;
-          sim.loadMandala(rec.seed, rec.difficulty, rec.theme);
-          closeAllSheets();
-          setScreen('playing');
-          updateHud(sim.readState(getAspect()));
-          wakeRenderer();
-        });
-        randomHistoryGridEl.append(card);
-      }
-    };
-
-    // =========================================================================
-    // NEW CUSTOM MODE BUILDER (5x5..8x8, 3..6 Colors, Specials, Style)
-    // =========================================================================
-    const renderCustomBuilderUi = (): void => {
-      const prefs = gallery.getCustomPrefs();
-      const theme = VISUAL_THEMES[prefs.theme] ?? VISUAL_THEMES[0];
-      const pal = getThemePalette(prefs.theme);
-
-      if (customSheet) {
-        customSheet.dataset.viewTheme = String(prefs.theme);
-      }
-      if (customSizeReadoutEl) {
-        customSizeReadoutEl.textContent = `${prefs.cols} × ${prefs.rows}`;
-      }
-      if (customStartBadge) {
-        customStartBadge.textContent = `${theme.shortName.toUpperCase()} · ${prefs.cols}×${prefs.rows} · ${prefs.colorCount} COLORS`;
-      }
-
-      if (customStylePickerEl) {
-        customStylePickerEl.innerHTML = '';
-        VISUAL_THEMES.forEach((t) => {
-          const isAct = t.id === prefs.theme;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `style-pill-btn${isAct ? ' is-active' : ''}`;
-          btn.dataset.customTheme = String(t.id);
-          btn.setAttribute('role', 'radio');
-          btn.setAttribute('aria-checked', isAct ? 'true' : 'false');
-
-          const orb = document.createElement('span');
-          orb.className = 'chapter-tab-orb';
-          orb.style.background = t.swatchGradient;
-
-          const lbl = document.createElement('span');
-          lbl.textContent = t.shortName;
-
-          btn.append(orb, lbl);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.updateCustomPrefs({ theme: t.id });
-            refreshStartMenuCopy();
-            renderCustomBuilderUi();
-          });
-          customStylePickerEl.append(btn);
-        });
-      }
-
-      if (customColsPickerEl) {
-        customColsPickerEl.innerHTML = '';
-        for (let c = 5; c <= 8; c++) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `seg-btn${prefs.cols === c ? ' is-active' : ''}`;
-          btn.dataset.customCols = String(c);
-          btn.textContent = String(c);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.updateCustomPrefs({ cols: c });
-            refreshStartMenuCopy();
-            renderCustomBuilderUi();
-          });
-          customColsPickerEl.append(btn);
-        }
-      }
-
-      if (customRowsPickerEl) {
-        customRowsPickerEl.innerHTML = '';
-        for (let r = 5; r <= 8; r++) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `seg-btn${prefs.rows === r ? ' is-active' : ''}`;
-          btn.dataset.customRows = String(r);
-          btn.textContent = String(r);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.updateCustomPrefs({ rows: r });
-            refreshStartMenuCopy();
-            renderCustomBuilderUi();
-          });
-          customRowsPickerEl.append(btn);
-        }
-      }
-
-      if (customColorPreviewEl) {
-        customColorPreviewEl.innerHTML = '';
-        for (let i = 0; i < prefs.colorCount; i++) {
-          const d = document.createElement('span');
-          d.className = 'gallery-dot';
-          d.style.backgroundColor = (pal[i] ?? pal[0]).hex;
-          customColorPreviewEl.append(d);
-        }
-      }
-
-      if (customColorsPickerEl) {
-        customColorsPickerEl.innerHTML = '';
-        for (let k = 3; k <= 6; k++) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `seg-btn${prefs.colorCount === k ? ' is-active' : ''}`;
-          btn.dataset.customColors = String(k);
-          btn.textContent = String(k);
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.updateCustomPrefs({ colorCount: k });
-            refreshStartMenuCopy();
-            renderCustomBuilderUi();
-          });
-          customColorsPickerEl.append(btn);
-        }
-      }
-
-      if (customSpecialsPickerEl) {
-        customSpecialsPickerEl.innerHTML = '';
-        const defs: Array<{ key: keyof Pick<CustomModePrefs, 'hearts' | 'rainbows' | 'hidden' | 'locked'>; icon: string; name: string; sub: string }> = [
-          { key: 'hearts', icon: '♥', name: 'Hearts', sub: 'Early bonus pts' },
-          { key: 'rainbows', icon: '🌈', name: 'Rainbows', sub: 'Wild color match' },
-          { key: 'hidden', icon: '?', name: 'Hidden', sub: 'Reveals when free' },
-          { key: 'locked', icon: '🔒', name: 'Locked', sub: 'Clear 4 adjacent' },
-        ];
-        for (const d of defs) {
-          const on = prefs[d.key];
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `special-toggle-card${on ? ' is-on' : ''}`;
-          btn.dataset.customSpecial = d.key;
-          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-          btn.innerHTML =
-            `<span class="special-toggle-icon" aria-hidden="true">${d.icon}</span>` +
-            `<div><strong>${d.name}</strong><span>${on ? d.sub : 'Off'}</span></div>`;
-          btn.addEventListener('click', () => {
-            soundscape.unlock();
-            soundscape.playUiTap(settings.hapticsEnabled);
-            gallery.updateCustomPrefs({ [d.key]: !on });
-            renderCustomBuilderUi();
-          });
-          customSpecialsPickerEl.append(btn);
-        }
-      }
-
-      const customHistory = gallery.getCustomHistory();
-      if (customArchiveHeading) {
-        customArchiveHeading.textContent = `COMPLETED CUSTOM PATTERNS (${customHistory.length})`;
-      }
-      if (customHistoryGridEl) {
-        customHistoryGridEl.innerHTML = '';
-        if (customHistory.length === 0) {
-          const empty = document.createElement('div');
-          empty.className = 'empty-archive-card';
-          empty.innerHTML =
-            `<span class="empty-archive-icon" aria-hidden="true">✦</span>` +
-            `<strong>Your Custom Collection</strong>` +
-            `<p>Design your own board above—every custom embroidery you complete will be saved here to admire or replay.</p>`;
-          customHistoryGridEl.append(empty);
-        } else {
-          for (const rec of customHistory) {
-            const recTheme = VISUAL_THEMES[rec.theme] ?? VISUAL_THEMES[0];
-            const specIcons: string[] = [];
-            if ((rec.specialMask & SPECIAL_MASK.HEART) !== 0) specIcons.push('♥');
-            if ((rec.specialMask & SPECIAL_MASK.RAINBOW) !== 0) specIcons.push('🌈');
-            if ((rec.specialMask & SPECIAL_MASK.HIDDEN) !== 0) specIcons.push('?');
-            if ((rec.specialMask & SPECIAL_MASK.LOCKED) !== 0) specIcons.push('🔒');
-
-            const card = document.createElement('button');
-            card.type = 'button';
-            card.className = 'square-level-card is-completed';
-            card.dataset.customSeed = String(rec.seed);
-
-            const head = document.createElement('div');
-            head.className = 'square-card-head';
-            head.innerHTML =
-              `<span class="gallery-lvl-badges">` +
-                `<span class="gallery-lvl-num">${rec.grid}</span>` +
-                `<span class="gallery-lvl-grid">${recTheme.shortName} · ${rec.colorCount}c${specIcons.length > 0 ? ` · ${specIcons.join('')}` : ''}</span>` +
-              `</span>` +
-              `<span class="gallery-star">${'★'.repeat(Math.max(1, rec.bestStars))}</span>`;
-
-            const preview = document.createElement('div');
-            preview.className = 'square-card-preview';
-            preview.innerHTML = renderEmbroideryPreviewSvg(rec.stitches, rec.theme, { size: 196 });
-
-            const foot = document.createElement('div');
-            foot.className = 'square-card-foot';
-            foot.innerHTML =
-              `<div class="square-card-title-row">` +
-                `<span class="square-card-name">Custom #${rec.seed}</span>` +
-                `<span class="square-card-score">${rec.bestScore.toLocaleString()} pts</span>` +
-              `</div>` +
-              `<div class="square-card-meta-row">` +
-                `<span class="square-card-sub">${rec.pearls} pearls · ${rec.completedAt}</span>` +
-                `<span class="gallery-play-chip">REPLAY</span>` +
-              `</div>`;
-
-            card.append(head, preview, foot);
-            card.addEventListener('click', () => {
-              soundscape.unlock();
-              soundscape.playUiTap(settings.hapticsEnabled);
-              tutorialActive = false;
-              lastUserTapAt = performance.now();
-              recordedCompleteKey = '';
-              displayedScore = 0;
-              sim.loadCustomGenerated({
-                seed: rec.seed,
-                theme: rec.theme,
-                cols: rec.cols,
-                rows: rec.rows,
-                colorCount: rec.colorCount,
-                specialMask: rec.specialMask,
-              });
-              closeAllSheets();
-              setScreen('playing');
-              updateHud(sim.readState(getAspect()));
-              wakeRenderer();
-            });
-            customHistoryGridEl.append(card);
-          }
-        }
-      }
+      sheets.closeAll();
+      sheets.settingsSheet?.classList.remove('hidden');
     };
 
     const launchCustomFromPrefs = (): void => {
       const prefs = gallery.getCustomPrefs();
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       sim.loadCustomGenerated({
         seed: generateRandomSeed(),
         theme: prefs.theme,
@@ -1455,10 +514,39 @@ async function bootstrap(): Promise<void> {
         colorCount: prefs.colorCount,
         specialMask: customPrefsToMask(prefs),
       });
-      closeAllSheets();
+      sheets.closeAll();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
+    };
+
+    // Anti-clutter callout gate: max 2 visible floating popups at once so the hoop stays unobstructed!
+    const spawnCallout = (
+      text: string,
+      variant: 'score' | 'streak' | 'heart' | 'rainbow' | 'reveal' | 'unlock' | 'milestone' | 'blocked' | 'penalty' | 'rescue',
+      screenX: number,
+      screenY: number,
+    ): void => {
+      if (!fxLayer || screenMode !== 'playing') return;
+      while (fxLayer.childElementCount >= MAX_VISIBLE_CALLOUTS) {
+        fxLayer.firstElementChild?.remove();
+      }
+      const el = document.createElement('div');
+      el.className = `fx-callout fx-callout-${variant}`;
+      el.textContent = text;
+      el.style.left = `${Math.max(14, Math.min(86, screenX * 100))}%`;
+      el.style.top = `${Math.max(16, Math.min(84, screenY * 100))}%`;
+      fxLayer.append(el);
+      const ttl =
+        variant === 'rescue' || variant === 'milestone' || variant === 'heart' || variant === 'rainbow' ? 1550 : 1020;
+      window.setTimeout(() => el.remove(), ttl);
+    };
+
+    const triggerScorePop = (): void => {
+      if (!scoreEl) return;
+      scoreEl.classList.remove('is-pop');
+      void scoreEl.offsetWidth;
+      scoreEl.classList.add('is-pop');
     };
 
     const syncEventCountersBaseline = (snap: SimSnapshot): void => {
@@ -1476,7 +564,6 @@ async function bootstrap(): Promise<void> {
     };
 
     const updateHud = (snap: SimSnapshot): void => {
-      // Transition cleanly out of 3D Unravel Intro the instant the last pearl lands on the board!
       if (screenMode === 'intro' && !snap.introActive) {
         finishIntroIntoTutorial(false);
         return;
@@ -1501,25 +588,29 @@ async function bootstrap(): Promise<void> {
         lastSwatchKey = '';
       }
 
-      // Floating callouts for Special Pearls, milestones, streaks, blocker impacts, and Hint/Undo
+      // Priority-gated floating callouts (suppress minor +100 text when major milestones fire!)
+      let majorCalloutFired = false;
       if (snap.events.heartClearEvents > prevHeartClearEvents && snap.lastHeartBonus > 0) {
-        spawnCallout(`♥ HEART +${snap.lastHeartBonus}!`, 'heart', 0.5, 0.23);
+        spawnCallout(`♥ HEART +${snap.lastHeartBonus}!`, 'heart', 0.5, 0.24);
+        majorCalloutFired = true;
       }
       if (snap.events.rainbowClearEvents > prevRainbowClearEvents) {
-        spawnCallout(`🌈 WILD +250!`, 'rainbow', 0.5, 0.27);
+        spawnCallout(`🌈 WILD +250!`, 'rainbow', 0.5, 0.28);
+        majorCalloutFired = true;
       }
-      if (snap.events.hiddenRevealEvents > prevHiddenRevealEvents) {
-        spawnCallout(`✨ REVEALED!`, 'reveal', 0.5, 0.54);
-      }
-      if (snap.events.lockBreakEvents > prevLockBreakEvents) {
-        spawnCallout(`🔓 UNLOCKED!`, 'unlock', 0.5, 0.58);
+      if (snap.events.layerClearEvents > prevLayerClearEvents) {
+        spawnCallout(`★ RING ${snap.layersComplete}/${snap.totalLayers} +750!`, 'milestone', 0.5, 0.31);
+        majorCalloutFired = true;
+      } else if (snap.events.colorClearEvents > prevColorClearEvents) {
+        spawnCallout(`✦ COLOR CLEAR +500!`, 'milestone', 0.5, 0.35);
+        majorCalloutFired = true;
       }
 
-      if (snap.events.layerClearEvents > prevLayerClearEvents) {
-        spawnCallout(`★ RING ${snap.layersComplete}/${snap.totalLayers} +750!`, 'milestone', 0.5, 0.30);
-      } else if (snap.events.colorClearEvents > prevColorClearEvents) {
-        spawnCallout(`✦ COLOR CLEAR +500!`, 'milestone', 0.5, 0.36);
-      } else if (snap.events.stitchEvents > prevStitchEvents && snap.lastScoreDelta > 0) {
+      if (snap.events.hiddenRevealEvents > prevHiddenRevealEvents) {
+        spawnCallout(`✨ REVEALED!`, 'reveal', 0.5, 0.54);
+      } else if (snap.events.lockBreakEvents > prevLockBreakEvents) {
+        spawnCallout(`🔓 UNLOCKED!`, 'unlock', 0.5, 0.58);
+      } else if (!majorCalloutFired && snap.events.stitchEvents > prevStitchEvents && snap.lastScoreDelta > 0) {
         const proj = projectWorldToScreen(snap.lastEventWorldX, 0.2, snap.lastEventWorldZ, getAspect());
         const multLabel = snap.multiplier > 1 ? ` ×${snap.multiplier}!` : '';
         spawnCallout(
@@ -1572,14 +663,10 @@ async function bootstrap(): Promise<void> {
             pearls: snap.totalPearls,
             stitches,
           });
-          if (tutorialActive && snap.mode === 'curated' && snap.levelIndex === 0) {
+          if (coach.isTutorialActive() && snap.mode === 'curated' && snap.levelIndex === 0) {
             gallery.markOnboardingCompleted();
           }
-          refreshStartMenuCopy();
-          renderGalleryUi();
-          renderDailyLibraryUi();
-          renderRandomStudioUi();
-          renderCustomBuilderUi();
+          sheets.refreshAll();
         }
       }
 
@@ -1597,15 +684,21 @@ async function bootstrap(): Promise<void> {
         undoBtn.classList.toggle('is-rescue', snap.hintNeedsUndo && snap.undoDepth > 0);
       }
 
+      if (snap.score > lastPoppedScore && screenMode === 'playing') {
+        lastPoppedScore = snap.score;
+        triggerScorePop();
+      } else if (snap.score < lastPoppedScore) {
+        lastPoppedScore = snap.score;
+      }
+
       if (displayedScore !== snap.score) {
         const diff = snap.score - displayedScore;
         const snapThresh = isRush ? 75 : 35;
         const stepRatio = isRush ? 0.65 : 0.35;
-        if (Math.abs(diff) <= snapThresh || snap.score < displayedScore) {
-          displayedScore = snap.score;
-        } else {
-          displayedScore += Math.ceil(diff * stepRatio);
-        }
+        displayedScore =
+          Math.abs(diff) <= snapThresh || snap.score < displayedScore
+            ? snap.score
+            : displayedScore + Math.ceil(diff * stepRatio);
       }
       if (scoreEl) scoreEl.textContent = displayedScore.toLocaleString();
       if (multEl) {
@@ -1663,7 +756,7 @@ async function bootstrap(): Promise<void> {
         }
       }
 
-      evaluateCoachTooltips(snap);
+      coach.evaluate(snap, screenMode === 'playing', sheets.isAnySheetOpen());
 
       if (trayFullModal) {
         trayFullModal.classList.toggle('hidden', screenMode !== 'playing' || snap.phase !== 'tray_full');
@@ -1685,17 +778,17 @@ async function bootstrap(): Promise<void> {
             snap.totalPearls > 0 ? Math.min(100, Math.round((snap.directCount / snap.totalPearls) * 100)) : 100;
           if (completeCleanEl) completeCleanEl.textContent = `${directPct}%`;
 
-          const isTutorialComplete = tutorialActive && snap.mode === 'curated' && snap.levelIndex === 0;
+          const isTutorialComplete = coach.isTutorialActive() && snap.mode === 'curated' && snap.levelIndex === 0;
           completeTutorialGuide?.classList.toggle('hidden', !isTutorialComplete);
           completeMenuBtn?.classList.remove('hidden');
 
-          const curCh = getCampaignById(snap.chapterIndex);
+          const curCh = sheets.getCampaignById(snap.chapterIndex);
           const posInCamp = curCh ? curCh.levelIds.indexOf(snap.levelIndex) : -1;
           const nextInCampId =
             snap.mode === 'curated' && curCh && posInCamp >= 0 && posInCamp + 1 < curCh.levelIds.length
               ? curCh.levelIds[posInCamp + 1]
               : -1;
-          const nextInCampLvl = nextInCampId >= 0 ? findCatalogLevel(nextInCampId) : null;
+          const nextInCampLvl = nextInCampId >= 0 ? sheets.findCatalogLevel(nextInCampId) : null;
           const finishedCampaign = snap.mode === 'curated' && curCh && posInCamp === curCh.levelIds.length - 1;
           const nextCamp =
             finishedCampaign && levelsCatalog.chapters.length > 1
@@ -1730,8 +823,7 @@ async function bootstrap(): Promise<void> {
             if (nextInCampLvl && !isTutorialComplete) badges.push(`Unlocked #${posInCamp + 2} ${nextInCampLvl.name}`);
             if (snap.trayUses === 0) badges.push('No Tray +1,500');
             if (snap.undoUsed === 0 && snap.hintsUsed === 0) badges.push('No Hints +750');
-            completeBonusLine.textContent =
-              badges.length > 0 ? badges.join(' · ') : 'Saved to your collection.';
+            completeBonusLine.textContent = badges.length > 0 ? badges.join(' · ') : 'Saved to your collection.';
           }
         }
       }
@@ -1787,33 +879,27 @@ async function bootstrap(): Promise<void> {
     if (!gallery.isOnboardingCompleted()) {
       startFirstLoadIntro();
     } else {
-      const initialCampaign = getCampaignById(activeGalleryChapter);
+      const initialCampaign = sheets.getCampaignById(sheets.getActiveGalleryChapter());
       const initialFrontierId = gallery.getCampaignFrontierLevel(initialCampaign.levelIds);
       loadCatalogLevelById(initialFrontierId);
       setScreen('menu');
     }
 
-    refreshStartMenuCopy();
-    renderGalleryUi();
-    renderDailyLibraryUi();
-    renderRandomStudioUi();
-    renderCustomBuilderUi();
+    sheets.refreshAll();
     updateAudioUi();
     updateInstallUi();
     updateSolarUi(getEffectiveHours());
 
     // Direct-tap board handler
     const handleBoardPointerDown = (e: PointerEvent): void => {
-      if (screenMode !== 'playing') return;
-      if (isAnySheetOpen()) return;
+      if (screenMode !== 'playing' || sheets.isAnySheetOpen()) return;
       const now = performance.now();
       if (now - lastBoardTapTs < 35) return;
       lastBoardTapTs = now;
       lastUserTapAt = now;
       soundscape.unlock();
-      // Auto-dismiss a first-encounter Special Pearl tooltip on board interaction so it never blocks play!
-      if (activeTooltip?.specialKind) {
-        dismissActiveTooltip();
+      if (coach.hasActiveSpecialTip()) {
+        coach.dismiss();
       }
       const rect = canvas.getBoundingClientRect();
       const u = (e.clientX - rect.left) / Math.max(1, rect.width);
@@ -1828,7 +914,7 @@ async function bootstrap(): Promise<void> {
     canvasHapticLayer?.addEventListener('pointerdown', handleBoardPointerDown);
     canvas.addEventListener('pointerdown', handleBoardPointerDown);
 
-    // Intro & Tooltip wiring
+    // Intro, Tooltip, Settings & Menu wiring
     introSkipBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
@@ -1837,17 +923,13 @@ async function bootstrap(): Promise<void> {
     tooltipDismissBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      dismissActiveTooltip();
+      coach.dismiss();
     });
-
-    // Settings & Install Guide wiring
-    settingsInstallBtn?.addEventListener('click', () => {
-      void openInstallGuide();
-    });
+    settingsInstallBtn?.addEventListener('click', () => void openInstallGuide());
     closeInstallBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      closeAllSheets();
+      sheets.closeAll();
       wakeRenderer();
     });
     replayTutorialBtn?.addEventListener('click', () => {
@@ -1857,116 +939,79 @@ async function bootstrap(): Promise<void> {
       startFirstLoadIntro();
     });
 
-    // Start Menu 4-Row wiring
     modeJourneyBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
-      const selCh = getCampaignById(gallery.getSelectedCampaign());
-      const nextId = gallery.getCampaignFrontierLevel(selCh.levelIds);
-      loadCatalogLevelById(nextId);
+      prepareRunStart(false);
+      const selCh = sheets.getCampaignById(gallery.getSelectedCampaign());
+      loadCatalogLevelById(gallery.getCampaignFrontierLevel(selCh.levelIds));
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
     });
-
     modeDailyBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       sim.loadDaily(getTodayDateKey().keyNum);
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
     });
-
     modeDailyLibraryBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      renderDailyLibraryUi();
-      closeAllSheets();
-      dailyLibrarySheet?.classList.remove('hidden');
+      sheets.renderDailyLibraryUi();
+      sheets.closeAll();
+      sheets.dailyLibrarySheet?.classList.remove('hidden');
     });
-
     modeRandomBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      renderRandomStudioUi();
-      closeAllSheets();
-      randomSheet?.classList.remove('hidden');
+      sheets.renderRandomStudioUi();
+      sheets.closeAll();
+      sheets.randomSheet?.classList.remove('hidden');
     });
-
     modeCustomBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      renderCustomBuilderUi();
-      closeAllSheets();
-      customSheet?.classList.remove('hidden');
+      sheets.renderCustomBuilderUi();
+      sheets.closeAll();
+      sheets.customSheet?.classList.remove('hidden');
     });
-
     menuGalleryBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      renderGalleryUi();
-      closeAllSheets();
-      gallerySheet?.classList.remove('hidden');
+      sheets.renderGalleryUi();
+      sheets.closeAll();
+      sheets.gallerySheet?.classList.remove('hidden');
     });
 
-    // Sheet Close buttons
-    closeGalleryBtn?.addEventListener('click', () => {
-      closeAllSheets();
-      wakeRenderer();
-    });
-    closeDailyLibraryBtn?.addEventListener('click', () => {
-      closeAllSheets();
-      wakeRenderer();
-    });
-    closeRandomBtn?.addEventListener('click', () => {
-      closeAllSheets();
-      wakeRenderer();
-    });
-    closeCustomBtn?.addEventListener('click', () => {
-      closeAllSheets();
-      wakeRenderer();
-    });
-    closeSettingsBtn?.addEventListener('click', () => {
-      closeAllSheets();
-      wakeRenderer();
-    });
+    for (const btn of [closeGalleryBtn, closeDailyLibraryBtn, closeRandomBtn, closeCustomBtn, closeSettingsBtn]) {
+      btn?.addEventListener('click', () => {
+        sheets.closeAll();
+        wakeRenderer();
+      });
+    }
 
-    // Daily Library Play Today CTA
     dailyLibPlayTodayBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       sim.loadDaily(getTodayDateKey().keyNum);
-      closeAllSheets();
+      sheets.closeAll();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     });
 
-    // Random Studio Seed Form & Start Button
     seedForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      const raw = customSeedInput?.value ?? '';
-      const parsedSeed = parseSeedInput(raw);
+      const parsedSeed = parseSeedInput(customSeedInput?.value ?? '');
       if (customSeedInput) customSeedInput.value = String(parsedSeed);
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       sim.loadMandala(parsedSeed, gallery.getSeedDifficulty(), gallery.getRandomStylePref());
-      closeAllSheets();
+      sheets.closeAll();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
@@ -1975,18 +1020,14 @@ async function bootstrap(): Promise<void> {
     startRandomBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      lastUserTapAt = performance.now();
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       sim.loadMandala(gallery.nextMandalaSeed(), gallery.getSeedDifficulty(), gallery.getRandomStylePref());
-      closeAllSheets();
+      sheets.closeAll();
       setScreen('playing');
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
     });
 
-    // Custom Builder Start Button
     startCustomBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
@@ -1999,31 +1040,28 @@ async function bootstrap(): Promise<void> {
     homeBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      closeAllSheets();
-      renderGalleryUi();
+      coach.setTutorialActive(false);
+      sheets.closeAll();
+      sheets.renderGalleryUi();
       setScreen('menu');
     });
-
     completeMenuBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      closeAllSheets();
+      coach.setTutorialActive(false);
+      sheets.closeAll();
       setScreen('menu');
     });
 
-    // Settings Lighting 24h controls
+    // Settings Lighting & Audio controls
     solarAutoBtn?.addEventListener('click', () => {
       soundscape.unlock();
       soundscape.playUiTap(settings.hapticsEnabled);
       const nextMode = settings.timeMode === 'auto' ? 'manual' : 'auto';
-      const curHours = getEffectiveHours();
-      settings = gallery.updateSettings({ timeMode: nextMode, manualHour: curHours });
+      settings = gallery.updateSettings({ timeMode: nextMode, manualHour: getEffectiveHours() });
       syncClock();
       wakeRenderer();
     });
-
     solarSlider?.addEventListener('input', () => {
       const h = parseFloat(solarSlider.value);
       if (!Number.isFinite(h)) return;
@@ -2031,7 +1069,6 @@ async function bootstrap(): Promise<void> {
       syncClock();
       wakeRenderer();
     });
-
     document.querySelectorAll<HTMLButtonElement>('[data-solar-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         soundscape.unlock();
@@ -2042,12 +1079,10 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       });
     });
-
     settingsSoundBtn?.addEventListener('click', () => {
       soundscape.toggleMute();
       updateAudioUi();
     });
-
     settingsHapticsBtn?.addEventListener('click', () => {
       soundscape.unlock();
       settings = gallery.updateSettings({ hapticsEnabled: !settings.hapticsEnabled });
@@ -2068,6 +1103,7 @@ async function bootstrap(): Promise<void> {
       lastUserTapAt = performance.now();
       recordedCompleteKey = '';
       displayedScore = 0;
+      lastPoppedScore = 0;
       sim.reset();
       updateHud(sim.readState(getAspect()));
       wakeRenderer();
@@ -2082,21 +1118,17 @@ async function bootstrap(): Promise<void> {
     };
     const handleNextPattern = () => {
       soundscape.unlock();
-      lastUserTapAt = performance.now();
       soundscape.playUiTap(settings.hapticsEnabled);
-      tutorialActive = false;
-      recordedCompleteKey = '';
-      displayedScore = 0;
+      prepareRunStart(false);
       const snap = sim.readState(getAspect());
       if (snap.mode === 'curated') {
-        const curCh = getCampaignById(snap.chapterIndex);
+        const curCh = sheets.getCampaignById(snap.chapterIndex);
         const pos = curCh.levelIds.indexOf(snap.levelIndex);
         if (pos >= 0 && pos + 1 < curCh.levelIds.length) {
           loadCatalogLevelById(curCh.levelIds[pos + 1]);
         } else {
           const nextCh = levelsCatalog.chapters[(curCh.id + 1) % levelsCatalog.chapters.length] ?? curCh;
-          const nextFront = gallery.getCampaignFrontierLevel(nextCh.levelIds);
-          loadCatalogLevelById(nextFront);
+          loadCatalogLevelById(gallery.getCampaignFrontierLevel(nextCh.levelIds));
         }
       } else if (snap.mode === 'custom') {
         launchCustomFromPrefs();
@@ -2111,11 +1143,11 @@ async function bootstrap(): Promise<void> {
     patternBtn?.addEventListener('click', () => {
       soundscape.unlock();
       const cur = sim.readState(getAspect());
-      if (cur.mode === 'curated') activeGalleryChapter = cur.chapterIndex;
-      renderGalleryUi();
-      const isOpen = gallerySheet && !gallerySheet.classList.contains('hidden');
-      closeAllSheets();
-      if (!isOpen) gallerySheet?.classList.remove('hidden');
+      if (cur.mode === 'curated') sheets.setActiveGalleryChapter(cur.chapterIndex);
+      sheets.renderGalleryUi();
+      const isOpen = sheets.gallerySheet && !sheets.gallerySheet.classList.contains('hidden');
+      sheets.closeAll();
+      if (!isOpen) sheets.gallerySheet?.classList.remove('hidden');
     });
 
     audioBtn?.addEventListener('click', () => {
@@ -2161,12 +1193,10 @@ async function bootstrap(): Promise<void> {
         return {
           ready: isReady,
           screen: screenMode,
-          activeSheet: getActiveSheet(),
-          tutorialActive,
-          tutorialStep,
-          activeTooltipTitle: activeTooltip && coachTooltipEl && !coachTooltipEl.classList.contains('hidden')
-            ? activeTooltip.title
-            : null,
+          activeSheet: sheets.getActiveSheet(),
+          tutorialActive: coach.isTutorialActive(),
+          tutorialStep: coach.getTutorialStep(),
+          activeTooltipTitle: coach.getActiveTooltipTitle(),
           onboardingCompleted: prog.onboardingCompleted,
           seenSpecials: [...prog.seenSpecials],
           timeMode: settings.timeMode,
@@ -2221,8 +1251,8 @@ async function bootstrap(): Promise<void> {
       },
       tapTile: (tileIndex: number) => {
         lastUserTapAt = performance.now();
-        if (activeTooltip?.specialKind) {
-          dismissActiveTooltip();
+        if (coach.hasActiveSpecialTip()) {
+          coach.dismiss();
         }
         const ok = sim.tapTile(tileIndex);
         updateHud(sim.readState(getAspect()));
@@ -2262,35 +1292,27 @@ async function bootstrap(): Promise<void> {
         lastUserTapAt = performance.now();
         recordedCompleteKey = '';
         displayedScore = 0;
+        lastPoppedScore = 0;
         sim.reset();
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
       loadLevel: (levelIndex: number) => {
-        lastUserTapAt = performance.now();
-        tutorialActive = false;
-        recordedCompleteKey = '';
-        displayedScore = 0;
+        prepareRunStart(false);
         loadCatalogLevelById(levelIndex);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
       loadMandala: (seed: number, diffTier?: SeedDifficultyTier, theme = -1) => {
-        lastUserTapAt = performance.now();
-        tutorialActive = false;
-        recordedCompleteKey = '';
-        displayedScore = 0;
+        prepareRunStart(false);
         const tier = typeof diffTier === 'number' ? gallery.setSeedDifficulty(diffTier) : gallery.getSeedDifficulty();
         sim.loadMandala(seed, tier, theme);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
       loadCustomSeed: (raw: string, diffTier?: SeedDifficultyTier, theme = -1) => {
-        lastUserTapAt = performance.now();
-        tutorialActive = false;
+        prepareRunStart(false);
         const seed = parseSeedInput(raw);
-        recordedCompleteKey = '';
-        displayedScore = 0;
         const tier = typeof diffTier === 'number' ? gallery.setSeedDifficulty(diffTier) : gallery.getSeedDifficulty();
         sim.loadMandala(seed, tier, theme);
         updateHud(sim.readState(getAspect()));
@@ -2298,10 +1320,7 @@ async function bootstrap(): Promise<void> {
         return seed;
       },
       loadCustomGenerated: (opts) => {
-        lastUserTapAt = performance.now();
-        tutorialActive = false;
-        recordedCompleteKey = '';
-        displayedScore = 0;
+        prepareRunStart(false);
         sim.loadCustomGenerated({
           seed: opts.seed ?? generateRandomSeed(),
           theme: opts.theme,
@@ -2314,20 +1333,16 @@ async function bootstrap(): Promise<void> {
         wakeRenderer();
       },
       loadDaily: (dateKey?: number) => {
-        lastUserTapAt = performance.now();
-        tutorialActive = false;
-        recordedCompleteKey = '';
-        displayedScore = 0;
+        prepareRunStart(false);
         sim.loadDaily(dateKey ?? getTodayDateKey().keyNum);
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
       },
       setTimeOfDayOverride: (hours: number | null) => {
-        if (hours === null) {
-          settings = gallery.updateSettings({ timeMode: 'auto' });
-        } else {
-          settings = gallery.updateSettings({ timeMode: 'manual', manualHour: hours });
-        }
+        settings =
+          hours === null
+            ? gallery.updateSettings({ timeMode: 'auto' })
+            : gallery.updateSettings({ timeMode: 'manual', manualHour: hours });
         syncClock();
         updateHud(sim.readState(getAspect()));
         wakeRenderer();
@@ -2339,45 +1354,37 @@ async function bootstrap(): Promise<void> {
       },
       enterGame: () => {
         lastUserTapAt = performance.now();
-        if (screenMode === 'intro') {
-          sim.skipIntroUnravel();
-        }
-        closeAllSheets();
+        if (screenMode === 'intro') sim.skipIntroUnravel();
+        sheets.closeAll();
         setScreen('playing');
         updateHud(sim.readState(getAspect()));
       },
       openStartMenu: () => {
-        if (screenMode === 'intro') {
-          sim.skipIntroUnravel();
-        }
-        tutorialActive = false;
-        closeAllSheets();
+        if (screenMode === 'intro') sim.skipIntroUnravel();
+        coach.setTutorialActive(false);
+        sheets.closeAll();
         setScreen('menu');
       },
-      startIntro: () => {
-        startFirstLoadIntro();
-      },
-      skipIntro: () => {
-        finishIntroIntoTutorial(true);
-      },
+      startIntro: () => startFirstLoadIntro(),
+      skipIntro: () => finishIntroIntoTutorial(true),
       openSheet: (name: SheetName) => {
-        closeAllSheets();
+        sheets.closeAll();
         if (name === 'gallery') {
-          renderGalleryUi();
-          gallerySheet?.classList.remove('hidden');
+          sheets.renderGalleryUi();
+          sheets.gallerySheet?.classList.remove('hidden');
         } else if (name === 'daily-library') {
-          renderDailyLibraryUi();
-          dailyLibrarySheet?.classList.remove('hidden');
+          sheets.renderDailyLibraryUi();
+          sheets.dailyLibrarySheet?.classList.remove('hidden');
         } else if (name === 'random') {
-          renderRandomStudioUi();
-          randomSheet?.classList.remove('hidden');
+          sheets.renderRandomStudioUi();
+          sheets.randomSheet?.classList.remove('hidden');
         } else if (name === 'custom') {
-          renderCustomBuilderUi();
-          customSheet?.classList.remove('hidden');
+          sheets.renderCustomBuilderUi();
+          sheets.customSheet?.classList.remove('hidden');
         } else if (name === 'settings') {
           openSettings();
         } else if (name === 'install') {
-          installModal?.classList.remove('hidden');
+          sheets.installModal?.classList.remove('hidden');
         }
         wakeRenderer();
       },
@@ -2397,7 +1404,7 @@ async function bootstrap(): Promise<void> {
     let lastTs = performance.now();
     let accumulator = 0;
     const frame = (now: number) => {
-      if (document.visibilityState === 'hidden' || isAnySheetOpen()) {
+      if (document.visibilityState === 'hidden' || sheets.isAnySheetOpen()) {
         lastTs = now;
         renderer.setIdleThrottled(true);
         requestAnimationFrame(frame);
@@ -2450,7 +1457,7 @@ async function bootstrap(): Promise<void> {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
       if (sim.isFinalColorMode() || sim.isIntroActive()) return;
       if (performance.now() - lastUserTapAt < gameConfig.jiggle.quietHandMs) return;
-      if (isAnySheetOpen() || sim.phase() !== 0 || sim.isAnimating()) return;
+      if (sheets.isAnySheetOpen() || sim.phase() !== 0 || sim.isAnimating()) return;
       if (sim.triggerActiveWiggle() >= 0) {
         wakeRenderer();
       }
@@ -2460,7 +1467,7 @@ async function bootstrap(): Promise<void> {
     window.setInterval(() => {
       if (!isReady || screenMode !== 'playing' || document.visibilityState !== 'visible') return;
       if (sim.isFinalColorMode() || sim.isIntroActive()) return;
-      if (isAnySheetOpen() || sim.phase() !== 0) return;
+      if (sheets.isAnySheetOpen() || sim.phase() !== 0) return;
       if (sim.triggerRainbowWiggle() >= 0) {
         wakeRenderer();
       }

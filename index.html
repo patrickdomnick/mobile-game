@@ -143,33 +143,30 @@
       <!-- =============================================================== -->
       <header id="hud-top" class="hud-top hidden" aria-label="Pattern Status">
         <div class="hud-row">
-          <div class="hud-group">
+          <div class="hud-group hud-group-main">
             <button id="btn-home" class="pill pill-btn icon-pill" type="button" aria-label="Open Start Menu">
               <span aria-hidden="true">☰</span>
             </button>
-            <button id="btn-pattern" class="pill pill-btn" type="button" aria-label="Browse Levels">
+            <button id="btn-pattern" class="pill pill-btn pattern-pill" type="button" aria-label="Browse Levels">
               <span id="hud-pattern-name" class="pattern-name">Sunbeam Brooch</span>
               <span id="hud-progress" class="pill-value">0/14</span>
               <span class="caret" aria-hidden="true">▾</span>
             </button>
           </div>
 
-          <div class="hud-group">
-            <div class="pill score-pill" aria-label="Score and Streak Multiplier">
-              <span id="hud-score" class="score-value">0</span>
-              <span id="hud-mult" class="mult-badge">×1</span>
-            </div>
-            <button id="btn-settings" class="pill pill-btn icon-pill" type="button" aria-label="Open Settings">
-              <span aria-hidden="true">⚙</span>
-            </button>
+          <div class="pill hud-util-capsule" role="group" aria-label="Quick Controls">
             <button
               id="btn-audio"
-              class="pill pill-btn icon-pill"
+              class="util-icon-btn"
               type="button"
               aria-label="Toggle Sound"
               aria-pressed="false"
             >
               <span id="audio-icon" aria-hidden="true">♪</span>
+            </button>
+            <span class="hud-capsule-sep" aria-hidden="true"></span>
+            <button id="btn-settings" class="util-icon-btn" type="button" aria-label="Open Settings">
+              <span aria-hidden="true">⚙</span>
             </button>
           </div>
         </div>
@@ -183,7 +180,10 @@
               <span id="swatch-next-dot" class="swatch-dot swatch-dot-sm"></span>
             </span>
           </div>
-          <div class="pill ring-pill" aria-label="Rings Progress">
+          <div class="pill hud-telemetry-pill" aria-label="Score, Streak Multiplier, and Rings Progress">
+            <span id="hud-score" class="score-value">0</span>
+            <span id="hud-mult" class="mult-badge">×1</span>
+            <span class="hud-capsule-sep" aria-hidden="true"></span>
             <span class="ring-label">RING</span>
             <span id="hud-layers" class="pill-value">0/3</span>
           </div>
